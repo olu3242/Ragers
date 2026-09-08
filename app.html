@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ragers — App Preview</title>
+<meta name="description" content="Create a Rager or Rave and choose how you show up.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app-body">
+<a class="skip-link" href="#appMain">Skip to content</a>
+<header class="app-nav">
+  <div class="wrap app-nav-inner">
+    <a href="index.html" class="logo">Ragers</a>
+    <nav class="app-nav-links" aria-label="App navigation">
+      <button class="app-nav-link" data-view="feed">Explore</button>
+      <button class="app-nav-link" data-view="create">Create</button>
+      <button class="app-nav-link" data-view="profile">Profile</button>
+      <button class="app-nav-link" data-view="settings">Settings</button>
+    </nav>
+    <button class="btn btn-ghost btn-small" id="signOutBtn" hidden>Sign Out</button>
+  </div>
+</header>
+
+<main id="appMain" class="app-main">
+  <section id="authView" class="app-auth wrap" aria-labelledby="authTitle">
+    <div class="auth-card">
+      <p class="app-kicker">Ragers preview</p>
+      <h1 id="authTitle">Your moment. Your voice. Your choice.</h1>
+      <p>Create a simple local preview account to try the Rager/Rave flow on this device.</p>
+      <form id="authForm" class="app-form">
+        <label>Email
+          <input id="emailInput" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+        </label>
+        <label>Display name
+          <input id="nameInput" name="name" type="text" autocomplete="name" maxlength="40" required placeholder="How should Ragers know you?">
+        </label>
+        <button class="btn btn-rager" type="submit">Continue</button>
+      </form>
+      <p class="form-note">Preview data stays in this browser. Production authentication is not connected yet.</p>
+    </div>
+  </section>
+
+  <section id="productView" hidden>
+    <div class="wrap app-layout">
+      <aside class="app-sidebar" aria-label="Create shortcuts">
+        <p class="sidebar-greeting" id="sidebarGreeting"></p>
+        <button class="quick-action quick-rager" data-create-type="rager"><span>🔥</span><strong>Rager It</strong><small>Something should happen less</small></button>
+        <button class="quick-action quick-rave" data-create-type="rave"><span>🙌</span><strong>Rave It</strong><small>Something should happen more</small></button>
+        <div class="identity-summary">
+          <span>Posting identity</span>
+          <strong id="identitySummary">Public</strong>
+        </div>
+      </aside>
+
+      <div class="app-content">
+        <section class="app-view" data-view-panel="feed">
+          <div class="view-heading">
+            <div><p class="app-kicker">Explore</p><h1>What people noticed</h1></div>
+            <button class="btn btn-rager btn-small" data-view="create">Create</button>
+          </div>
+          <div class="feed-filters" role="group" aria-label="Filter posts">
+            <button class="filter-chip active" data-filter="all">All</button>
+            <button class="filter-chip" data-filter="rager">Ragers</button>
+            <button class="filter-chip" data-filter="rave">Raves</button>
+          </div>
+          <div id="feedList" class="app-feed" aria-live="polite"></div>
+          <div id="emptyFeed" class="empty-state" hidden>
+            <h2>No moments here yet.</h2><p>Be the first to add one.</p>
+          </div>
+        </section>
+
+        <section class="app-view" data-view-panel="create" hidden>
+          <div class="view-heading"><div><p class="app-kicker">Create</p><h1 id="composerTitle">Rager it or Rave it</h1></div></div>
+          <form id="composerForm" class="composer-card">
+            <fieldset class="type-switch">
+              <legend>What kind of moment is this?</legend>
+              <label><input type="radio" name="postType" value="rager" checked><span class="type-choice rager-choice">🔥 Rager</span></label>
+              <label><input type="radio" name="postType" value="rave"><span class="type-choice rave-choice">🙌 Rave</span></label>
+            </fieldset>
+            <label>What happened?
+              <textarea id="bodyInput" name="body" rows="5" maxlength="280" required placeholder="Describe the behavior, not the person."></textarea>
+              <span class="char-count"><span id="charCount">0</span>/280</span>
+            </label>
+            <label>Category
+              <select id="categoryInput" name="category">
+                <option>Everyday courtesy</option><option>Driving & transit</option><option>Work & school</option><option>Shopping & service</option><option>Neighborhood</option><option>Other</option>
+              </select>
+            </label>
+            <fieldset class="identity-picker">
+              <legend>How do you want to show up?</legend>
+              <label class="identity-option"><input type="radio" name="visibility" value="public" checked><span><strong>Public</strong><small>Show your display name</small></span></label>
+              <label class="identity-option"><input type="radio" name="visibility" value="alias"><span><strong>Alias</strong><small>Use a reusable nickname</small></span></label>
+              <label class="identity-option"><input type="radio" name="visibility" value="anonymous"><span><strong>Anonymous</strong><small>No public profile attached</small></span></label>
+            </fieldset>
+            <div id="aliasField" hidden>
+              <label>Choose an alias
+                <select id="aliasSelect" name="alias"></select>
+              </label>
+              <button type="button" class="text-button" id="newAliasBtn">+ Add a new alias</button>
+            </div>
+            <div class="composer-principle">Critique the behavior. Protect the human.</div>
+            <div class="form-actions"><button type="button" class="btn btn-ghost" data-view="feed">Cancel</button><button type="submit" class="btn btn-rager" id="publishBtn">Publish Rager</button></div>
+          </form>
+        </section>
+
+        <section class="app-view" data-view-panel="profile" hidden>
+          <div class="view-heading"><div><p class="app-kicker">Profile</p><h1 id="profileName"></h1></div></div>
+          <div class="profile-stats"><div><strong id="profilePostCount">0</strong><span>Posts</span></div><div><strong id="profileAliasCount">0</strong><span>Aliases</span></div></div>
+          <div id="profilePosts" class="app-feed"></div>
+        </section>
+
+        <section class="app-view" data-view-panel="settings" hidden>
+          <div class="view-heading"><div><p class="app-kicker">Settings</p><h1>Your identity choices</h1></div></div>
+          <div class="settings-card">
+            <h2>Aliases</h2>
+            <p>Create reusable names for moments you don't want tied to your public profile.</p>
+            <form id="aliasForm" class="inline-form"><input id="aliasInput" type="text" maxlength="24" required placeholder="e.g. quietcommuter"><button class="btn btn-rager btn-small" type="submit">Add Alias</button></form>
+            <ul id="aliasList" class="alias-list"></ul>
+          </div>
+          <div class="settings-card danger-card">
+            <h2>Preview account</h2>
+            <p>Clear the local preview account and all locally stored Ragers and Raves from this browser.</p>
+            <button class="btn btn-ghost" id="clearAccountBtn">Clear Preview Account</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

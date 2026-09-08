@@ -1,0 +1,25 @@
+{
+  "name": "ragers-landing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public marketing landing page for Ragers — the social mirror for everyday behavior.",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server . -p 8080 -o",
+    "dev": "npx live-server --port=8080",
+    "build": "echo \"Static site — no build step required. Deploy the folder as-is.\"",
+    "test": "node tests-smoke.js"
+  },
+  "keywords": [
+    "ragers",
+    "landing-page",
+    "static-site",
+    "marketing"
+  ],
+  "author": "Zenith AI Automation Agency",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "live-server": "^1.2.2"
+  }
+}
