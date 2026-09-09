@@ -1,0 +1,160 @@
+{
+  "status": "RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS",
+  "generatedAt": "2026-09-09T00:45:11.205Z",
+  "totals": {
+    "passed": 13,
+    "failed": 0,
+    "blocked": 5
+  },
+  "results": [
+    {
+      "id": "schema_migrations",
+      "name": "Schema & migrations (static)",
+      "requirement": "schema/migrations",
+      "status": "passed",
+      "durationMs": 224,
+      "detail": "15/15 assertions passed (0.2s)"
+    },
+    {
+      "id": "unit",
+      "name": "Unit tests",
+      "requirement": "unit",
+      "status": "passed",
+      "durationMs": 1009,
+      "detail": "130/130 assertions passed (1.0s)"
+    },
+    {
+      "id": "integration",
+      "name": "Integration tests",
+      "requirement": "integration",
+      "status": "passed",
+      "durationMs": 1318,
+      "detail": "82/82 assertions passed (1.3s)"
+    },
+    {
+      "id": "authorization",
+      "name": "Authorization",
+      "requirement": "authorization",
+      "status": "passed",
+      "durationMs": 356,
+      "detail": "27/27 assertions passed (0.4s)"
+    },
+    {
+      "id": "retry_dead_letter",
+      "name": "Retry & dead-letter",
+      "requirement": "retry/dead-letter",
+      "status": "passed",
+      "durationMs": 242,
+      "detail": "7/7 assertions passed (0.2s)"
+    },
+    {
+      "id": "concurrency",
+      "name": "Concurrency & idempotency",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 382,
+      "detail": "19/19 assertions passed (0.4s)"
+    },
+    {
+      "id": "voice",
+      "name": "Voice capture & golden path",
+      "requirement": "voice",
+      "status": "passed",
+      "durationMs": 309,
+      "detail": "21/21 assertions passed (0.3s)"
+    },
+    {
+      "id": "moderation_failure_path",
+      "name": "Moderation failure path (fail-closed)",
+      "requirement": "moderation failure-path",
+      "status": "passed",
+      "durationMs": 285,
+      "detail": "6/6 assertions passed (0.3s)"
+    },
+    {
+      "id": "privacy_search_leakage",
+      "name": "Privacy & search leakage",
+      "requirement": "privacy/search leakage",
+      "status": "passed",
+      "durationMs": 659,
+      "detail": "39/39 assertions passed (0.7s)"
+    },
+    {
+      "id": "accessibility",
+      "name": "Accessibility (static surfaces)",
+      "requirement": "accessibility",
+      "status": "passed",
+      "durationMs": 201,
+      "detail": "13/13 assertions passed (0.2s)"
+    },
+    {
+      "id": "typecheck",
+      "name": "Strict typecheck",
+      "requirement": "build",
+      "status": "passed",
+      "durationMs": 1613,
+      "detail": "clean (1.6s)"
+    },
+    {
+      "id": "build",
+      "name": "Production build",
+      "requirement": "build",
+      "status": "passed",
+      "durationMs": 14354,
+      "detail": "clean (14.4s)"
+    },
+    {
+      "id": "browser_e2e",
+      "name": "Browser E2E",
+      "requirement": "browser E2E",
+      "status": "passed",
+      "durationMs": 8530,
+      "detail": "10 browser test(s) passed (8.5s)"
+    },
+    {
+      "id": "live_migrations",
+      "name": "Migrations applied to a live database",
+      "requirement": "schema/migrations",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "No Postgres/Supabase project is provisioned for this session, so the migrations in supabase/migrations are verified statically but never applied."
+    },
+    {
+      "id": "rls_enforcement",
+      "name": "RLS enforcement against a live database",
+      "requirement": "authorization",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "RLS policies can only be executed against a live Postgres instance. The application policy layer they mirror is covered by the authorization gate."
+    },
+    {
+      "id": "deployment",
+      "name": "Deployment to a target environment",
+      "requirement": "deployment",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "No deployment target (Vercel/Railway project) is configured for this session."
+    },
+    {
+      "id": "backup_restore",
+      "name": "Backup & restore drill",
+      "requirement": "backup/restore",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "Requires a live database to back up and restore. Procedure is documented in docs/OPERATIONS.md."
+    },
+    {
+      "id": "rollback",
+      "name": "Rollback drill",
+      "requirement": "rollback",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "Requires a deployed environment to roll back. Procedure is documented in docs/OPERATIONS.md."
+    }
+  ]
+}

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Ragers Engine — canonical Rage/Rave/Experience runtime. Internal; not a public surface.",
+  "description": "Ragers Engine \u2014 canonical Rage/Rave/Experience runtime. Internal; not a public surface.",
   "engines": {
     "node": ">=22.18.0"
   },
@@ -15,10 +15,13 @@
     "certify": "node scripts/certify.ts",
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3001"
+    "start": "next start -p 3001",
+    "worker": "node scripts/worker.ts",
+    "test:e2e": "playwright test"
   },
   "license": "UNLICENSED",
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.20.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

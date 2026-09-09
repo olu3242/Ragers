@@ -208,7 +208,7 @@ export const VoiceRecorder = ({
     <div className="recorder">
       <div className="recorder-status">
         <span className="recorder-dot" data-live={state === 'recording'} aria-hidden="true" />
-        <span aria-live="polite">{label[state]}</span>
+        <span role="status" aria-live="polite">{label[state]}</span>
         <span className="recorder-elapsed">
           {String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}
         </span>
