@@ -1,4 +1,4 @@
-# Ragers Engine — E2E Architecture Roadmap (Phase 1–20)
+# Ragers Engine — E2E Architecture Roadmap (Phases 1–50)
 
 **Status:** v1.0
 **Classification:** Internal — never published, never linked from a public surface. See `CLAUDE.md`.
@@ -69,7 +69,7 @@ Command
 - **Health status** — per-dependency readiness, aggregated to one status.
 - **Explicit async states** — `queued | processing | ready | failed | dead_letter` on every async-backed record.
 
-## 2. Product invariants (binding on all 20 phases)
+## 2. Product invariants (binding on every phase)
 
 1. **One canonical aggregate.** Text and voice are *creation modes* of the same Rage/Rave/Experience aggregate.
    There is no separate "voice post" entity.
@@ -801,7 +801,221 @@ are delivered in three batches:
 
 ---
 
-## 4. Implementation order
+## 6. Phases 31–50 — the four-band roadmap
+
+The roadmap now has four bands. Each answers a different question, and each is
+only worth building once the one before it is true.
+
+| Band | Phases | Question it answers |
+|---|---|---|
+| Experience Signal Engine | 1–20 | **What happened?** |
+| Network & Intelligence | 21–30 | **Is it happening to others?** |
+| Trust, Governance & Action | 31–40 | **How serious is it?** (band named; phases not yet specified) |
+| Agentic Experience OS & Commercial Intelligence | 41–50 | **What changed because people surfaced it?** |
+
+That last question is the one that makes Ragers more than a social network, and
+it is also the one that cannot be faked: it is answerable only if resolution
+outcomes are recorded by the people who experienced the problem, which is a
+property of Phases 31–40 rather than of the agent layer above them.
+
+### The boundary that governs the whole agent band
+
+**The AI layer is not the source of truth.** The human experience is. The engine
+structures, corroborates, measures, detects, assists and coordinates around it —
+and every phase below inherits three rules from that:
+
+1. **AI proposes; evidence and governed state decide.** Every recommendation must
+   be traceable to platform evidence a person could inspect.
+2. **No agent may modify a claim.** Not its text, not its severity, not its
+   resolution state.
+3. **Consequential external action requires governed approval.** An agent may
+   prepare, summarise, route and track. It may not delete, dispute, or declare.
+
+### Classification note
+
+Phases 47–49 describe an organization-facing commercial product. Its vocabulary
+— benchmarking, commercial intelligence, monetization, platform APIs — is
+internal by `CLAUDE.md`'s rules and must never reach `index.html`, app copy,
+onboarding, share cards, alt text, `data-*` attributes or public help content.
+The features are legitimate; their language is not public language.
+
+---
+
+> **Phases 31–40 are not specified below.** The band is named and its question is
+> fixed, but no phase definitions exist for it yet. Phases 41–50 depend on that
+> band — severity needs governed trust signals, and prioritisation needs
+> resolution aging — so the sequencing note in §6.1 matters more than the phase
+> numbers do.
+
+### 6.1 Sequencing reality
+
+The bands are dependency-ordered, and the dependencies are real rather than
+presentational:
+
+- **41 Severity** reads structured experiences with confirmed entity, issue type
+  and occurrence time. That is ESE Batch B, which is not built yet.
+- **42 Impact** and **43 Prioritization** read resolution aging and unresolved
+  exposure. That is ESE Batch C.
+- **45 Agent Framework** extends the policy matrix and the leased-job runtime.
+  Both exist; the agent boundaries do not.
+- **47 Benchmarking** needs enough governed aggregate volume for a minimum-sample
+  floor to be satisfiable at all. Below that volume the engine is correct and the
+  output is empty.
+- **50** certifies the whole chain, so it is last by construction.
+
+Building 41–50 before ESE Batches B and C would mean severity over unstructured
+text, prioritisation over resolution data that does not exist, and agents with no
+governed state to be bounded by. The order of work therefore stays: **ESE Batch B
+→ ESE Batch C → Phases 31–40 → Phases 41–50.**
+
+### Phase 41 — Experience Severity Engine
+
+- **Objective:** Distinguish inconvenience from materially serious failure, so
+  volume is not the only thing that speaks.
+- **Dependencies:** ESE corroboration and normalization; P41 reads structured
+  experiences, not free text.
+- **Scope:** severity dimensions — financial impact, time lost, service
+  interruption, safety relevance, recurrence, population affected — plus urgency
+  classification and an explicit severity **confidence**.
+- **Design constraint:** severity is asserted by experiencers and bounded by
+  confidence, never inferred from wording alone. A furious sentence about a small
+  problem is not a severe experience.
+- **Certification:** two experiences with equal Re-Rage volume and radically
+  different impact are not treated as equivalent anywhere — ranking, prioritisation,
+  alerts or organization surfaces.
+
+### Phase 42 — Impact Estimation Engine
+
+- **Objective:** Estimate the practical impact of recurring failures.
+- **Scope:** affected-user estimate, reported financial loss, reported time loss,
+  operational disruption, unresolved exposure, issue duration, repeat frequency,
+  confidence intervals, minimum-sample safeguards.
+- **Design constraint:** every figure carries its interval and its sample size,
+  and is labelled as reported-by-experiencers rather than measured.
+- **Certification:** impact estimates remain explicitly modelled as estimates and
+  never masquerade as audited financial facts — including in exports, alerts and
+  executive summaries, which is where a number most easily loses its caveat.
+
+### Phase 43 — Prioritization Engine
+
+- **Objective:** Decide which clusters deserve attention first.
+- **Scope:** scores over severity, signal strength, growth, recurrence,
+  unresolved aging, affected users, evidence support, response absence,
+  geographic concentration and confidence. Output `LOW | MEDIUM | HIGH | CRITICAL`.
+- **Design constraint:** deterministic and explainable. Same inputs, same
+  priority, with the contributing factors recorded alongside the output.
+- **Certification:** priority changes deterministically when the underlying
+  signals change, and the recorded rationale changes with it.
+
+### Phase 44 — Ragers Copilot
+
+- **Objective:** Contextual assistance for consumers, organizations and operators.
+- **Scope:**
+  - *Consumer:* structure a Rage/Rave, summarise voice input, find similar
+    experiences, explain cluster history, surface resolution patterns.
+  - *Organization:* summarise emerging issues, identify recurring friction, draft
+    response options, suggest remediation tasks, summarise resolution progress.
+  - *Operator:* summarise abuse patterns, surface anomalous clusters, prepare
+    moderation context, explain signal changes.
+- **Design constraint:** the consumer copilot may never silently replace what a
+  person said — the same suggest-and-confirm rule the voice path already follows.
+- **Certification:** every recommendation is traceable to underlying platform
+  evidence, and a recommendation with no traceable basis is not shown.
+
+### Phase 45 — Experience Agent Framework
+
+- **Objective:** Governed agents that cannot autonomously modify claims.
+- **Scope:** Intake, Classification, Matching, Trust, Trend, Resolution,
+  Organization Response, Moderation and Intelligence agents. Each declares
+  defined inputs, allowed tools and actions, an authorization boundary, a
+  confidence threshold, an escalation path, audit history, and a retry and
+  idempotency policy.
+- **Dependencies:** the existing policy matrix and durable job runtime. An agent
+  is a governed actor in the same authorization model, not a bypass around it.
+- **Certification:** no agent can exceed its defined domain permissions —
+  asserted by attempting the excess and being refused, not by reading the table.
+
+### Phase 46 — Organization Resolution Agent
+
+- **Objective:** Help organizations respond operationally to clusters.
+- **Flow:** signal detected → issue summarised → recommended owner → remediation
+  options generated → organization approves → action tracked → user-facing update
+  prepared → resolution effectiveness measured.
+- **Forbidden, structurally:** autonomous deletion, autonomous dispute of a user
+  claim, autonomous declaration of resolution. These are the same three
+  prohibitions the ESE already enforces against organizations; an agent acting
+  for an organization inherits them and cannot be granted more.
+- **Certification:** the agent prepares and coordinates remediation, and every
+  consequential external action stops at a governed approval.
+
+### Phase 47 — Experience Benchmarking Engine
+
+- **Objective:** Let an organization understand its performance against
+  comparable entities.
+- **Scope:** category, geography and size-band benchmarks; response-rate,
+  resolution-time, recurring-friction and positive-experience benchmarks; sample
+  and confidence controls.
+- **Design constraint:** benchmarks are built from governed aggregates with
+  minimum-sample floors, so a small comparison set cannot be reverse-engineered
+  into another organization's individual figures.
+- **Certification:** no benchmark exposes another organization's private data,
+  including by differencing successive reports.
+
+### Phase 48 — Commercial Intelligence Layer
+
+- **Objective:** A viable organization-facing product that does not corrupt
+  consumer trust.
+- **Scope:** experience dashboard, emerging-issue alerts, resolution analytics,
+  benchmark reports, root-cause intelligence, location intelligence, export
+  controls, team workflows, SLA tracking, executive summaries.
+- **Non-negotiable:** payment never buys removal of legitimate Rage, ranking
+  manipulation, suppression, artificial Rave promotion, or preferential
+  moderation. This is not a policy statement to be trusted — the integrity layer
+  must have no input for entitlement at all, so there is nothing to switch.
+- **Certification:** paid and unpaid entity treatment is identical at the
+  integrity layer, demonstrated by running the same content through both.
+
+### Phase 49 — Platform API and Integration Layer
+
+- **Objective:** Let Ragers intelligence reach the systems where work happens.
+- **Scope:** governed integrations for CRM, customer support, incident
+  management, BI, Slack/Teams, email, webhooks, data warehouse and internal
+  ticketing. Example: `cluster.critical_signal_detected` → organization webhook →
+  support incident created → owner assigned → Ragers resolution status
+  synchronised.
+- **Design constraint:** outbound delivery rides the existing durable job
+  runtime. A webhook is a leased job with retries and a dead-letter queue, not a
+  best-effort HTTP call.
+- **Certification:** retries, request signing, authorization, tenant isolation,
+  dead-letter handling and auditability all pass, and a hostile tenant cannot
+  read another tenant's deliveries.
+
+### Phase 50 — Experience OS Certification
+
+- **Objective:** Certify the whole vertical slice.
+- **Required E2E scenario, in a browser against a real database:**
+
+  > Consumer submits voice Rage → Intake Agent transcribes → Classification Agent
+  > structures it → Matching Agent finds an existing cluster → Trust Agent
+  > evaluates the contribution → Re-Rages increase corroboration → Severity
+  > Engine assesses impact → Trend Engine detects acceleration → Prioritization
+  > Engine marks HIGH → organization workspace receives the alert → Resolution
+  > Agent prepares remediation → organization approves → users receive an update
+  > → users report mixed outcomes → Resolution Intelligence recalculates →
+  > benchmark changes → entity scorecard changes → Copilot summarises the outcome
+  > → webhook pushes the governed result to the organization's CRM → audit
+  > history remains intact → replay does not duplicate effects.
+
+- **Decision values:** `RAGERS_EXPERIENCE_OS_READY`,
+  `RAGERS_EXPERIENCE_OS_READY_WITH_BLOCKERS`, or
+  `RAGERS_EXPERIENCE_OS_NOT_READY`.
+- **Standing rule:** "replay does not duplicate effects" is the hardest clause in
+  that scenario and the one most likely to be quietly skipped. It is asserted by
+  replaying the whole flow, not by inspecting idempotency keys.
+
+---
+
+## 7. Implementation order (Phases 1–20)
 
 Phases are implemented as the **smallest dependency-complete slices**, continuously:
 
