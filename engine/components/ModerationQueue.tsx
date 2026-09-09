@@ -27,6 +27,13 @@ export interface QueueCase {
   readonly reportCount: number;
   readonly publicationStatus: string;
   readonly bodyText: string;
+  /**
+   * Why an escalation rule put this here, in the words of the rule and the values
+   * that satisfied it. Empty for an item that arrived from screening or a report.
+   */
+  readonly escalations: readonly string[];
+  /** How long it has been waiting, when it is an escalated experience. */
+  readonly aging?: string;
 }
 
 const SIGNAL_LABELS: Readonly<Record<string, string>> = {
@@ -131,6 +138,17 @@ export const ModerationQueue = ({ cases, actorId }: { cases: readonly QueueCase[
                 </span>
               ) : null}
             </div>
+
+            {/* An escalated item says which rule fired and on what values. "Escalated"
+                alone tells a moderator nothing they can act on. */}
+            {item.escalations.length > 0 ? (
+              <ul className="queue-escalations">
+                {item.escalations.map((because) => (
+                  <li key={because}>{because}</li>
+                ))}
+              </ul>
+            ) : null}
+            {item.aging === undefined ? null : <p className="queue-aging">{item.aging}</p>}
 
             <p className="queue-body">{item.bodyText}</p>
 

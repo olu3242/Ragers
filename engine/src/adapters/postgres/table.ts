@@ -85,16 +85,79 @@ const NUMERIC_COLUMNS = new Set([
 
 export const isNumericColumn = (column: string): boolean => NUMERIC_COLUMNS.has(column);
 
+/**
+ * Columns declared `jsonb` in SQL.
+ *
+ * These need explicit serialization, and the reason is a genuinely nasty pg
+ * behaviour rather than a preference. node-postgres serializes a plain object to
+ * JSON text, but an **array** to a Postgres *array literal* — so a jsonb column
+ * holding an array of objects fails outright with "invalid input syntax for type
+ * json", and, far worse, an **empty** array silently persists as `{}`: a JSON
+ * object, not an empty JSON array. A reader then gets `{}` back where it expected
+ * `[]`.
+ *
+ * That is not a hypothetical. `intelligence_proposals.evidence_refs` is an array of
+ * objects and the domain requires at least one, so every proposal written through
+ * this adapter failed against Postgres — invisible until now because the live test
+ * inserted proposals with raw SQL rather than through the engine.
+ *
+ * The set is explicit for the same reason `NUMERIC_COLUMNS` is: jsonb columns share
+ * no naming convention. `tests/unit/schema.migrations.test.ts` asserts every jsonb
+ * column in the migrations appears here, so an omission is a test failure rather
+ * than a write that fails in production.
+ */
+const JSON_COLUMNS = new Set([
+  // Runtime bookkeeping.
+  'payload',
+  'response',
+  'error',
+  'failure_history',
+  'checkpoint',
+  // Audit before/after snapshots.
+  'before',
+  'after',
+  // Extraction, confirmation and the findings various engines record.
+  'extracted',
+  'confirmed',
+  'factors',
+  'detail',
+  'properties',
+  'propagation',
+  'protection_findings',
+  'redaction_findings',
+  'internal_signals',
+  'geographic_concentration',
+  // ── Engine contract gaps ────────────────────────────────────────────────
+  'evidence_refs',
+  'proposed_input',
+  // ── Phases 31–35 ────────────────────────────────────────────────────────
+  'values',
+]);
+
+export const isJsonColumn = (column: string): boolean => JSON_COLUMNS.has(column);
+
 const toDbValue = (column: string, value: unknown): unknown => {
   if (value === undefined) return null;
   if (value === null) return null;
   if (isTimestampColumn(column) && typeof value === 'number') return new Date(value).toISOString();
+  // Serialized here rather than left to pg, which would turn an array into a
+  // Postgres array literal — see the note on JSON_COLUMNS.
+  if (isJsonColumn(column)) return JSON.stringify(value);
   return value;
 };
 
 const fromDbValue = (column: string, value: unknown): unknown => {
   if (value === null) return undefined;
   if (isTimestampColumn(column) && value instanceof Date) return value.getTime();
+  // pg already parses jsonb into JS values, so a string here means the column holds
+  // JSON *text* rather than a structure. Parsing it keeps the round trip symmetric.
+  if (isJsonColumn(column) && typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
   if (NUMERIC_COLUMNS.has(column) && typeof value === 'string') return Number(value);
   if (typeof value === 'bigint') return Number(value);
   return value;

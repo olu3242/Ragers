@@ -6,7 +6,12 @@ import { eq } from '../../../src/ports/store.ts';
 import { OrganizationCaseInbox, type OrganizationCase } from '../../../components/OrganizationCaseInbox.tsx';
 import { ResponsivenessPanel } from '../../../components/ResponsivenessPanel.tsx';
 import { publicResponsivenessFor } from '../../../src/engines/responsiveness.engine.ts';
+import { severityFor } from '../../../src/engines/severity.engine.ts';
+import { caseFor } from '../../../src/engines/case.engine.ts';
+import { ageOf, describeDuration } from '../../../src/domain/aging.ts';
 import type { Experience } from '../../../src/domain/experience.ts';
+import type { OrganizationResponse, ResolutionEventRow } from '../../../src/ports/store.ts';
+import type { ResolutionStatus } from '../../../src/domain/resolution.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +49,45 @@ const OrganizationPage = async ({ params }: { params: Promise<{ id: string }> })
   for (const experience of experiences) {
     const counters = await engine.store.counters.get(experience.id);
     const summary = await resolutionSummaryFor(engine, experience.id);
+    const severity = await severityFor(engine, experience.id);
+    const workspace = await caseFor(engine, id, experience.id);
+
+    // Aging derived on read from the event log and the response log, so staff see the
+    // same record a viewer would rather than a counter that drifted.
+    const events = await engine.store.resolutionEvents.query([
+      eq<ResolutionEventRow>('experienceId', experience.id),
+    ]);
+    const responses = await engine.store.organizationResponses.query([
+      eq<OrganizationResponse>('experienceId', experience.id),
+    ]);
+    const lastContact = responses.reduce<number | undefined>(
+      (latest, row) => (latest === undefined || row.createdAt > latest ? row.createdAt : latest),
+      undefined,
+    );
+    const proposedAt = responses
+      .filter((row) => row.kind === 'publish_resolution' || row.kind === 'remediation_instructions')
+      .reduce<number | undefined>(
+        (latest, row) => (latest === undefined || row.createdAt > latest ? row.createdAt : latest),
+        undefined,
+      );
+    const measured = ageOf({
+      events,
+      currentStatus: (experience.resolutionStatus ?? 'open') as ResolutionStatus,
+      publishedAt: experience.publishedAt ?? experience.createdAt,
+      ...(lastContact === undefined ? {} : { lastOrganizationContactAt: lastContact }),
+      ...(proposedAt === undefined || (summary?.reporters ?? 0) > 0 ? {} : { proposedResolutionAt: proposedAt }),
+      now: Date.now(),
+    });
+    const aging = {
+      unresolved: measured.unresolved,
+      unresolvedFor: describeDuration(measured.inCurrentStatusMs),
+      ...(measured.sinceOrganizationContactMs === undefined
+        ? {}
+        : { sinceOrganizationContact: describeDuration(measured.sinceOrganizationContactMs) }),
+      ...(measured.proposedUnconfirmedMs === undefined
+        ? {}
+        : { proposedUnconfirmedFor: describeDuration(measured.proposedUnconfirmedMs) }),
+    };
     cases.push({
       experienceId: experience.id,
       kind: experience.kind,
@@ -57,6 +101,12 @@ const OrganizationPage = async ({ params }: { params: Promise<{ id: string }> })
       responded: summary?.organizationResponded ?? false,
       resolutionProposed: summary?.resolutionProposed ?? false,
       ...(experience.clusterId === undefined ? {} : { clusterId: experience.clusterId }),
+      ...(severity === undefined || severity.unassessed
+        ? {}
+        : { severity: { band: severity.band, basis: severity.basis, unassessed: severity.unassessed } }),
+      aging,
+      ...(workspace === undefined ? {} : { caseState: workspace.state, caseId: workspace.id }),
+      ...(workspace?.assigneeId === viewer.actor.actorId ? { assignedToMe: true } : {}),
     });
   }
 

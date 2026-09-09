@@ -13,6 +13,9 @@ import type { WorkState } from '../runtime/work.ts';
 import type { Role } from '../runtime/authz.ts';
 import type { Corroboration, ExperienceShare } from '../domain/corroboration.ts';
 import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts';
+import type { ExperienceEnrichment } from '../domain/enrichment.ts';
+import type { OrganizationCase } from '../domain/case.ts';
+import type { SeverityBand } from '../domain/severity.ts';
 import type { Dispute } from '../domain/dispute.ts';
 import type { ExperienceRelation } from '../domain/relation.ts';
 import type { IntelligenceProposal } from '../domain/proposal.ts';
@@ -20,6 +23,8 @@ import type { IntelligenceProposal } from '../domain/proposal.ts';
 /** Persisted shapes for the ESE domain objects. */
 export type CorroborationRow = Corroboration;
 export type ShareRow = ExperienceShare;
+export type EnrichmentRow = ExperienceEnrichment;
+export type OrganizationCaseRow = OrganizationCase;
 export type ResolutionReportRow = ResolutionReport;
 export type ResolutionEventRow = ResolutionEvent;
 export type DisputeRow = Dispute;
@@ -87,6 +92,19 @@ export interface QueryOptions<T> {
 
 /** Convenience builder for the common single-equality case. */
 export const eq = <T>(field: keyof T & string, value: unknown): Criterion<T> => ({ field, op: 'eq', value });
+
+/**
+ * "This column has no value."
+ *
+ * Provided because the alternative at call sites is `query([])` followed by a filter
+ * in JavaScript — a full-table scan that silently truncates at the row limit. A
+ * predicate that belongs in SQL should reach SQL.
+ */
+export const ne = <T>(field: keyof T & string, value: unknown): Criterion<T> => ({ field, op: 'ne', value });
+
+export const isNull = <T>(field: keyof T & string): Criterion<T> => ({ field, op: 'isNull' });
+
+export const notNull = <T>(field: keyof T & string): Criterion<T> => ({ field, op: 'notNull' });
 
 /**
  * A minimal table port. Every persistence adapter implements the same shape, so
@@ -694,6 +712,36 @@ export interface SignalSnapshotRow {
 }
 
 /** The full persistence surface of the engine. */
+/**
+ * A severity classification, stored so it is auditable rather than recomputed
+ * differently by each reader. It records the *basis* alongside the band: a band with
+ * no visible basis is a number in disguise.
+ */
+export interface SeverityRow {
+  readonly id: string;
+  readonly experienceId: string;
+  readonly band: SeverityBand;
+  readonly confidence: number;
+  readonly basis: readonly string[];
+  readonly independentExperiencers: number;
+  readonly unassessed: boolean;
+  readonly classifiedAt: number;
+}
+
+/**
+ * An escalation. One row per (experience, rule) by construction — the natural key is
+ * the escalation key — so a sweep that runs twice enqueues nothing twice.
+ */
+export interface EscalationRow {
+  readonly id: string;
+  readonly experienceId: string;
+  readonly ruleId: string;
+  readonly because: string;
+  readonly queueItemId?: string;
+  readonly createdAt: number;
+  readonly resolvedAt?: number;
+}
+
 export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
@@ -755,4 +803,10 @@ export interface EngineStore {
   readonly relations: Table<RelationRow>;
   readonly responsiveness: Table<ResponsivenessSnapshot>;
   readonly proposals: Table<ProposalRow>;
+
+  // ── Phases 31–35: enrichment, severity, escalation, organization cases ──
+  readonly enrichments: Table<EnrichmentRow>;
+  readonly severities: Table<SeverityRow>;
+  readonly escalations: Table<EscalationRow>;
+  readonly organizationCases: Table<OrganizationCaseRow>;
 }

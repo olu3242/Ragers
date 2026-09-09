@@ -25,8 +25,14 @@ import { experienceResource, loadExperience } from './support.ts';
  * Confirmation is a command, because it is an act by a person.
  */
 
-/** Redacted text only. The raw body is never read for extraction. */
-const redactedTextFor = async (deps: EngineDeps, experienceId: string): Promise<string> => {
+/**
+ * Redacted text only. The raw body is never read for extraction.
+ *
+ * Exported because Phase 31's fingerprint needs exactly this text and exactly this
+ * rule. A second copy in the enrichment engine would be one edit away from reading
+ * `rawText`, which is unreadable on every path by design.
+ */
+export const redactedTextFor = async (deps: EngineDeps, experienceId: string): Promise<string> => {
   const experience = await deps.store.experiences.get(experienceId);
   if (!experience) return '';
   // Transcripts are keyed by media asset, not experience.

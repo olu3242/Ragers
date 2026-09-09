@@ -810,7 +810,7 @@ only worth building once the one before it is true.
 |---|---|---|
 | Experience Signal Engine | 1–20 | **What happened?** |
 | Network & Intelligence | 21–30 | **Is it happening to others?** |
-| Trust, Governance & Action | 31–40 | **How serious is it?** (band named; phases not yet specified) |
+| Trust, Governance & Action | 31–40 | **How serious is it?** |
 | Agentic Experience OS & Commercial Intelligence | 41–50 | **What changed because people surfaced it?** |
 
 That last question is the one that makes Ragers more than a social network, and
@@ -841,11 +841,10 @@ The features are legitimate; their language is not public language.
 
 ---
 
-> **Phases 31–40 are not specified below.** The band is named and its question is
-> fixed, but no phase definitions exist for it yet. Phases 41–50 depend on that
-> band — severity needs governed trust signals, and prioritisation needs
-> resolution aging — so the sequencing note in §6.1 matters more than the phase
-> numbers do.
+> **Phases 31–40 are specified in §6.2.** The band answers *how serious is it?*,
+> and it is where the data Phases 41–50 read is actually produced: severity needs
+> governed trust signals, prioritisation needs resolution aging, and benchmarking
+> needs a sample floor that suppresses rather than estimates.
 
 ### 6.1 Sequencing reality
 
@@ -867,6 +866,161 @@ Building 41–50 before ESE Batches B and C would mean severity over unstructure
 text, prioritisation over resolution data that does not exist, and agents with no
 governed state to be bounded by. The order of work therefore stays: **ESE Batch B
 → ESE Batch C → Phases 31–40 → Phases 41–50.**
+
+---
+
+## 6.2 Phases 31–40 — Trust, Governance & Action
+
+The band's question is *how serious is it?* — and the answer must come from what
+people asserted and what governed state records, never from how loudly something
+was written. Three rules run through every phase here:
+
+1. **Severity is asserted, not inferred.** A furious sentence about a small problem
+   is not a severe experience, and a calm sentence about a dangerous one is not a
+   mild one.
+2. **A measure withheld beats a measure invented.** Below a minimum sample, the
+   engine reports *not enough yet* and says how far off it is. It never estimates
+   into the gap.
+3. **An engine may measure, propose and route. It may not decide an outcome.**
+   Escalation opens a review; it never applies a sanction. Handoff creates a
+   proposal; it never mutates E1–E11 state.
+
+### Phase 31 — Structured Experience Enrichment
+
+- **Primary engine:** E1 Experience · **Supporting:** E2 Capture, E3 Declaration
+- **Dependency:** normalization + confirmation (ESE Batch B), which is built.
+- **Input:** a published experience, its confirmed metadata, and enrichment the
+  experiencer asserts themselves — money lost, time lost, recurrence, whether
+  service was interrupted, whether safety was involved.
+- **Output/event:** `ExperienceEnriched`; `experience_enrichments` rows carrying
+  each asserted dimension with its own provenance.
+- **Persona impact:** the composer and the experience page gain asserted facts, each
+  labelled as the experiencer's own account rather than a measurement.
+- **Certification:** an enrichment field is only readable as asserted; nothing reads
+  an unconfirmed extraction as an assertion, and a near-duplicate re-post of the
+  same account is detectable by content fingerprint without being auto-suppressed.
+
+### Phase 32 — Severity Classification
+
+- **Primary engine:** E8 Signals · **Supporting:** E4 Trust, E12 Intelligence
+- **Dependency:** Phase 31 enrichment. Severity over free text is refused.
+- **Input:** asserted enrichment dimensions plus the count of independent
+  experiencers.
+- **Output/event:** `SeverityClassified`; a severity **band** (`minor`,
+  `significant`, `serious`, `critical`) with an explicit confidence and the
+  dimensions that produced it.
+- **Persona impact:** severity renders as a named band with its basis on the
+  experience and case surfaces — never as a number beside a person.
+- **Certification:** two experiences with equal Re-Rage volume and radically
+  different asserted impact are never treated as equivalent; and wording alone moves
+  no band.
+
+### Phase 33 — Resolution Lifecycle & Aging
+
+- **Primary engine:** E10 Outcomes · **Supporting:** E9 Business Response
+- **Dependency:** resolution reports and organization responses, both built.
+- **Input:** the resolution event log and response timestamps.
+- **Output/event:** `ResolutionAged`; derived durations — time unresolved, time
+  since last organization contact, time since a proposed fix went unconfirmed.
+- **Persona impact:** organization and operator case views show how long something
+  has been waiting, in plain words rather than false precision.
+- **Certification:** aging is derived from the event log on read and never stored as
+  a truth that can drift; silence is aged as silence and never recorded as rejection.
+
+### Phase 34 — Escalation Rules
+
+- **Primary engine:** E10 Outcomes · **Supporting:** E8 Signals, E9 Business Response
+- **Dependency:** Phases 32 and 33.
+- **Input:** severity band, aging durations, dispute state.
+- **Output/event:** `ExperienceEscalated`; a moderation queue item with the rule that
+  fired and the values that satisfied it.
+- **Persona impact:** the operator queue gains escalated items that say *why*, next
+  to the rule that put them there.
+- **Certification:** escalation opens a review and nothing else — it applies no
+  sanction, hides nothing, changes no resolution state, and is idempotent so the same
+  condition does not queue twice.
+
+### Phase 35 — Organization Case Management
+
+- **Primary engine:** E9 Business Response · **Supporting:** E8 Signals, E10 Outcomes
+- **Dependency:** organization memberships and responses, both built.
+- **Input:** experiences naming a claimed organization.
+- **Output/event:** `CaseOpened`, `CaseAssigned`, `CaseStateChanged`;
+  `organization_cases` rows with state and assignee.
+- **Persona impact:** the existing organization inbox gains state and assignment, so
+  staff can work a queue instead of a list.
+- **Certification:** a case is the organization's own workspace and confers no
+  authority over the experience — closing a case resolves nothing, and no case
+  transition writes to `experiences`.
+
+### Phase 36 — Responsiveness & Service Measures
+
+- **Primary engine:** E11 Reputation · **Supporting:** E9, E10
+- **Dependency:** Phases 33 and 35; the responsiveness reads are built.
+- **Input:** acknowledgement, first-response and resolution durations, plus case
+  throughput.
+- **Output/event:** `ResponsivenessRecomputed`; snapshots with sample sizes.
+- **Persona impact:** the organization performance panel reports medians, or says how
+  far below the floor it is.
+- **Certification:** nothing is called an SLA, no overdue indicator exists, and a
+  median below the sample floor is withheld rather than shown small.
+
+### Phase 37 — Resolution Evidence & Disputes
+
+- **Primary engine:** E10 Outcomes · **Supporting:** E4 Trust, E9 Business Response
+- **Dependency:** the E10 dispute object and the evidence ledger, both built.
+- **Input:** evidence attached to a resolution report or to a dispute.
+- **Output/event:** `ResolutionEvidenceAttached`; evidence rows parented to a report
+  or a dispute.
+- **Persona impact:** consumer resolution review shows what each side attached.
+- **Certification:** evidence is never labelled *verified*; an organization cannot
+  modify or remove consumer evidence; and attaching evidence changes no outcome by
+  itself.
+
+### Phase 38 — Minimum-Sample & Confidence Thresholds
+
+- **Primary engine:** E4 Trust · **Supporting:** E7 Clustering, E8 Signals, E11
+- **Dependency:** every measure defined above.
+- **Input:** a measure, its sample size, and the floor for its kind.
+- **Output/event:** none — one governed policy module every reader consults.
+- **Persona impact:** every withheld measure says *why* it is withheld and how far
+  off it is, in the same words everywhere.
+- **Certification:** one floor policy, not per-surface constants; a measure below its
+  floor is `withheld` in the payload rather than `0`, and no caller can render a
+  withheld measure as a value.
+
+### Phase 39 — Benchmark-Safe Aggregation
+
+- **Primary engine:** E11 Reputation · **Supporting:** E7 Clustering, E8 Signals
+- **Dependency:** Phase 38.
+- **Input:** governed measures grouped by entity, category or issue type.
+- **Output/event:** `AggregateComputed`; aggregates carrying their group size.
+- **Persona impact:** comparative reads exist only where the group is large enough to
+  be non-identifying.
+- **Certification:** a small cell is suppressed, not rounded; an aggregate over a
+  single contributor is refused; and no aggregate can be differenced against another
+  to recover an individual.
+
+### Phase 40 — Governed Intelligence Handoff
+
+- **Primary engine:** E12 Intelligence · **Supporting:** E4, E8, E9, E10, E11
+- **Dependency:** Phases 31–39.
+- **Input:** governed state — severity bands, aging, escalations, aggregates.
+- **Output/event:** `IntelligenceProposalCreated` via the existing E12 contract.
+- **Persona impact:** the existing recommendation cards; no new surface.
+- **Certification:** a handoff proposal writes to **no** E1–E11 table, carries
+  evidence references a reviewer can open, and is refused at creation without them.
+  Approving it dispatches the target engine's own command and can be refused there.
+
+### 6.3 Why this order
+
+31 produces the asserted facts 32 classifies. 33 produces the durations 34 escalates
+on. 35 gives an organization somewhere to do the work 36 measures. 37 is what makes a
+contested outcome inspectable. 38 is the floor 39 needs before any comparison is
+safe, and 40 can only hand off state that the nine phases before it have made
+governed. Reversing any pair produces a measure with nothing under it.
+
+---
 
 ### Phase 41 — Experience Severity Engine
 

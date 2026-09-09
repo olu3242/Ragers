@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { OUTCOME_COPY, type OutcomePresentation } from '../src/domain/outcome-presentation.ts';
+import { CASE_STATE_LABELS, type CaseState } from '../src/domain/case.ts';
+import { SeverityBadge } from './SeverityBadge.tsx';
+import { AgingNote, type AgingView } from './AgingNote.tsx';
+import type { SeverityBand } from '../src/domain/severity.ts';
 
 /**
  * An organization's inbox.
@@ -28,6 +32,14 @@ export interface OrganizationCase {
   readonly responded: boolean;
   readonly resolutionProposed: boolean;
   readonly clusterId?: string;
+  /** How serious the person said it was. Absent when they said nothing. */
+  readonly severity?: { readonly band: SeverityBand; readonly basis: readonly string[]; readonly unassessed: boolean };
+  /** How long it has been waiting. Words, and never an overdue accusation. */
+  readonly aging: AgingView;
+  /** The organization's own workspace state. Absent until somebody opens a case. */
+  readonly caseState?: CaseState;
+  readonly caseId?: string;
+  readonly assignedToMe?: boolean;
 }
 
 /** Every kind, with words that say what each one commits the organization to. */
@@ -71,6 +83,44 @@ export const OrganizationCaseInbox = ({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | undefined>(undefined);
+  const [closureNotes, setClosureNotes] = useState<Record<string, string>>({});
+
+  /**
+   * Move a case through the organization's own workflow.
+   *
+   * Nothing here touches the experience. The endpoint dispatches `case.transition`,
+   * which writes to `organization_cases` and to no other table — so closing a case is
+   * the organization saying it is done with its part, and the outcome stays where the
+   * people it happened to put it.
+   */
+  const moveCase = async (item: OrganizationCase, to: CaseState): Promise<void> => {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      const note = closureNotes[item.experienceId] ?? '';
+      const response = await fetch(`/api/organizations/${organizationId}/cases`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          experienceId: item.experienceId,
+          to,
+          ...(note.trim().length === 0 ? {} : { note: note.trim() }),
+        }),
+      });
+      const payload = (await response.json()) as { state?: CaseState; error?: { message: string } };
+      if (!response.ok) {
+        setMessage(payload.error?.message ?? 'That did not go through.');
+        return;
+      }
+      setRows((current) =>
+        current.map((row) =>
+          row.experienceId === item.experienceId ? { ...row, caseState: payload.state ?? to } : row,
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (experienceId: string): Promise<void> => {
     setBusy(true);
@@ -144,6 +194,9 @@ export const OrganizationCaseInbox = ({
               )}
             </div>
 
+            <SeverityBadge severity={item.severity} />
+            <AgingNote aging={item.aging} />
+
             <p className="inbox-body">{item.bodyText}</p>
             <p className="inbox-link">
               <a href={`/experiences/${item.experienceId}`}>Open the full account</a>
@@ -157,6 +210,78 @@ export const OrganizationCaseInbox = ({
               {claimants > 0 ? ` ${claimants} added their own account.` : ''}
             </p>
             <p className="inbox-outcome">{copy.explanation}</p>
+
+            {/* The organization's own workspace, kept visibly separate from the
+                outcome above. Its vocabulary is deliberately different: a case is
+                closed, never resolved. */}
+            <div className="inbox-case-state">
+              <p className="inbox-case-label">
+                Your case:{' '}
+                <strong>{item.caseState === undefined ? 'not opened' : CASE_STATE_LABELS[item.caseState]}</strong>
+                {item.assignedToMe ? ' · assigned to you' : ''}
+              </p>
+              <p className="inbox-case-hint">
+                This is your own workflow. Closing a case records that you are done with
+                your part — it does not resolve the experience, which only the people it
+                happened to can do.
+              </p>
+              <div className="inbox-case-actions">
+                {item.caseState === undefined ? (
+                  <button type="button" className="btn" disabled={busy} onClick={() => void moveCase(item, 'triaged')}>
+                    Open a case
+                  </button>
+                ) : item.caseState === 'closed' ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => void moveCase(item, 'in_progress')}
+                  >
+                    Reopen
+                  </button>
+                ) : (
+                  <>
+                    {item.caseState !== 'in_progress' ? (
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy}
+                        onClick={() => void moveCase(item, 'in_progress')}
+                      >
+                        Start work
+                      </button>
+                    ) : null}
+                    {item.caseState !== 'awaiting_customer' ? (
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy}
+                        onClick={() => void moveCase(item, 'awaiting_customer')}
+                      >
+                        Waiting on the customer
+                      </button>
+                    ) : null}
+                    <label htmlFor={`closure-${item.experienceId}`}>What was done? (required to close)</label>
+                    <input
+                      id={`closure-${item.experienceId}`}
+                      type="text"
+                      value={closureNotes[item.experienceId] ?? ''}
+                      onChange={(event) =>
+                        setClosureNotes((current) => ({ ...current, [item.experienceId]: event.target.value }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busy || (closureNotes[item.experienceId] ?? '').trim().length === 0}
+                      onClick={() => void moveCase(item, 'closed')}
+                    >
+                      Close our case
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
 
             {openCase === item.experienceId ? (
               <div className="composer-response">

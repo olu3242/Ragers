@@ -31,6 +31,9 @@ const disputeControl = read('components', 'DisputeControl.tsx');
 const contribution = read('components', 'ContributionView.tsx');
 const responsiveness = read('components', 'ResponsivenessPanel.tsx');
 const recommendation = read('components', 'RecommendationCard.tsx');
+const severityBadge = read('components', 'SeverityBadge.tsx');
+const agingNote = read('components', 'AgingNote.tsx');
+const cost = read('components', 'CostControl.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -133,6 +136,7 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['ContributionView', contribution],
     ['ResponsivenessPanel', responsiveness],
     ['RecommendationCard', recommendation],
+    ['CostControl', cost],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -156,6 +160,7 @@ test('every button in the app surfaces declares an explicit type', () => {
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
     ['RecommendationCard', recommendation],
+    ['CostControl', cost],
   ] as const) {
     const buttons = [...source.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1] ?? '');
     for (const attributes of buttons) {
@@ -169,8 +174,10 @@ test('all app surface files are accounted for by these assertions', () => {
   assert.deepEqual(
     components.sort(),
     [
+      'AgingNote.tsx',
       'Composer.tsx',
       'ContributionView.tsx',
+      'CostControl.tsx',
       'DisputeControl.tsx',
       'ModerationQueue.tsx',
       'OrganizationCaseInbox.tsx',
@@ -182,6 +189,7 @@ test('all app surface files are accounted for by these assertions', () => {
       'RelateControl.tsx',
       'ResolutionRow.tsx',
       'ResponsivenessPanel.tsx',
+      'SeverityBadge.tsx',
       'SignalRow.tsx',
       'VoicePlayer.tsx',
       'VoiceRecorder.tsx',
@@ -198,6 +206,7 @@ test('every operator and organization control that mutates has a label', () => {
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
     ['RecommendationCard', recommendation],
+    ['CostControl', cost],
   ] as const) {
     // A bare input or select with no label is unusable with a screen reader, and
     // these are the surfaces where a mislabelled control has consequences.
@@ -223,6 +232,7 @@ test('operator and organization errors are announced, not only shown', () => {
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
     ['RecommendationCard', recommendation],
+    ['CostControl', cost],
   ] as const) {
     assert.match(source, /role="alert"/, `${name} must announce a refusal`);
   }
@@ -258,6 +268,40 @@ test('a recommendation says in words what happened, and announces the change', (
   // The effect changes after an action taken elsewhere on the card, so it is
   // announced rather than only redrawn.
   assert.match(recommendation, /className="recommendation-effect"\s*\n?\s*role="status"/);
+});
+
+test('a severity band is words, never a number beside a person', () => {
+  const stripped = severityBadge.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  // No percentage, no numeric interpolation, no score.
+  assert.equal(/toFixed|Math\.round|%/.test(stripped), false, 'a band renders no figure');
+  assert.match(severityBadge, /BAND_LABELS\[severity\.band\]/, 'the band is named in words');
+  // And it says whose account it is, because severity here is asserted, not measured.
+  assert.match(severityBadge, /what the person it happened to said it cost them/);
+});
+
+test('an unassessed experience renders no band at all', () => {
+  // The default band is `minor` because a band is required. Rendering it would report
+  // an absence of information as a finding.
+  assert.match(severityBadge, /severity\.unassessed\) return null/);
+});
+
+test('aging carries no overdue indicator, because nothing is owed', () => {
+  const stripped = agingNote.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  for (const forbidden of ['overdue', 'late', 'breach', 'sla', 'target']) {
+    assert.equal(
+      stripped.toLowerCase().includes(forbidden),
+      false,
+      `aging must not imply an obligation: ${forbidden}`,
+    );
+  }
+  // Silence reads as silence rather than as a zero.
+  assert.match(agingNote, /no response yet/);
+});
+
+test('the cost control shows no total and no band while somebody is answering', () => {
+  const stripped = cost.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.equal(/total|sum|band|severity/i.test(stripped), false, 'answering must not be strategic');
+  assert.match(cost, /Every question is optional/);
 });
 
 test('the reputation reads carry no composite score', () => {

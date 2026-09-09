@@ -2,9 +2,24 @@ import { eq } from '../../src/ports/store.ts';
 import { getEngine } from '../../lib/engine-instance.ts';
 import { resolveViewer } from '../../lib/persona.ts';
 import { ModerationQueue, type QueueCase } from '../../components/ModerationQueue.tsx';
-import type { ScreeningResult } from '../../src/ports/store.ts';
+import { escalationsOf } from '../../src/engines/escalation.engine.ts';
+import { ageOf, describeDuration } from '../../src/domain/aging.ts';
+import { eq as equals } from '../../src/ports/store.ts';
+import type { ResolutionEventRow, ScreeningResult } from '../../src/ports/store.ts';
+import type { ResolutionStatus } from '../../src/domain/resolution.ts';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * How long it has been waiting, in words.
+ *
+ * No overdue indicator, here or anywhere: nothing is measured against an agreement,
+ * because no service-level agreement exists to be overdue against.
+ */
+const describeUnresolved = (aging: { unresolved: boolean; inCurrentStatusMs: number }): string =>
+  aging.unresolved
+    ? `unresolved for ${describeDuration(aging.inCurrentStatusMs)}`
+    : `settled ${describeDuration(aging.inCurrentStatusMs)} ago`;
 
 /**
  * Operator surface.
@@ -48,6 +63,23 @@ const OperatePage = async () => {
       reportCount: await engine.store.reports.countWhere([eq('targetId', item.targetId)]),
       publicationStatus: experience?.status ?? 'unknown',
       bodyText: experience?.bodyText ?? '',
+      escalations: (await escalationsOf(engine, item.targetId)).map((row) => row.because),
+      // Aging is derived on read from the event log, never stored — so what an
+      // operator sees is what the log says, not a counter somebody forgot to update.
+      ...(experience?.publishedAt === undefined
+        ? {}
+        : {
+            aging: describeUnresolved(
+              ageOf({
+                events: await engine.store.resolutionEvents.query([
+                  equals<ResolutionEventRow>('experienceId', item.targetId),
+                ]),
+                currentStatus: (experience.resolutionStatus ?? 'open') as ResolutionStatus,
+                publishedAt: experience.publishedAt,
+                now: Date.now(),
+              }),
+            ),
+          }),
     });
   }
 

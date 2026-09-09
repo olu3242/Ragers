@@ -143,6 +143,22 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'proposal.create': { role: 'moderator' },
   'proposal.decide': { role: 'moderator' },
   'proposal.read': { role: 'moderator' },
+
+  // ── Phases 31–35 ──────────────────────────────────────────────────────
+  // What an experience cost is the experiencer's own to state, so ownership is
+  // required rather than merely checked in the engine.
+  'enrichment.assert': { role: 'member', ownership: 'required' },
+  'enrichment.read': { role: 'member', ownership: 'required' },
+  // The severity *band* is public — it is how a reader tells a serious failure from
+  // an annoyance. The dimensions behind it are not, and live under enrichment.read.
+  'severity.read': { role: 'guest' },
+  // Escalations describe an operational decision to look at something; publishing
+  // them would let anyone infer moderation thresholds.
+  'escalation.read': { role: 'moderator' },
+  // A case is an organization's workspace. Membership is checked in the engine
+  // against a live, unrevoked row; the matrix cannot express that.
+  'case.read': { role: 'member' },
+  'case.manage': { role: 'member' },
 };
 
 /** Statuses that only a moderator or admin may read. */

@@ -82,6 +82,10 @@ import { registerOrganizationEngine } from './engines/organization.engine.ts';
 import { registerDisputeEngine } from './engines/dispute.engine.ts';
 import { registerRelationEngine } from './engines/relation.engine.ts';
 import { registerProposalEngine } from './engines/proposal.engine.ts';
+import { registerEnrichmentEngine } from './engines/enrichment.engine.ts';
+import { registerCaseEngine } from './engines/case.engine.ts';
+import { createSeverityConsumer } from './engines/severity.engine.ts';
+import { createEscalationConsumer } from './engines/escalation.engine.ts';
 import { createResponsivenessConsumer } from './engines/responsiveness.engine.ts';
 import {
   createAbuseDetectionConsumer,
@@ -220,6 +224,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerDisputeEngine(deps);
   registerRelationEngine(deps);
   registerProposalEngine(deps);
+  registerEnrichmentEngine(deps);
+  registerCaseEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -253,6 +259,11 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createSignalSnapshotConsumer(deps));
   orchestrator.subscribe(createTrustRecomputeConsumer(deps));
   orchestrator.subscribe(createAbuseDetectionConsumer(deps));
+  // Phases 32 and 34: classify from what people asserted, then escalate on the
+  // classification and on time passing. Escalation is subscribed after severity so a
+  // single enrichment produces a band before the rules read one.
+  orchestrator.subscribe(createSeverityConsumer(deps));
+  orchestrator.subscribe(createEscalationConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));
 

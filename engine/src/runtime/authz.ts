@@ -44,6 +44,7 @@ export type ResourceType =
   | 'dispute'
   | 'relation'
   | 'proposal'
+  | 'organization_case'
   | 'responsiveness'
   | 'system';
 
@@ -135,7 +136,14 @@ export type PolicyAction =
   | 'responsiveness.read'
   | 'proposal.create'
   | 'proposal.decide'
-  | 'proposal.read';
+  | 'proposal.read'
+  // ── Phases 31–35: enrichment, severity, escalation, organization cases ──
+  | 'enrichment.assert'
+  | 'enrichment.read'
+  | 'severity.read'
+  | 'escalation.read'
+  | 'case.read'
+  | 'case.manage';
 
 export interface ActorContext {
   readonly actorId: string;

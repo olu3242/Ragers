@@ -69,11 +69,22 @@ test('every write route requires an idempotency key and a correlation id', () =>
   for (const file of routes) {
     const source = readFileSync(file, 'utf8');
     if (!/bus\.dispatch\(/.test(source)) continue;
-    assert.match(
-      source,
-      /idempotencyKey: idempotencyKeyFrom\(request\)/,
-      `${relative(appDir, file)} dispatches without an idempotency key`,
-    );
+
+    // Every `idempotencyKey:` in the file must derive from the request, rather than
+    // one of them doing so and the rest inventing a value. This is stricter than
+    // matching the exact expression once, and it admits a *derived* key — a route
+    // that dispatches two commands for one request must not give them the same key,
+    // or the second is swallowed as a replay of the first.
+    const keys = [...source.matchAll(/idempotencyKey:\s*([^,\n]+)/g)].map((match) => match[1] ?? '');
+    assert.ok(keys.length > 0, `${relative(appDir, file)} dispatches without an idempotency key`);
+    for (const key of keys) {
+      assert.match(
+        key,
+        /idempotencyKeyFrom\(request\)/,
+        `${relative(appDir, file)} has an idempotency key not derived from the request: ${key}`,
+      );
+    }
+
     assert.match(
       source,
       /correlationId: correlationIdFrom\(request\)/,

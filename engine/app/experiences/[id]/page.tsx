@@ -13,6 +13,11 @@ import { ResolutionRow } from '../../../components/ResolutionRow.tsx';
 import { OrganizationResponses } from '../../../components/OrganizationResponses.tsx';
 import { RelateControl } from '../../../components/RelateControl.tsx';
 import { DisputeControl } from '../../../components/DisputeControl.tsx';
+import { SeverityBadge } from '../../../components/SeverityBadge.tsx';
+import { CostControl } from '../../../components/CostControl.tsx';
+import { severityFor } from '../../../src/engines/severity.engine.ts';
+import { enrichmentFor } from '../../../src/engines/enrichment.engine.ts';
+import { assertedValues } from '../../../src/domain/enrichment.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +55,11 @@ const ExperiencePage = async ({ params }: { params: Promise<{ id: string }> }) =
   const related = await relatedTo(engine, id);
   const responses = await publicResponsesFor(engine, { experienceId: id });
   const evidence = await evidenceSummaryFor(engine, id);
+  const severity = await severityFor(engine, id);
+  // Only the author's own enrichment is read, and only to avoid asking them twice.
+  // Nobody else's view of this page touches the row.
+  const isAuthor = viewer.actor.authenticated && experience?.actorId === viewer.actor.actorId;
+  const enrichment = isAuthor ? await enrichmentFor(engine, id) : undefined;
   const canReport =
     viewer.actor.authenticated && (await mayReportResolution(engine, id, viewer.actor.actorId));
 
@@ -73,6 +83,16 @@ const ExperiencePage = async ({ params }: { params: Promise<{ id: string }> }) =
       </div>
 
       <p className="card-body">{projection?.bodyText ?? entry.excerpt}</p>
+
+      {/* What the person said it cost them. Renders nothing when they said nothing:
+          an unassessed experience must not read as a mild one. */}
+      <SeverityBadge
+        severity={
+          severity === undefined
+            ? undefined
+            : { band: severity.band, basis: severity.basis, unassessed: severity.unassessed }
+        }
+      />
 
       {evidence.count > 0 ? (
         <p className="evidence-note">
@@ -101,6 +121,13 @@ const ExperiencePage = async ({ params }: { params: Promise<{ id: string }> }) =
           replyCount: counters?.replyCount ?? 0,
         }}
       />
+
+      {isAuthor ? (
+        <CostControl
+          experienceId={id}
+          asserted={enrichment ? assertedValues(enrichment).map((value) => value.dimension) : []}
+        />
+      ) : null}
 
       <RelateControl
         experienceId={id}

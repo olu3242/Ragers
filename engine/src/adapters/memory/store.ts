@@ -59,4 +59,8 @@ export const createMemoryStore = (): EngineStore => ({
   relations: createMemoryTable(),
   responsiveness: createMemoryTable(),
   proposals: createMemoryTable(),
+  enrichments: createMemoryTable(),
+  severities: createMemoryTable(),
+  escalations: createMemoryTable(),
+  organizationCases: createMemoryTable(),
 });

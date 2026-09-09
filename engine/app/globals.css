@@ -492,6 +492,59 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 .recommendation-hint { margin: 0; font-size: 12px; color: var(--text-faint); }
 .recommendation-error { margin: 6px 0 0; color: var(--rage); font-size: 12px; }
 
+/* ── Severity, aging, cost, cases (Phases 31–35) ─────────────────────────
+   A band is four named steps, never a number: a figure beside a person invites
+   comparison across unlike experiences. Colour carries no meaning on its own —
+   every band states itself in words, and the hue only echoes the word. */
+.severity { margin: 8px 0; font-size: 13px; color: var(--text-dim); }
+.severity-band {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 12px;
+}
+.severity-serious .severity-band { border-color: var(--rage); }
+.severity-critical .severity-band { border-color: var(--rage); color: var(--rage); }
+.severity-basis { color: var(--text-faint); }
+
+/* Words, not a figure, and deliberately no overdue treatment: nothing here is
+   measured against an agreement that could be exceeded. */
+.aging { margin: 4px 0 8px; font-size: 12px; color: var(--text-faint); }
+
+.cost { margin: 14px 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 12px; }
+.cost-heading { margin: 0 0 4px; font-size: 14px; }
+.cost-hint, .cost-answered { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.cost-form { display: grid; gap: 10px; }
+.cost-field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.cost-field label, .cost-field span { min-width: 220px; color: var(--text-dim); }
+.cost-error { margin: 6px 0 0; color: var(--rage); font-size: 12px; }
+
+.queue-escalations {
+  list-style: none;
+  padding: 0 0 0 12px;
+  margin: 0 0 6px;
+  border-left: 2px solid var(--border-strong);
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.queue-aging { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+
+/* The organization's own workspace, visibly separate from the outcome above it,
+   because closing a case is not resolving anything. */
+.inbox-case-state {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-strong);
+}
+.inbox-case-label { margin: 0 0 2px; font-size: 13px; }
+.inbox-case-hint { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.inbox-case-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.inbox-case-actions label { color: var(--text-dim); }
+
 /* ── Relate ──────────────────────────────────────────────────────────────
    Visually quieter than the claim controls, because relating is a weaker
    statement than claiming and must not read like one. */

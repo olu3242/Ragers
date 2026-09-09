@@ -17,27 +17,58 @@ import { experienceResource, loadExperience, writeAudit } from './support.ts';
  * reporter learns nothing about internal handling (PRD §6.3).
  */
 
-const enqueue = async (
+/**
+ * Enqueue for review, idempotently.
+ *
+ * Exported so escalation (Phase 34) routes through the one queue rather than growing a
+ * second one. Two queues would mean two definitions of "claimed", and an operator
+ * working one while items pile up in the other.
+ */
+/**
+ * The natural key of a queue item: one review per target.
+ *
+ * Deterministic on purpose, and for the same reason corroborations are. The read
+ * below cannot arbitrate a race — six workers sweeping at once all saw no row and all
+ * inserted, and the database's `unique (target_type, target_id)` rejected five of
+ * them with an error they had not earned. A generated id gives concurrent callers
+ * nothing to collide on; this one makes them collide on the primary key, where
+ * `compareAndSet` can name a single winner.
+ */
+export const queueItemKey = (targetType: TargetType, targetId: string): string =>
+  `mq:${targetType}:${targetId}`;
+
+export const enqueueForReview = async (
   deps: EngineDeps,
   targetType: TargetType,
   targetId: string,
   priority: number,
-): Promise<void> => {
+): Promise<string> => {
   const existing = await deps.store.queueItems.queryOne([
     eq<QueueItem>('targetType', targetType),
     eq<QueueItem>('targetId', targetId),
   ]);
-  if (existing) return; // idempotent
+  if (existing) return existing.id; // already queued, by this key or an older one
   const item: QueueItem = {
-    id: deps.ids.next('mq'),
+    id: queueItemKey(targetType, targetId),
     targetType,
     targetId,
     priority,
     state: 'queued',
     createdAt: deps.clock.now(),
   };
-  await deps.store.queueItems.put(item);
+  // The store decides the race, not the read above. A loser is not an error: the
+  // item it wanted exists, which is exactly what it asked for.
+  const won = await deps.store.queueItems.compareAndSet(item, 'absent');
+  if (won) return item.id;
+  const winner = await deps.store.queueItems.queryOne([
+    eq<QueueItem>('targetType', targetType),
+    eq<QueueItem>('targetId', targetId),
+  ]);
+  return winner?.id ?? item.id;
 };
+
+/** Local alias, so the existing call sites in this file read unchanged. */
+const enqueue = enqueueForReview;
 
 /**
  * Pre-publish screening. A naming/shaming signal routes to human review rather

@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { BODY_MAX_LENGTH, REACTION_TYPES, REJECTED_REACTION_TYPES, VOICE_MAX_BYTES, VOICE_MAX_DURATION_MS, VOICE_MIN_DURATION_MS } from '../../src/domain/types.ts';
-import { isNumericColumn, isTimestampColumn } from '../../src/adapters/postgres/table.ts';
+import { isJsonColumn, isNumericColumn, isTimestampColumn } from '../../src/adapters/postgres/table.ts';
 import { createMemoryStore } from '../../src/adapters/memory/store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -173,6 +173,10 @@ test('every port table has a corresponding relation in the migration', () => {
     relations: 'experience_relations',
     responsiveness: 'responsiveness_snapshots',
     proposals: 'intelligence_proposals',
+    // Phases 31–35, prefixed for the same reason: they are all about an experience.
+    enrichments: 'experience_enrichments',
+    severities: 'experience_severities',
+    escalations: 'experience_escalations',
   };
   const relations = new Set(tableNames(allMigrations));
   const missing: string[] = [];
@@ -207,6 +211,33 @@ test('no non-timestamp column is named as though it were one', () => {
     .filter((match) => match[2] !== 'timestamptz')
     .map((match) => `${match[1]} ${match[2]}`);
   assert.deepEqual(mistyped, [], `columns named _at but not timestamptz: ${mistyped.join(', ')}`);
+});
+
+test('the adapter recognises every jsonb column the migrations declare', () => {
+  // node-postgres serializes an object to JSON but an *array* to a Postgres array
+  // literal. A jsonb column holding an array of objects therefore fails outright,
+  // and — worse — an empty array silently persists as `{}`, a JSON object. A column
+  // missing from the adapter's set is a write that fails in production.
+  const declared = [...stripComments(allMigrations).matchAll(/^\s+([a-z_]+)\s+jsonb\b/gm)].map(
+    (match) => match[1] ?? '',
+  );
+  assert.ok(declared.length > 5, 'the migrations should declare several jsonb columns');
+  const unrecognised = [...new Set(declared)].filter((column) => !isJsonColumn(column));
+  assert.deepEqual(
+    unrecognised,
+    [],
+    `jsonb columns the adapter would not serialize: ${unrecognised.join(', ')}`,
+  );
+});
+
+test('no non-jsonb column is serialized as though it were jsonb', () => {
+  // The converse, and the one that would corrupt quietly: a text[] column in the
+  // JSON set would be written as a JSON string and read back as one.
+  const arrays = [...stripComments(allMigrations).matchAll(/^\s+([a-z_]+)\s+text\[\]/gm)].map(
+    (match) => match[1] ?? '',
+  );
+  const mistyped = [...new Set(arrays)].filter((column) => isJsonColumn(column));
+  assert.deepEqual(mistyped, [], `text[] columns treated as jsonb: ${mistyped.join(', ')}`);
 });
 
 test('the adapter recognises every numeric column the migrations declare', () => {
