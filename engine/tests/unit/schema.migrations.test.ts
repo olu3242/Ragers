@@ -1,0 +1,167 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { BODY_MAX_LENGTH, REACTION_TYPES, REJECTED_REACTION_TYPES, VOICE_MAX_BYTES, VOICE_MAX_DURATION_MS, VOICE_MIN_DURATION_MS } from '../../src/domain/types.ts';
+import { createMemoryStore } from '../../src/adapters/memory/store.ts';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const migrations = join(here, '..', '..', 'supabase', 'migrations');
+const core = readFileSync(join(migrations, '0001_engine_core.sql'), 'utf8');
+const rls = readFileSync(join(migrations, '0002_rls_policies.sql'), 'utf8');
+
+const tableNames = (sql: string): readonly string[] =>
+  [...sql.matchAll(/^create table (\w+) \(/gm)].map((m) => m[1] as string);
+
+/** Strip `--` comments so assertions test the schema, not the prose around it. */
+const stripComments = (sql: string): string =>
+  sql
+    .split('\n')
+    .map((line) => {
+      const at = line.indexOf('--');
+      return at === -1 ? line : line.slice(0, at);
+    })
+    .join('\n');
+
+const tableBody = (sql: string, table: string): string => {
+  const start = sql.indexOf(`create table ${table} (`);
+  assert.notEqual(start, -1, `table ${table} must exist`);
+  const end = sql.indexOf('\n);', start);
+  return stripComments(sql.slice(start, end));
+};
+
+const viewBody = (sql: string, view: string): string => {
+  const start = sql.indexOf(`create view ${view}`);
+  assert.notEqual(start, -1, `view ${view} must exist`);
+  const end = sql.indexOf(';', start);
+  return stripComments(sql.slice(start, end));
+};
+
+test('every table has row level security enabled', () => {
+  const missing = tableNames(core).filter(
+    (table) => !rls.includes(`alter table ${table}`) || !new RegExp(`alter table ${table}\\s+enable row level security`).test(rls),
+  );
+  assert.deepEqual(missing, [], `tables without RLS: ${missing.join(', ')}`);
+});
+
+test('the feed projection has no actor identifier column', () => {
+  const body = tableBody(core, 'feed_entries');
+  assert.equal(/\bactor_id\b/.test(body), false, 'feed_entries must not have an actor_id column');
+  assert.equal(/\balias_id\b/.test(body), false, 'feed_entries must not have an alias_id column');
+});
+
+test('the search projection has no actor identifier and no raw transcript column', () => {
+  const body = tableBody(core, 'search_documents');
+  assert.equal(/\bactor_id\b/.test(body), false, 'search_documents must not have an actor_id column');
+  assert.equal(/\braw_text\b/.test(body), false, 'search_documents must not hold raw transcript text');
+  assert.ok(/searchable_text/.test(body), 'search_documents holds redacted searchable text');
+});
+
+test('analytics rows are pseudonymous and hold no actor foreign key', () => {
+  const body = tableBody(core, 'analytics_events');
+  assert.ok(/actor_hash/.test(body), 'analytics stores a hash');
+  assert.equal(/actor_id/.test(body), false, 'analytics must not store an actor_id');
+  assert.equal(/references actors/.test(body), false, 'analytics must not reference actors');
+});
+
+test('original media keys and raw transcripts are excluded from the public views', () => {
+  const media = viewBody(rls, 'media_assets_public');
+  assert.equal(media.includes('original_key'), false, 'the public media view must not expose original_key');
+  assert.ok(media.includes('protected_key'), 'the public media view serves the protected derivative');
+
+  const transcripts = viewBody(rls, 'transcripts_public');
+  assert.equal(transcripts.includes('raw_text'), false, 'the public transcript view must not expose raw_text');
+  assert.ok(transcripts.includes('redacted_text'));
+});
+
+test('the public reputation view excludes internal signals', () => {
+  const view = viewBody(rls, 'actor_reputation_public');
+  assert.equal(view.includes('internal_signals'), false, 'internal signals must not be publicly readable');
+  assert.ok(view.includes('approval_rate'), 'the public approval rate is exposed');
+});
+
+test('column grants withhold original_key and raw_text from client roles', () => {
+  const grants = stripComments(rls.slice(rls.indexOf('Column grants')));
+  const mediaGrant = grants.slice(grants.indexOf('on media_assets to'));
+  assert.equal(/grant select \([^)]*original_key/.test(grants), false, 'original_key is never granted');
+  assert.equal(/grant select \([^)]*raw_text/.test(grants), false, 'raw_text is never granted');
+  assert.ok(mediaGrant.length > 0);
+  assert.ok(grants.includes('revoke all on ranking_inputs'), 'ranking components stay internal');
+  assert.ok(grants.includes('revoke all on analytics_events'), 'analytics stays internal');
+});
+
+test('the audit trail is append-only: no update or delete policy exists', () => {
+  assert.ok(rls.includes('create policy audit_insert on audit_events for insert'));
+  assert.equal(/on audit_events for update/.test(rls), false, 'audit rows must not be updatable');
+  assert.equal(/on audit_events for delete/.test(rls), false, 'audit rows must not be deletable');
+});
+
+test('experiences cannot be hard-deleted, so deletion always propagates', () => {
+  assert.ok(rls.includes('experiences_no_hard_delete on experiences for delete using (false)'));
+});
+
+test('the reaction enum is Ragers-native and excludes generic social mechanics', () => {
+  const enumLine = core.split('\n').find((line) => line.startsWith('create type reaction_type'));
+  assert.ok(enumLine, 'reaction_type enum must exist');
+  for (const reaction of REACTION_TYPES) {
+    assert.ok(enumLine.includes(`'${reaction}'`), `${reaction} must be in the enum`);
+  }
+  for (const rejected of REJECTED_REACTION_TYPES) {
+    assert.equal(enumLine.includes(`'${rejected}'`), false, `${rejected} must not be in the enum`);
+  }
+});
+
+test('uniqueness constraints make engagement and notification fan-out idempotent', () => {
+  assert.ok(tableBody(core, 'reactions').includes('unique (experience_id, actor_id, reaction_type)'));
+  assert.ok(
+    tableBody(core, 'fair_votes').includes('unique (experience_id, actor_id)'),
+    'one fair vote per actor per experience — a recast updates rather than duplicates',
+  );
+  assert.ok(
+    tableBody(core, 'notifications').includes('unique (recipient_actor_id, dedupe_key)'),
+    'notification fan-out must be idempotent under at-least-once delivery',
+  );
+  assert.ok(core.includes('unique (aggregate_type, aggregate_id, sequence)'), 'outbox sequences are unique per aggregate');
+  assert.ok(tableBody(core, 'event_deliveries').includes('unique (outbox_id, consumer)'));
+});
+
+test('database constraints agree with the domain limits', () => {
+  const experiences = tableBody(core, 'experiences');
+  assert.ok(experiences.includes(`char_length(body_text) <= ${BODY_MAX_LENGTH}`), 'body limit must match the domain');
+  assert.ok(experiences.includes('text_mode_requires_body'), 'text mode requires a body in the database too');
+  assert.ok(experiences.includes('alias_matches_visibility'), 'alias/visibility coupling is enforced in the database');
+
+  const media = tableBody(core, 'media_assets');
+  assert.ok(media.includes(`duration_ms between ${VOICE_MIN_DURATION_MS} and ${VOICE_MAX_DURATION_MS}`));
+  assert.ok(media.includes(`byte_size <= ${VOICE_MAX_BYTES}`));
+  assert.ok(media.includes('protected_requires_key'), 'a protected asset must have a protected key');
+});
+
+test('media protection status gates the public media view', () => {
+  assert.ok(viewBody(rls, 'media_assets_public').includes("protection_status = 'protected'"));
+});
+
+test('the social graph forbids self-edges', () => {
+  assert.ok(tableBody(core, 'graph_edges').includes('no_self_edge'));
+});
+
+test('every port table has a corresponding relation in the migration', () => {
+  const store = createMemoryStore();
+  const snakeCase = (name: string): string => name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  // Port name -> SQL relation, where the two deliberately differ.
+  const overrides: Readonly<Record<string, string>> = {
+    counters: 'experience_counters',
+    queueItems: 'moderation_queue',
+    graphEdges: 'graph_edges',
+    reputation: 'actor_reputation',
+    notificationPreferences: 'notification_preferences',
+  };
+  const relations = new Set(tableNames(core));
+  const missing: string[] = [];
+  for (const portName of Object.keys(store)) {
+    const relation = overrides[portName] ?? snakeCase(portName);
+    if (!relations.has(relation)) missing.push(`${portName} -> ${relation}`);
+  }
+  assert.deepEqual(missing, [], `ports without a table: ${missing.join(', ')}`);
+});
