@@ -106,6 +106,17 @@ export const createPostgresStore = (db: Db): EngineStore => {
     riskEvents: table(descriptor({ relation: 'risk_events', idColumn: 'id' })),
     moderationCases: table(descriptor({ relation: 'moderation_cases', idColumn: 'id' })),
     signalSnapshots: table(descriptor({ relation: 'signal_snapshots', idColumn: 'id' })),
+    disputes: table(descriptor({ relation: 'experience_disputes', idColumn: 'id' })),
+    relations: table(descriptor({ relation: 'experience_relations', idColumn: 'id' })),
+    proposals: table(descriptor({ relation: 'intelligence_proposals', idColumn: 'id' })),
+    // Keyed by the organization it describes.
+    responsiveness: table(
+      descriptor({
+        relation: 'responsiveness_snapshots',
+        idColumn: 'organization_id',
+        derivedId: (row) => String(row['organizationId'] ?? ''),
+      }),
+    ),
     // Keyed by the experience they describe.
     experienceMetadata: table(
       descriptor({

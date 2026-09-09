@@ -324,6 +324,46 @@ export const GATES: readonly GateDefinition[] = [
     requirement: 'browser E2E',
     command: ['npx', 'playwright', 'test', '--project=experience-signal-engine'],
   },
+  // ── Engine contracts: dispute, relate, responsiveness, proposals ───────
+  {
+    id: 'contracts_domain',
+    name: 'Contracts: dispute, Relate and proposal semantics',
+    requirement: 'ese/contract',
+    command: ['node', '--test', 'tests/unit/dispute.relate.proposal.test.ts'],
+  },
+  {
+    id: 'contracts_engine',
+    name: 'Contracts: the four gaps end to end through the bus',
+    requirement: 'ese/contract',
+    command: ['node', '--test', 'tests/integration/contracts.engine.test.ts'],
+  },
+  {
+    id: 'persona_authorization',
+    name: 'Persona authorization: the five refusals',
+    requirement: 'authorization',
+    command: ['node', '--test', 'tests/integration/persona.authorization.test.ts'],
+  },
+  {
+    id: 'outcome_presentation',
+    name: 'Outcome states are distinguishable, including a proposed resolution',
+    requirement: 'ese/resolution',
+    command: ['node', '--test', 'tests/unit/outcome.presentation.test.ts'],
+  },
+  {
+    id: 'host_surfaces',
+    name: 'Host surface guards, including the fixture route',
+    requirement: 'security',
+    command: ['node', '--test', 'tests/unit/host.surfaces.test.ts'],
+  },
+  {
+    id: 'contracts_live',
+    name: 'Contracts against a live database: races, RLS and numerics',
+    requirement: 'authorization',
+    command: ['node', '--test', 'tests/live/contracts.live.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured, so the partial unique index and the dispute RLS policies cannot be executed.',
+  },
   {
     id: 'deployment',
     name: 'Deployment to a target environment',

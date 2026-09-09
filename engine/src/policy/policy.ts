@@ -124,6 +124,25 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'organization.manage_members': { role: 'member' },
   'trust.read_internal': { role: 'moderator' },
   'experience.confirm_metadata': { role: 'member', ownership: 'required' },
+
+  // ── Engine contract gaps ────────────────────────────────────────────────
+  // Anyone signed in may dispute; which party they are and whether they have
+  // standing is resolved by the engine, since the matrix cannot express
+  // "is an experiencer" or "acts for the disputed organization".
+  'dispute.open': { role: 'member' },
+  'dispute.withdraw': { role: 'member', ownership: 'required' },
+  // Only an operator decides a dispute. The disputed party has no path here at
+  // all, which is the whole point of a formal dispute.
+  'dispute.review': { role: 'moderator' },
+  'relation.assert': { role: 'member' },
+  'relation.retract': { role: 'member', ownership: 'required' },
+  'responsiveness.read': { role: 'guest' },
+  // Proposals are produced by the engine itself and reviewed by operators. There
+  // is no member path to either: a proposal is not a way for a person to place a
+  // request in front of a moderator.
+  'proposal.create': { role: 'moderator' },
+  'proposal.decide': { role: 'moderator' },
+  'proposal.read': { role: 'moderator' },
 };
 
 /** Statuses that only a moderator or admin may read. */

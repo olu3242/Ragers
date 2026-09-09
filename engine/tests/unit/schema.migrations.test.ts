@@ -169,6 +169,10 @@ test('every port table has a corresponding relation in the migration', () => {
     shares: 'experience_shares',
     clusters: 'experience_clusters',
     clusterMembers: 'experience_cluster_members',
+    disputes: 'experience_disputes',
+    relations: 'experience_relations',
+    responsiveness: 'responsiveness_snapshots',
+    proposals: 'intelligence_proposals',
   };
   const relations = new Set(tableNames(allMigrations));
   const missing: string[] = [];

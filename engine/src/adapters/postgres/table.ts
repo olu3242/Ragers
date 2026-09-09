@@ -77,6 +77,10 @@ const NUMERIC_COLUMNS = new Set([
   // Runtime bookkeeping.
   'sequence',
   'last_sequence',
+  // ── Engine contract gaps ────────────────────────────────────────────────
+  'median_acknowledgement_ms',
+  'median_first_response_ms',
+  'oldest_open_ms',
 ]);
 
 export const isNumericColumn = (column: string): boolean => NUMERIC_COLUMNS.has(column);

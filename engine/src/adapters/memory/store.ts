@@ -55,4 +55,8 @@ export const createMemoryStore = (): EngineStore => ({
   riskEvents: createMemoryTable(),
   moderationCases: createMemoryTable(),
   signalSnapshots: createMemoryTable(),
+  disputes: createMemoryTable(),
+  relations: createMemoryTable(),
+  responsiveness: createMemoryTable(),
+  proposals: createMemoryTable(),
 });

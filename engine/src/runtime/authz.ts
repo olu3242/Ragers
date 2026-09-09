@@ -41,6 +41,10 @@ export type ResourceType =
   | 'entity'
   | 'organization'
   | 'trust'
+  | 'dispute'
+  | 'relation'
+  | 'proposal'
+  | 'responsiveness'
   | 'system';
 
 export interface ResourceRef {
@@ -121,7 +125,17 @@ export type PolicyAction =
   | 'organization.respond'
   | 'organization.manage_members'
   | 'trust.read_internal'
-  | 'experience.confirm_metadata';
+  | 'experience.confirm_metadata'
+  // ── Engine contract gaps ──────────────────────────────────────────────
+  | 'dispute.open'
+  | 'dispute.withdraw'
+  | 'dispute.review'
+  | 'relation.assert'
+  | 'relation.retract'
+  | 'responsiveness.read'
+  | 'proposal.create'
+  | 'proposal.decide'
+  | 'proposal.read';
 
 export interface ActorContext {
   readonly actorId: string;

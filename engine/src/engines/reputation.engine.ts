@@ -125,3 +125,92 @@ export const aliasReputationOf = async (
     approvalRate: total === 0 ? 0 : Number((fairYes / total).toFixed(4)),
   };
 };
+
+
+/**
+ * Contribution view — E11, person side.
+ *
+ * Three separately-named indicators and no composite. There is deliberately no
+ * single number: a score next to somebody's name turns every contribution into a
+ * referendum on the contributor, and falls hardest on new accounts and on people
+ * posting anonymously — which is to say on exactly the people the product exists to
+ * make safe.
+ *
+ * What is *not* here, by construction:
+ *
+ *   * nothing from `internalSignals` or `trust_assessments` — those are moderator
+ *     surfaces, and exposing a risk feature would let a viewer infer a suspicion
+ *     nobody has acted on;
+ *   * no popularity: shares, reactions and view counts are absent, because
+ *     reputation is not popularity;
+ *   * no figure at all below the sample floor, stated as "not enough yet" rather
+ *     than as a precise-looking number from two data points.
+ */
+export const MINIMUM_CONTRIBUTION_SAMPLE = 3;
+
+export interface ContributionView {
+  readonly experiencesPublished: number;
+  /** Experiences of theirs that other people said happened to them too. */
+  readonly corroboratedExperiences: number;
+  /** Claims this person made on other people's experiences that are still active. */
+  readonly corroborationsGiven: number;
+  /** Pieces of evidence they attached that a reviewer found consistent. */
+  readonly consistentEvidence: number;
+  /** Share of Fair Rager? votes in their favour, withheld below the floor. */
+  readonly approvalRate?: number;
+  readonly totalFairVotes: number;
+  readonly insufficientSample: boolean;
+  readonly caption: string;
+}
+
+export const contributionViewOf = async (
+  deps: EngineDeps,
+  actorId: string,
+): Promise<ContributionView> => {
+  const row = await deps.store.reputation.get(actorId);
+  const experiences = await deps.store.experiences.query([
+    eq<Experience>('actorId', actorId),
+    eq<Experience>('status', 'published'),
+  ]);
+
+  let corroborated = 0;
+  for (const experience of experiences) {
+    const count = await deps.store.corroborations.countWhere([
+      eq('experienceId', experience.id),
+      eq('status', 'active'),
+    ]);
+    if (count > 0) corroborated += 1;
+  }
+
+  const standing = await deps.store.corroborations.countWhere([
+    eq('corroboratorId', actorId),
+    eq('status', 'active'),
+  ]);
+
+  const evidence = await deps.store.evidence.query([eq('submittedBy', actorId)]);
+  let consistent = 0;
+  for (const item of evidence) {
+    const assessments = await deps.store.evidenceAssessments.query([eq('evidenceId', item.id)]);
+    if (assessments.some((assessment) => assessment.outcome === 'consistent')) consistent += 1;
+  }
+
+  const totalFairVotes = (row?.fairYesReceived ?? 0) + (row?.fairNoReceived ?? 0);
+  const insufficient = experiences.length < MINIMUM_CONTRIBUTION_SAMPLE;
+
+  return {
+    experiencesPublished: experiences.length,
+    corroboratedExperiences: corroborated,
+    corroborationsGiven: standing,
+    consistentEvidence: consistent,
+    // Withheld rather than shown small: an approval rate from one vote is noise
+    // wearing the clothes of a measurement.
+    ...(insufficient || totalFairVotes < MINIMUM_CONTRIBUTION_SAMPLE
+      ? {}
+      : { approvalRate: row?.approvalRate ?? 0 }),
+    totalFairVotes,
+    insufficientSample: insufficient,
+    caption: insufficient
+      ? 'Too little activity to describe a pattern yet.'
+      : 'Counts of what this person contributed and what others confirmed. Not a score, and not popularity.',
+  };
+};

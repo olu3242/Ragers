@@ -13,12 +13,42 @@ import type { WorkState } from '../runtime/work.ts';
 import type { Role } from '../runtime/authz.ts';
 import type { Corroboration, ExperienceShare } from '../domain/corroboration.ts';
 import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts';
+import type { Dispute } from '../domain/dispute.ts';
+import type { ExperienceRelation } from '../domain/relation.ts';
+import type { IntelligenceProposal } from '../domain/proposal.ts';
 
 /** Persisted shapes for the ESE domain objects. */
 export type CorroborationRow = Corroboration;
 export type ShareRow = ExperienceShare;
 export type ResolutionReportRow = ResolutionReport;
 export type ResolutionEventRow = ResolutionEvent;
+export type DisputeRow = Dispute;
+export type RelationRow = ExperienceRelation;
+export type ProposalRow = IntelligenceProposal;
+
+/**
+ * Derived responsiveness, recomputed from rows like every other counter.
+ *
+ * Named responsiveness, not SLA: no service-level agreement exists, and calling a
+ * measurement an SLA would assert a commitment nobody made. `sampleSize` travels
+ * with the medians so a figure from two cases cannot read as a track record.
+ */
+export interface ResponsivenessSnapshot {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly casesTotal: number;
+  readonly casesAnswered: number;
+  readonly casesConfirmedResolved: number;
+  readonly casesOpen: number;
+  readonly medianAcknowledgementMs?: number;
+  readonly medianFirstResponseMs?: number;
+  readonly medianResolutionMs?: number;
+  readonly oldestOpenMs?: number;
+  readonly responseRate: number;
+  readonly resolutionRate: number;
+  readonly sampleSize: number;
+  readonly computedAt: number;
+}
 
 /**
  * Declarative query criteria.
@@ -719,4 +749,10 @@ export interface EngineStore {
   readonly riskEvents: Table<RiskEvent>;
   readonly moderationCases: Table<ModerationCase>;
   readonly signalSnapshots: Table<SignalSnapshotRow>;
+
+  // ── Engine contract gaps: dispute, relate, responsiveness, proposals ────
+  readonly disputes: Table<DisputeRow>;
+  readonly relations: Table<RelationRow>;
+  readonly responsiveness: Table<ResponsivenessSnapshot>;
+  readonly proposals: Table<ProposalRow>;
 }
