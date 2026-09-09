@@ -45,15 +45,21 @@ class DurableIntegrityRuntime {
     fs.renameSync(tmp, this.file);
   }
 
-  transact(eventType, payload, operation) {
-    const result = operation();
-    this.outbox.push({
+  enqueue(eventType, payload) {
+    const event = {
       id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       eventType,
       payload,
       status: 'pending',
       createdAt: new Date().toISOString()
-    });
+    };
+    this.outbox.push(event);
+    return event;
+  }
+
+  transact(eventType, payload, operation) {
+    const result = operation();
+    this.enqueue(eventType, payload);
     this.persist();
     return result;
   }
@@ -78,23 +84,15 @@ class DurableIntegrityRuntime {
     return this.transact('experience.resolved', { experienceId }, () => this.engine.resolve(experienceId, input));
   }
 
-  revalidateAll() {
-    const ids = [...this.engine.experiences.keys()];
-    for (const experienceId of ids) {
-      const exp = this.engine.experiences.get(experienceId);
-      if (!exp || ['removed', 'resolved'].includes(exp.status)) continue;
-      this.engine.addEvidence(experienceId, { type: 'system_revalidation', internal: true });
-      exp.evidence = exp.evidence.filter((item) => item.type !== 'system_revalidation');
+  requestRevalidation() {
+    const candidates = [...this.engine.experiences.values()]
+      .filter((exp) => !['removed', 'resolved'].includes(exp.status))
+      .map((exp) => exp.id);
+    for (const experienceId of candidates) {
+      this.enqueue('integrity.revalidation_requested', { experienceId });
     }
-    this.outbox.push({
-      id: `evt_${Date.now()}_revalidate`,
-      eventType: 'integrity.revalidated',
-      payload: { count: ids.length },
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    });
     this.persist();
-    return { revalidated: ids.length };
+    return { queued: candidates.length };
   }
 
   drainOutbox(handler = () => {}) {
