@@ -226,8 +226,12 @@ test('the full signal flow: claim, corroborate, cluster, respond, resolve', asyn
   const card = page.locator('article', { hasText: BODY });
   await expect(card.getByRole('button', { name: 'Re-Rage 1' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Share 4' })).toBeVisible();
+  // By this point everyone who claims the experience has confirmed the fix, so the
+  // card reports the outcome rather than the response. Earlier in the flow — before
+  // anyone confirmed — it read as a proposal; `personas.spec.ts` covers that state.
+  await expect(card.getByText('Resolved', { exact: true })).toBeVisible();
   await expect(
-    card.getByText('The organization has responded. That is their account, not a resolution.'),
+    card.getByText('Everyone who said this happened to them reports it was resolved.'),
   ).toBeVisible();
   await expect(card.getByText('2 people have reported')).toBeVisible();
 

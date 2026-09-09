@@ -105,6 +105,8 @@ const FeedPage = async () => {
                   partial: resolution.partial,
                   unresolved: resolution.unresolved,
                   organizationResponded: resolution.organizationResponded,
+                  resolutionProposed: resolution.resolutionProposed,
+                  presentation: resolution.presentation,
                 }}
                 canReport={canReport}
               />

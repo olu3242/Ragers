@@ -1,6 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  OUTCOME_COPY,
+  presentOutcome,
+  type OutcomePresentation,
+} from '../src/domain/outcome-presentation.ts';
 
 /**
  * The outcome, reported by the people it happened to.
@@ -18,23 +23,28 @@ export interface ResolutionState {
   readonly partial: number;
   readonly unresolved: number;
   readonly organizationResponded: boolean;
+  readonly resolutionProposed: boolean;
+  readonly presentation: OutcomePresentation;
 }
 
-const STATUS_LABELS: Readonly<Record<string, string>> = {
-  open: 'Open',
-  gaining_signal: 'Happening to others',
-  acknowledged: 'Acknowledged',
-  under_review: 'Being looked into',
-  resolved: 'Resolved',
-  partially_resolved: 'Partly resolved',
-  disputed: 'Disputed',
-  reopened: 'Happening again',
-};
-
+/**
+ * What a person can say about their own outcome.
+ *
+ * Framed as a review when the organization has proposed a fix, and as a plain
+ * report otherwise — the same three engine values either way, because a person
+ * accepting a proposed fix and a person saying it was resolved are the same
+ * statement, and inventing a fourth state for the difference would be redefining a
+ * contract this layer does not own.
+ *
+ * "Reject" maps to `still_unresolved`. A consumer-initiated *dispute* — an
+ * assertion that the organization's account is untrue, as opposed to the problem
+ * not being fixed — has no engine representation today and is recorded as a
+ * dependency rather than faked here.
+ */
 const REPORT_OPTIONS = [
-  { kind: 'resolved_for_me', label: 'Resolved for me' },
-  { kind: 'partially_resolved', label: 'Partly resolved' },
-  { kind: 'still_unresolved', label: 'Still unresolved' },
+  { kind: 'resolved_for_me', label: 'Resolved for me', reviewLabel: 'Accept — this was fixed' },
+  { kind: 'partially_resolved', label: 'Partly resolved', reviewLabel: 'Partly — some of it' },
+  { kind: 'still_unresolved', label: 'Still unresolved', reviewLabel: 'Reject — not fixed' },
 ] as const;
 
 export const ResolutionRow = ({
@@ -70,24 +80,38 @@ export const ResolutionRow = ({
         setMessage(body.error?.message ?? 'That did not go through.');
         return;
       }
-      setCurrent((previous) => ({
-        ...previous,
-        status: body.status ?? previous.status,
-        reporters: body.reporters ?? previous.reporters,
-        resolvedShare: body.resolvedShare ?? previous.resolvedShare,
-      }));
+      setCurrent((previous) => {
+        const status = body.status ?? previous.status;
+        const reporters = body.reporters ?? previous.reporters;
+        return {
+          ...previous,
+          status,
+          reporters,
+          resolvedShare: body.resolvedShare ?? previous.resolvedShare,
+          // Recomputed rather than left stale: the badge is the thing a person
+          // just changed, and showing the old one would misreport their own answer
+          // back to them.
+          presentation: presentOutcome({
+            status: status as never,
+            hasResponse: previous.organizationResponded,
+            hasProposedResolution: previous.resolutionProposed,
+            reporters,
+          }),
+        };
+      });
     } finally {
       setBusy(undefined);
     }
   };
 
+  const copy = OUTCOME_COPY[current.presentation];
+  const reviewing = current.presentation === 'proposed_resolution';
+
   return (
     <div className="resolution">
       <p className="resolution-status">
-        <span className="resolution-badge">{STATUS_LABELS[current.status] ?? current.status}</span>
-        {current.reporters === 0 ? (
-          <span className="resolution-tally">Nobody has said whether this was resolved.</span>
-        ) : (
+        <span className={`outcome-badge outcome-${current.presentation}`}>{copy.badge}</span>
+        {current.reporters === 0 ? null : (
           <span className="resolution-tally">
             {current.reporters} {current.reporters === 1 ? 'person has' : 'people have'} reported —{' '}
             {Math.round(current.resolvedShare * 100)}% say it was resolved for them
@@ -95,16 +119,15 @@ export const ResolutionRow = ({
         )}
       </p>
 
-      {current.organizationResponded ? (
-        // Stated separately and explicitly: this is the part most easily misread.
-        <p className="resolution-note">
-          The organization has responded. That is their account, not a resolution.
-        </p>
-      ) : null}
+      {/* Always shown, not only when it could be misread: the difference between a
+          response, a proposal and a resolution is the thing a viewer most needs. */}
+      <p className="resolution-note">{copy.explanation}</p>
 
       {canReport ? (
         <div className="resolution-actions">
-          <span className="resolution-prompt">Was this resolved for you?</span>
+          <span className="resolution-prompt">
+            {reviewing ? 'They say this was fixed. Was it?' : 'Was this resolved for you?'}
+          </span>
           {REPORT_OPTIONS.map((option) => (
             <button
               key={option.kind}
@@ -113,7 +136,7 @@ export const ResolutionRow = ({
               disabled={busy === option.kind}
               onClick={() => void submit(option.kind)}
             >
-              {option.label}
+              {reviewing ? option.reviewLabel : option.label}
             </button>
           ))}
         </div>

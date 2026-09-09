@@ -12,6 +12,11 @@ import {
   type ResolutionSource,
   type ResolutionStatus,
 } from '../domain/resolution.ts';
+import {
+  presentOutcome,
+  PROPOSAL_RESPONSE_KINDS,
+  type OutcomePresentation,
+} from '../domain/outcome-presentation.ts';
 import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
@@ -265,6 +270,15 @@ export interface ResolutionSummary {
   readonly unresolved: number;
   /** True when an organization has responded, which is not the same as resolved. */
   readonly organizationResponded: boolean;
+  /**
+   * True when an organization has described a fix. Reported separately from
+   * `organizationResponded` because a described fix nobody has confirmed is a
+   * *proposal*, and a surface that cannot tell the two apart will eventually
+   * present one as the other.
+   */
+  readonly resolutionProposed: boolean;
+  /** How the five distinguishable outcomes resolve for this experience. */
+  readonly presentation: OutcomePresentation;
   readonly history: readonly { readonly toStatus: ResolutionStatus; readonly source: ResolutionSource; readonly at: number }[];
 }
 
@@ -281,14 +295,26 @@ export const resolutionSummaryFor = async (
     orderBy: { field: 'createdAt', direction: 'asc' },
   });
 
+  const responses = await deps.store.organizationResponses.query([eq('experienceId', experienceId)]);
+  const status = currentStatus(experience.resolutionStatus);
+  const resolutionProposed = responses.some((response) =>
+    PROPOSAL_RESPONSE_KINDS.includes(response.kind),
+  );
+
   return {
-    status: currentStatus(experience.resolutionStatus),
+    status,
     reporters: tally.reporters,
     resolvedShare: tally.resolvedShare,
     partial: tally.partial,
     unresolved: tally.unresolved,
-    organizationResponded:
-      (await deps.store.organizationResponses.countWhere([eq('experienceId', experienceId)])) > 0,
+    organizationResponded: responses.length > 0,
+    resolutionProposed,
+    presentation: presentOutcome({
+      status,
+      hasResponse: responses.length > 0,
+      hasProposedResolution: resolutionProposed,
+      reporters: tally.reporters,
+    }),
     history: events.map((event) => ({
       toStatus: event.toStatus,
       source: event.source,

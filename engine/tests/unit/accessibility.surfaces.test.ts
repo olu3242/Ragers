@@ -22,6 +22,10 @@ const reactions = read('components', 'ReactionRow.tsx');
 const signals = read('components', 'SignalRow.tsx');
 const resolution = read('components', 'ResolutionRow.tsx');
 const orgResponses = read('components', 'OrganizationResponses.tsx');
+const personaNav = read('components', 'PersonaNav.tsx');
+const queue = read('components', 'ModerationQueue.tsx');
+const inbox = read('components', 'OrganizationCaseInbox.tsx');
+const outcomeBadge = read('components', 'OutcomeBadge.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -52,8 +56,11 @@ test('the layout provides a skip link that becomes visible on focus', () => {
 
 test('navigation and the document declare their language and landmarks', () => {
   assert.match(layout, /<html lang="en">/);
-  assert.match(layout, /aria-label="Main"/, 'navigation is labelled');
   assert.match(layout, /<main id="main">/, 'there is a main landmark');
+  // The nav moved into PersonaNav when navigation became persona-scoped; the
+  // landmark and its label have to move with it, not get lost in the change.
+  assert.match(personaNav, /aria-label="Main"/, 'navigation is labelled');
+  assert.match(personaNav, /<nav\b/, 'and it is still a nav landmark');
 });
 
 test('every text input in the composer has an associated label', () => {
@@ -112,6 +119,10 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['SignalRow', signals],
     ['ResolutionRow', resolution],
     ['OrganizationResponses', orgResponses],
+    ['PersonaNav', personaNav],
+    ['ModerationQueue', queue],
+    ['OrganizationCaseInbox', inbox],
+    ['OutcomeBadge', outcomeBadge],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -130,6 +141,8 @@ test('every button in the app surfaces declares an explicit type', () => {
     ['ReactionRow', reactions],
     ['SignalRow', signals],
     ['ResolutionRow', resolution],
+    ['ModerationQueue', queue],
+    ['OrganizationCaseInbox', inbox],
   ] as const) {
     const buttons = [...source.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1] ?? '');
     for (const attributes of buttons) {
@@ -144,7 +157,11 @@ test('all app surface files are accounted for by these assertions', () => {
     components.sort(),
     [
       'Composer.tsx',
+      'ModerationQueue.tsx',
+      'OrganizationCaseInbox.tsx',
       'OrganizationResponses.tsx',
+      'OutcomeBadge.tsx',
+      'PersonaNav.tsx',
       'ReactionRow.tsx',
       'ResolutionRow.tsx',
       'SignalRow.tsx',
@@ -153,4 +170,43 @@ test('all app surface files are accounted for by these assertions', () => {
     ],
     'a new component must be added to the accessibility gate',
   );
+});
+
+// ── Persona surfaces ─────────────────────────────────────────────────────
+test('every operator and organization control that mutates has a label', () => {
+  for (const [name, source] of [
+    ['ModerationQueue', queue],
+    ['OrganizationCaseInbox', inbox],
+  ] as const) {
+    // A bare input or select with no label is unusable with a screen reader, and
+    // these are the surfaces where a mislabelled control has consequences.
+    const inputs = [...source.matchAll(/<(input|select|textarea)\b([^>]*)>/g)];
+    for (const [, element, attributes] of inputs) {
+      assert.match(
+        attributes ?? '',
+        /id=|aria-label/,
+        `${name} has a ${element} with nothing to label it`,
+      );
+    }
+    const labels = [...source.matchAll(/<label\b([^>]*)>/g)].map((match) => match[1] ?? '');
+    for (const attributes of labels) {
+      assert.match(attributes, /htmlFor=/, `${name} has a label that points at nothing`);
+    }
+  }
+});
+
+test('operator and organization errors are announced, not only shown', () => {
+  for (const [name, source] of [
+    ['ModerationQueue', queue],
+    ['OrganizationCaseInbox', inbox],
+  ] as const) {
+    assert.match(source, /role="alert"/, `${name} must announce a refusal`);
+  }
+});
+
+test('the persona label is text, not colour alone', () => {
+  // Someone who holds several personas has to be able to tell which surface they
+  // are on without relying on a hue.
+  assert.match(personaNav, /PERSONA_LABELS\[target\.persona\]/, 'personas are labelled in words');
+  assert.match(css, /\.tab-persona/, 'and styled from that label, not instead of it');
 });

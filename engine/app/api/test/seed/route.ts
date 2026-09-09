@@ -57,6 +57,15 @@ export const POST = async (request: Request): Promise<Response> => {
     status: 'claimed',
   });
 
+  // Promote the current session to moderator, on request. Same gate: this would
+  // be a privilege-escalation path if it were ever reachable in a deployment.
+  if (body['grantModerator'] === true) {
+    const actor = await currentActor();
+    const row = actor.authenticated ? await engine.store.actors.get(actor.actorId) : undefined;
+    if (!row) return jsonError(notFoundError('no_session', 'sign in first'));
+    await engine.store.actors.put({ ...row, role: 'moderator' });
+  }
+
   // Enrol the *current* session as organization staff, on request. Only ever
   // reachable behind the flag above.
   if (body['grantOrganizationMembership'] === true) {

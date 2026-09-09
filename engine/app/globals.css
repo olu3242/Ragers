@@ -324,3 +324,110 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 .cluster-members { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .cluster-members li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .cluster-relationship { color: var(--text-faint); }
+
+/* ── Persona navigation ──────────────────────────────────────────────────
+   The persona label says which hat a surface belongs to, so somebody who holds
+   several is never in doubt about which one they are acting as. */
+.tab-persona {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  vertical-align: middle;
+}
+
+/* ── Outcome states ──────────────────────────────────────────────────────
+   Five states that must never be mistaken for each other. A proposed resolution
+   is deliberately not styled like a resolved one — it is the misreading with the
+   most at stake, so it reads as pending rather than settled. */
+.outcome { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.outcome-badge {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.outcome-explanation { font-size: 12px; color: var(--text-dim); }
+.outcome-resolved { border-color: var(--rave); color: var(--rave); }
+.outcome-proposed_resolution { border-style: dashed; color: var(--text-dim); }
+.outcome-disputed { border-color: var(--rage); color: var(--rage); }
+.outcome-response_only { border-style: dashed; color: var(--text-dim); }
+
+/* ── Operator queue ──────────────────────────────────────────────────────
+   Not a feed. Each row is one outstanding decision. */
+.queue { display: grid; gap: 14px; }
+.queue-case { border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.queue-head { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 8px; }
+.queue-status,
+.queue-signal,
+.queue-reports {
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--text-dim);
+}
+.queue-signal { border-color: var(--rage); color: var(--rage); }
+.queue-body { margin: 0 0 10px; font-size: 14px; }
+.queue-note { margin: 0; font-size: 12px; color: var(--text-faint); }
+.queue-actions { display: grid; gap: 6px; }
+.queue-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+.queue-action,
+.queue-claim {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.queue-action:hover,
+.queue-claim:hover { background: var(--bg-hover); color: var(--text); }
+/* Removal is the consequential one, so it is the one that looks consequential. */
+.queue-action-remove { border-color: var(--rage); color: var(--rage); }
+.queue-error,
+.inbox-error { margin: 0 0 10px; color: var(--rage); font-size: 13px; }
+
+/* ── Organization inbox ──────────────────────────────────────────────────
+   A case, not a mention. Volume is stated as a count of people. */
+.inbox { display: grid; gap: 14px; }
+.inbox-case { border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.inbox-head { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 8px; }
+.inbox-cluster { font-size: 12px; color: var(--text-dim); }
+.inbox-body { margin: 0 0 8px; font-size: 14px; }
+.inbox-signal { margin: 0 0 4px; font-size: 13px; color: var(--text-dim); }
+.inbox-outcome { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.composer-response { display: grid; gap: 6px; margin-top: 10px; }
+.composer-hint { margin: 0; font-size: 12px; color: var(--text-faint); }
+.composer-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* ── Proposals ───────────────────────────────────────────────────────────
+   A proposal is visibly not a decision: dashed, quiet, and with no approve
+   control, because the person whose experience it is confirms their own. */
+.proposal-rule {
+  border-left: 2px dashed var(--border-strong);
+  padding-left: 12px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.proposals { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.proposal { border: 1px dashed var(--border-strong); border-radius: 12px; padding: 14px; }
+.proposal-target { margin: 0 0 8px; font-size: 13px; }
+.proposal-fields { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.proposal-fields li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; }
+.proposal-field { color: var(--text-dim); min-width: 90px; }
+.proposal-value { color: var(--text); }
+.proposal-confidence { color: var(--text-faint); font-size: 12px; }
+.proposal-evidence { color: var(--text-dim); font-style: italic; }
+.proposal-owner { margin: 0; font-size: 12px; color: var(--text-faint); }

@@ -49,6 +49,13 @@ export default defineConfig({
       testMatch: /experience-signal-engine\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3102' },
     },
+    {
+      // Its own server: these tests promote their own session to moderator and to
+      // organization staff, which must not leak into another suite's assumptions.
+      name: 'personas',
+      testMatch: /personas\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3103' },
+    },
   ],
   webServer: [
     {
@@ -64,6 +71,13 @@ export default defineConfig({
       timeout: 120_000,
       // Only this server has the fixture route at all, so the golden-path server
       // is exactly what a deployment runs.
+      env: { RAGERS_TEST_SEED: 'enabled' },
+    },
+    {
+      command: 'npx next start -p 3103',
+      url: 'http://127.0.0.1:3103',
+      reuseExistingServer: false,
+      timeout: 120_000,
       env: { RAGERS_TEST_SEED: 'enabled' },
     },
   ],
