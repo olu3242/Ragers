@@ -12,18 +12,27 @@
 -- ─────────────────────────────────────────────────────────────────────────
 -- Actor context helpers
 -- ─────────────────────────────────────────────────────────────────────────
-create or replace function current_actor_id() returns uuid
+create or replace function current_actor_id() returns text
   language sql stable as $$
-    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+    select nullif(current_setting('request.jwt.claim.sub', true), '')
   $$;
 
+-- `security definer` is load-bearing, not incidental: this function reads
+-- `actors`, and the policy on `actors` calls is_staff() -> current_actor_role().
+-- As an invoker-rights function that recurses until Postgres aborts with
+-- "stack depth limit exceeded". Definer rights read the table as its owner,
+-- which breaks the cycle. search_path is pinned so the definer context cannot
+-- be redirected to an attacker-controlled schema.
 create or replace function current_actor_role() returns actor_role
-  language sql stable as $$
+  language sql stable security definer set search_path = public, pg_temp as $$
     select coalesce(
       (select role from actors where id = current_actor_id()),
       'guest'::actor_role
     )
   $$;
+
+revoke all on function current_actor_role() from public;
+grant execute on function current_actor_role() to anon, authenticated, service_role;
 
 create or replace function is_staff() returns boolean
   language sql stable as $$
@@ -238,7 +247,12 @@ create policy notification_prefs_own on notification_preferences for all
 -- ─────────────────────────────────────────────────────────────────────────
 create policy reputation_staff_read on actor_reputation for select using (is_staff());
 
-create view actor_reputation_public with (security_invoker = true) as
+-- Deliberately NOT security_invoker: the base table is staff-only, so an
+-- invoker-rights view would return nothing to the members whose own approval
+-- rate this is meant to show. Running as owner makes the view itself the
+-- access boundary, and it selects only the public columns — internal_signals
+-- is absent, so there is nothing here to leak.
+create view actor_reputation_public with (security_invoker = false) as
   select actor_id, experiences_published, fair_yes_received, fair_no_received, approval_rate, updated_at
   from actor_reputation;
 
@@ -257,8 +271,10 @@ create policy export_requests_own on export_requests for all
 -- ─────────────────────────────────────────────────────────────────────────
 create policy audit_admin_read on audit_events for select using (is_admin());
 create policy audit_insert on audit_events for insert with check (true);
--- No update or delete policy exists for audit_events. RLS therefore refuses
--- both, which is what makes the trail immutable.
+-- No update or delete policy exists for audit_events, so RLS exposes no rows to
+-- modify and both statements become no-ops. That protects the data but succeeds
+-- silently, so the privilege is revoked as well and tampering raises an error
+-- instead. Defence in depth, and a much clearer signal in an audit review.
 
 create policy role_assignments_admin on role_assignments for all
   using (is_admin()) with check (is_admin());
@@ -271,6 +287,51 @@ create policy analytics_admin_read on analytics_events for select using (is_admi
 create policy metrics_admin_read on metric_snapshots for select using (is_admin());
 -- idempotency_keys, outbox and event_deliveries intentionally have no policies:
 -- only the service role, which bypasses RLS, may touch them.
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- Base privileges
+--
+-- RLS filters rows a role may touch; it does not grant the privilege to touch
+-- the table in the first place. Without these grants the policies above are
+-- never consulted, because the statement is refused earlier. Supabase installs
+-- equivalents as part of its bootstrap, so these are written explicitly here to
+-- keep a plain Postgres deployment identical — and so a pg_dump/pg_restore
+-- reproduces exactly this surface rather than whatever an environment happened
+-- to have.
+--
+-- Grants are per table and per statement on purpose. A blanket
+-- `grant select on all tables` would hand out every column, which is precisely
+-- what the withheld-column rules below exist to prevent.
+-- ─────────────────────────────────────────────────────────────────────────
+grant usage on schema public to anon, authenticated, service_role;
+
+-- Publicly readable surfaces (RLS still decides which rows).
+grant select on experiences, replies, reactions, experience_counters, feed_entries,
+                search_documents, subjects, experience_subjects, trends
+  to anon, authenticated;
+
+-- Member-owned reads.
+grant select on actors, aliases, sessions, upload_targets, fair_votes, notifications,
+                notification_preferences, graph_edges, reports, deletion_requests,
+                export_requests, actor_reputation, moderation_queue, moderation_actions,
+                screenings, audit_events, dead_letters, metric_snapshots
+  to authenticated;
+
+-- Member writes. Note the deliberate absence of `delete` on experiences and
+-- replies: removal is a state transition plus propagation, never a row delete.
+grant insert, update on experiences, replies to authenticated;
+grant insert, update on aliases, upload_targets, fair_votes, deletion_requests,
+                        export_requests, notification_preferences, moderation_queue,
+                        role_assignments
+  to authenticated;
+grant insert on reports, moderation_actions, audit_events to authenticated;
+grant update on actors, sessions, notifications to authenticated;
+-- Reactions and graph edges are toggles, so removing the row is the intent.
+grant insert, delete on reactions, graph_edges to authenticated;
+grant select on role_assignments to authenticated;
+
+-- The worker owns everything else.
+grant all on all tables in schema public to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- Column grants — the absolute rules
@@ -293,9 +354,21 @@ begin
         'grant select (id, media_asset_id, redacted_text, language, confidence, processing_status, '
         || 'provider, redaction_findings, created_at) on transcripts to %I', client_role);
       execute format('grant select on media_assets_public to %I', client_role);
+      if client_role = 'authenticated' then
+        execute 'grant insert, update on media_assets to authenticated';
+      end if;
       execute format('grant select on transcripts_public to %I', client_role);
       execute format('grant select on actor_reputation_public to %I', client_role);
       -- Ranking components and analytics are never client-readable.
+      execute format('revoke all on ranking_inputs from %I', client_role);
+      execute format('revoke all on analytics_events from %I', client_role);
+      -- Make tampering an error rather than a silent no-op.
+      execute format('revoke update, delete on audit_events from %I', client_role);
+      execute format('revoke delete on experiences from %I', client_role);
+      execute format('revoke delete on replies from %I', client_role);
+      execute format('grant select on actor_reputation_public to %I', client_role);
+      -- ranking components and analytics stay internal even for staff reads,
+      -- which go through the worker's service role.
       execute format('revoke all on ranking_inputs from %I', client_role);
       execute format('revoke all on analytics_events from %I', client_role);
     end if;

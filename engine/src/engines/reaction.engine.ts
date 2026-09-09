@@ -2,6 +2,7 @@ import { err, ok } from '../runtime/result.ts';
 import { preconditionError, validationError } from '../runtime/errors.ts';
 import { isReactionType, REJECTED_REACTION_TYPES, type ReactionType } from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
+import { eq } from '../ports/store.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { EngineDeps } from './deps.ts';
 import { ensureCounters, experienceResource } from './support.ts';
@@ -143,8 +144,8 @@ export const createCounterProjectionConsumer = (deps: EngineDeps): Consumer => (
     if (!experienceId) return ok(undefined);
     await ensureCounters(deps, experienceId);
 
-    const reactions = await deps.store.reactions.find((row) => row.experienceId === experienceId);
-    const votes = await deps.store.fairVotes.find((row) => row.experienceId === experienceId);
+    const reactions = await deps.store.reactions.query([eq('experienceId', experienceId)]);
+    const votes = await deps.store.fairVotes.query([eq('experienceId', experienceId)]);
     const replies = await deps.store.replies.find(
       (row) => row.experienceId === experienceId && row.status === 'published',
     );

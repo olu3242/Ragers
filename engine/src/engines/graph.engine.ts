@@ -2,6 +2,7 @@ import { err, ok } from '../runtime/result.ts';
 import { preconditionError, validationError } from '../runtime/errors.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { GraphEdge, GraphTargetRef } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -132,6 +133,6 @@ export const isMutedBy = async (deps: EngineDeps, actorId: string, targetId: str
   (await deps.store.graphEdges.get(edgeId('mute', actorId, 'actor', targetId))) !== undefined;
 
 export const followeesOf = async (deps: EngineDeps, actorId: string): Promise<readonly string[]> =>
-  (await deps.store.graphEdges.find((row) => row.kind === 'follow' && row.actorId === actorId)).map(
+  (await deps.store.graphEdges.query([eq('kind', 'follow'), eq('actorId', actorId)])).map(
     (row) => row.targetId,
   );

@@ -1,6 +1,7 @@
 import { ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
-import type { SearchDocument } from '../ports/store.ts';
+import { eq } from '../ports/store.ts';
+import type { Criterion, SearchDocument } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -20,12 +21,12 @@ const buildDocument = async (
   const entry = await deps.store.feedEntries.get(experienceId);
   const asset = experience.mediaAssetId ? await deps.store.mediaAssets.get(experience.mediaAssetId) : undefined;
   const transcript = asset
-    ? await deps.store.transcripts.findOne((row) => row.mediaAssetId === asset.id)
+    ? await deps.store.transcripts.queryOne([eq('mediaAssetId', asset.id)])
     : undefined;
 
   // Only the redacted form is ever indexed.
   const transcriptText = transcript?.redactedText ?? '';
-  const subjectLinks = await deps.store.experienceSubjects.find((row) => row.experienceId === experienceId);
+  const subjectLinks = await deps.store.experienceSubjects.query([eq('experienceId', experienceId)]);
   const subjectTerms: string[] = [];
   for (const link of subjectLinks) {
     const subject = await deps.store.subjects.get(link.subjectId);
@@ -98,16 +99,22 @@ export const searchExperiences = async (
   query: SearchQuery,
 ): Promise<readonly SearchHit[]> => {
   const needle = query.text?.trim().toLowerCase();
-  const documents = await deps.store.searchDocuments.find((row) => {
-    if (query.kind && row.kind !== query.kind) return false;
-    if (query.category && row.category !== query.category) return false;
-    if (query.voiceOnly && !row.hasVoice) return false;
-    if (needle && needle.length > 0) {
-      const haystack = `${row.searchableText} ${row.subjectTerms.join(' ')}`.toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
-    return true;
-  });
+
+  // Structured filters narrow the candidate set in the adapter; free text is
+  // matched over that narrowed set. `search_documents` carries a GIN index on
+  // to_tsvector(searchable_text) for when this becomes a native full-text query.
+  const criteria: Criterion<SearchDocument>[] = [];
+  if (query.kind) criteria.push(eq<SearchDocument>('kind', query.kind));
+  if (query.category) criteria.push(eq<SearchDocument>('category', query.category));
+  if (query.voiceOnly) criteria.push({ field: 'hasVoice', op: 'isTrue' });
+
+  const candidates = await deps.store.searchDocuments.query(criteria);
+  const documents =
+    needle && needle.length > 0
+      ? candidates.filter((row) =>
+          `${row.searchableText} ${row.subjectTerms.join(' ')}`.toLowerCase().includes(needle),
+        )
+      : candidates;
 
   return [...documents]
     .sort((a, b) => b.publishedAt - a.publishedAt)

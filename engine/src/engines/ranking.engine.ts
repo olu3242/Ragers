@@ -1,5 +1,6 @@
 import { ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { FeedEntry, RankingInput, Trend, TrendWindow } from '../ports/store.ts';
 import type { ExperienceKind } from '../domain/types.ts';
 import type { EngineDeps } from './deps.ts';
@@ -55,7 +56,7 @@ export const computeScore = (parts: {
   );
 
 export const computeRanking = async (deps: EngineDeps): Promise<readonly RankingInput[]> => {
-  const entries = await deps.store.feedEntries.find((row) => !row.suppressed);
+  const entries = await deps.store.feedEntries.query([{ field: 'suppressed', op: 'isFalse' }]);
   const rageCount = entries.filter((row) => row.kind === 'rage').length;
   const raveCount = entries.filter((row) => row.kind === 'rave').length;
   const now = deps.clock.now();
@@ -120,9 +121,10 @@ export const getRankedFeed = async (
   deps: EngineDeps,
   options: { kind?: ExperienceKind; limit?: number } = {},
 ): Promise<RankedFeed> => {
-  const entries = await deps.store.feedEntries.find(
-    (row) => !row.suppressed && (options.kind === undefined || row.kind === options.kind),
-  );
+  const entries = await deps.store.feedEntries.query([
+    { field: 'suppressed', op: 'isFalse' },
+    ...(options.kind === undefined ? [] : [eq<FeedEntry>('kind', options.kind)]),
+  ]);
   const scored = await deps.store.rankingInputs.count();
   const order: FeedOrder = scored === 0 ? 'chronological' : 'ranked';
 
@@ -144,11 +146,14 @@ const WINDOW_MS: Readonly<Record<TrendWindow, number>> = {
 export const computeTrends = async (deps: EngineDeps, window: TrendWindow): Promise<readonly Trend[]> => {
   const now = deps.clock.now();
   const cutoff = now - WINDOW_MS[window];
-  const recent = await deps.store.feedEntries.find((row) => !row.suppressed && row.publishedAt >= cutoff);
+  const recent = await deps.store.feedEntries.query([
+    { field: 'suppressed', op: 'isFalse' },
+    { field: 'publishedAt', op: 'gte', value: cutoff },
+  ]);
 
   const counts = new Map<string, { volume: number; kind: ExperienceKind }>();
   for (const entry of recent) {
-    for (const link of await deps.store.experienceSubjects.find((row) => row.experienceId === entry.experienceId)) {
+    for (const link of await deps.store.experienceSubjects.query([eq('experienceId', entry.experienceId)])) {
       const key = `${link.subjectId}:${entry.kind}`;
       const current = counts.get(key) ?? { volume: 0, kind: entry.kind };
       counts.set(key, { volume: current.volume + 1, kind: entry.kind });

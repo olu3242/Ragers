@@ -9,6 +9,11 @@
 
 create extension if not exists "pgcrypto";
 
+-- Identifiers are `text`, not `uuid`: the engine owns id generation and emits
+-- readable prefixed ids (exp_…, actor_…, media_…) so that a log line or a
+-- foreign key is self-describing. Column defaults remain as a safety net for
+-- rows inserted outside the engine.
+
 -- ─────────────────────────────────────────────────────────────────────────
 -- Enumerated domains
 -- ─────────────────────────────────────────────────────────────────────────
@@ -32,7 +37,7 @@ create type trend_window       as enum ('1h','24h','7d');
 -- P3 Identity & access
 -- ─────────────────────────────────────────────────────────────────────────
 create table actors (
-  id                 uuid primary key default gen_random_uuid(),
+  id                 text primary key default gen_random_uuid()::text,
   email              text not null unique,
   auth_provider      text not null default 'password',
   display_name       text not null check (char_length(display_name) between 1 and 40),
@@ -44,8 +49,8 @@ create table actors (
 );
 
 create table aliases (
-  id          uuid primary key default gen_random_uuid(),
-  actor_id    uuid not null references actors(id) on delete cascade,
+  id          text primary key default gen_random_uuid()::text,
+  actor_id    text not null references actors(id) on delete cascade,
   alias_name  text not null check (alias_name ~ '^[a-z0-9_]{3,24}$'),
   is_active   boolean not null default true,
   created_at  timestamptz not null default now()
@@ -55,8 +60,8 @@ create unique index aliases_active_name_key on aliases (alias_name) where is_act
 create index aliases_actor_idx on aliases (actor_id);
 
 create table sessions (
-  id         uuid primary key default gen_random_uuid(),
-  actor_id   uuid not null references actors(id) on delete cascade,
+  id         text primary key default gen_random_uuid()::text,
+  actor_id   text not null references actors(id) on delete cascade,
   issued_at  timestamptz not null default now(),
   expires_at timestamptz not null,
   revoked_at timestamptz
@@ -68,7 +73,7 @@ create index sessions_actor_idx on sessions (actor_id) where revoked_at is null;
 -- ─────────────────────────────────────────────────────────────────────────
 create table idempotency_keys (
   key          text primary key,
-  actor_id     uuid not null,
+  actor_id     text not null,
   command_name text not null,
   state        text not null default 'reserved' check (state in ('reserved','completed')),
   response     jsonb,
@@ -77,9 +82,9 @@ create table idempotency_keys (
 );
 
 create table outbox (
-  id              uuid primary key default gen_random_uuid(),
+  id              text primary key default gen_random_uuid()::text,
   aggregate_type  text not null,
-  aggregate_id    uuid not null,
+  aggregate_id    text not null,
   sequence        bigint not null,
   event_name      text not null,
   payload         jsonb not null,
@@ -97,8 +102,8 @@ create index outbox_pending_idx on outbox (aggregate_type, aggregate_id, sequenc
   where state not in ('ready','dead_letter');
 
 create table event_deliveries (
-  id              uuid primary key default gen_random_uuid(),
-  outbox_id       uuid not null references outbox(id) on delete cascade,
+  id              text primary key default gen_random_uuid()::text,
+  outbox_id       text not null references outbox(id) on delete cascade,
   consumer        text not null,
   state           work_state not null default 'queued',
   attempt_count   int not null default 0,
@@ -108,11 +113,11 @@ create table event_deliveries (
 );
 
 create table dead_letters (
-  id              uuid primary key default gen_random_uuid(),
+  id              text primary key default gen_random_uuid()::text,
   source          text not null,
   event_name      text not null,
   aggregate_type  text not null,
-  aggregate_id    uuid not null,
+  aggregate_id    text not null,
   payload         jsonb not null,
   correlation_id  text not null,
   failure_history jsonb not null default '[]'::jsonb,
@@ -122,8 +127,8 @@ create table dead_letters (
 
 -- Append-only. No update or delete policy exists for this table, by design.
 create table audit_events (
-  id             uuid primary key default gen_random_uuid(),
-  actor_id       uuid not null,
+  id             text primary key default gen_random_uuid()::text,
+  actor_id       text not null,
   action         text not null,
   resource_type  text not null,
   resource_id    text not null,
@@ -138,16 +143,16 @@ create index audit_events_resource_idx on audit_events (resource_type, resource_
 -- P1/P2 Canonical Experience + media
 -- ─────────────────────────────────────────────────────────────────────────
 create table experiences (
-  id             uuid primary key default gen_random_uuid(),
-  actor_id       uuid not null references actors(id) on delete cascade,
+  id             text primary key default gen_random_uuid()::text,
+  actor_id       text not null references actors(id) on delete cascade,
   kind           experience_kind not null,
   creation_mode  creation_mode not null,
   category       text not null,
   body_text      text not null default '' check (char_length(body_text) <= 280),
   status         experience_status not null default 'draft',
   visibility     visibility_mode not null default 'public',
-  alias_id       uuid references aliases(id) on delete set null,
-  media_asset_id uuid,
+  alias_id       text references aliases(id) on delete set null,
+  media_asset_id text,
   correlation_id text not null,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
@@ -165,9 +170,9 @@ create index experiences_actor_idx on experiences (actor_id);
 create index experiences_published_idx on experiences (published_at desc) where status = 'published';
 
 create table media_assets (
-  id                uuid primary key default gen_random_uuid(),
-  experience_id     uuid references experiences(id) on delete cascade,
-  reply_id          uuid,
+  id                text primary key default gen_random_uuid()::text,
+  experience_id     text references experiences(id) on delete cascade,
+  reply_id          text,
   kind              text not null check (kind in ('audio','image')),
   -- Internal only. Never granted to any client role. See the grants below.
   original_key      text not null,
@@ -191,9 +196,9 @@ alter table experiences
   add constraint experiences_media_fk foreign key (media_asset_id) references media_assets(id) on delete set null;
 
 create table upload_targets (
-  id            uuid primary key default gen_random_uuid(),
-  actor_id      uuid not null references actors(id) on delete cascade,
-  experience_id uuid not null references experiences(id) on delete cascade,
+  id            text primary key default gen_random_uuid()::text,
+  actor_id      text not null references actors(id) on delete cascade,
+  experience_id text not null references experiences(id) on delete cascade,
   storage_key   text not null,
   issued_at     timestamptz not null default now(),
   expires_at    timestamptz not null,
@@ -204,8 +209,8 @@ create table upload_targets (
 -- P8 Voice intelligence
 -- ─────────────────────────────────────────────────────────────────────────
 create table transcripts (
-  id                 uuid primary key default gen_random_uuid(),
-  media_asset_id     uuid not null references media_assets(id) on delete cascade,
+  id                 text primary key default gen_random_uuid()::text,
+  media_asset_id     text not null references media_assets(id) on delete cascade,
   -- Internal only. Never granted to any client role.
   raw_text           text,
   -- Public-facing. Present only once redaction has run.
@@ -225,15 +230,15 @@ create table transcripts (
 -- P7 Conversation
 -- ─────────────────────────────────────────────────────────────────────────
 create table replies (
-  id              uuid primary key default gen_random_uuid(),
-  experience_id   uuid not null references experiences(id) on delete cascade,
-  parent_reply_id uuid references replies(id) on delete cascade,
-  actor_id        uuid not null references actors(id) on delete cascade,
+  id              text primary key default gen_random_uuid()::text,
+  experience_id   text not null references experiences(id) on delete cascade,
+  parent_reply_id text references replies(id) on delete cascade,
+  actor_id        text not null references actors(id) on delete cascade,
   creation_mode   creation_mode not null,
   body_text       text not null default '' check (char_length(body_text) <= 280),
   visibility      visibility_mode not null default 'public',
-  alias_id        uuid references aliases(id) on delete set null,
-  media_asset_id  uuid references media_assets(id) on delete set null,
+  alias_id        text references aliases(id) on delete set null,
+  media_asset_id  text references media_assets(id) on delete set null,
   status          experience_status not null default 'draft',
   depth           int not null default 0 check (depth between 0 and 4),
   created_at      timestamptz not null default now()
@@ -244,18 +249,18 @@ create index replies_experience_idx on replies (experience_id, created_at);
 -- P6 Engagement — Ragers-native mechanics
 -- ─────────────────────────────────────────────────────────────────────────
 create table reactions (
-  id            uuid primary key default gen_random_uuid(),
-  experience_id uuid not null references experiences(id) on delete cascade,
-  actor_id      uuid not null references actors(id) on delete cascade,
+  id            text primary key default gen_random_uuid()::text,
+  experience_id text not null references experiences(id) on delete cascade,
+  actor_id      text not null references actors(id) on delete cascade,
   reaction_type reaction_type not null,
   created_at    timestamptz not null default now(),
   unique (experience_id, actor_id, reaction_type)
 );
 
 create table fair_votes (
-  id            uuid primary key default gen_random_uuid(),
-  experience_id uuid not null references experiences(id) on delete cascade,
-  actor_id      uuid not null references actors(id) on delete cascade,
+  id            text primary key default gen_random_uuid()::text,
+  experience_id text not null references experiences(id) on delete cascade,
+  actor_id      text not null references actors(id) on delete cascade,
   is_fair       boolean not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
@@ -264,7 +269,7 @@ create table fair_votes (
 );
 
 create table experience_counters (
-  experience_id uuid primary key references experiences(id) on delete cascade,
+  experience_id text primary key references experiences(id) on delete cascade,
   been_there    int not null default 0,
   same          int not null default 0,
   fair_point    int not null default 0,
@@ -278,7 +283,7 @@ create table experience_counters (
 -- P5 Feed projection — deliberately has no actor_id column
 -- ─────────────────────────────────────────────────────────────────────────
 create table feed_entries (
-  experience_id  uuid primary key references experiences(id) on delete cascade,
+  experience_id  text primary key references experiences(id) on delete cascade,
   kind           experience_kind not null,
   creation_mode  creation_mode not null,
   category       text not null,
@@ -297,7 +302,7 @@ create index feed_entries_rank_idx on feed_entries (rank_score desc, published_a
 -- P11 Search projection — no actor_id, redacted text only
 -- ─────────────────────────────────────────────────────────────────────────
 create table search_documents (
-  experience_id   uuid primary key references experiences(id) on delete cascade,
+  experience_id   text primary key references experiences(id) on delete cascade,
   kind            experience_kind not null,
   category        text not null,
   searchable_text text not null,
@@ -312,32 +317,32 @@ create index search_documents_text_idx on search_documents using gin (to_tsvecto
 -- P9 Trust & safety
 -- ─────────────────────────────────────────────────────────────────────────
 create table reports (
-  id                uuid primary key default gen_random_uuid(),
+  id                text primary key default gen_random_uuid()::text,
   target_type       target_type not null,
-  target_id         uuid not null,
-  reporter_actor_id uuid not null references actors(id) on delete cascade,
+  target_id         text not null,
+  reporter_actor_id text not null references actors(id) on delete cascade,
   reason_code       report_reason not null,
   status            text not null default 'open' check (status in ('open','reviewed','closed')),
   created_at        timestamptz not null default now()
 );
 
 create table moderation_queue (
-  id          uuid primary key default gen_random_uuid(),
+  id          text primary key default gen_random_uuid()::text,
   target_type target_type not null,
-  target_id   uuid not null,
+  target_id   text not null,
   priority    int not null default 0,
   state       text not null default 'queued' check (state in ('queued','claimed','actioned','released')),
-  claimed_by  uuid references actors(id) on delete set null,
+  claimed_by  text references actors(id) on delete set null,
   claimed_at  timestamptz,
   created_at  timestamptz not null default now(),
   unique (target_type, target_id)
 );
 
 create table moderation_actions (
-  id             uuid primary key default gen_random_uuid(),
+  id             text primary key default gen_random_uuid()::text,
   target_type    target_type not null,
-  target_id      uuid not null,
-  moderator_id   uuid not null references actors(id),
+  target_id      text not null,
+  moderator_id   text not null references actors(id),
   action         moderation_action_kind not null,
   reason         text not null,
   correlation_id text not null,
@@ -345,9 +350,9 @@ create table moderation_actions (
 );
 
 create table screenings (
-  id          uuid primary key default gen_random_uuid(),
+  id          text primary key default gen_random_uuid()::text,
   target_type target_type not null,
-  target_id   uuid not null,
+  target_id   text not null,
   outcome     text not null check (outcome in ('clear','needs_review')),
   signals     text[] not null default '{}',
   created_at  timestamptz not null default now()
@@ -357,20 +362,20 @@ create table screenings (
 -- P12 Subject graph
 -- ─────────────────────────────────────────────────────────────────────────
 create table subjects (
-  id                uuid primary key default gen_random_uuid(),
+  id                text primary key default gen_random_uuid()::text,
   canonical_term    text not null,
   kind              text not null check (kind in ('behavior','context','place_type')),
-  parent_subject_id uuid references subjects(id) on delete set null,
+  parent_subject_id text references subjects(id) on delete set null,
   experience_count  int not null default 0,
   state             text not null default 'candidate' check (state in ('candidate','canonical','merged','retired')),
-  merged_into_id    uuid references subjects(id) on delete set null,
+  merged_into_id    text references subjects(id) on delete set null,
   unique (canonical_term)
 );
 
 create table experience_subjects (
-  id            uuid primary key default gen_random_uuid(),
-  experience_id uuid not null references experiences(id) on delete cascade,
-  subject_id    uuid not null references subjects(id) on delete cascade,
+  id            text primary key default gen_random_uuid()::text,
+  experience_id text not null references experiences(id) on delete cascade,
+  subject_id    text not null references subjects(id) on delete cascade,
   weight        numeric not null default 1,
   source        text not null check (source in ('category','extracted')),
   unique (experience_id, subject_id)
@@ -380,11 +385,11 @@ create table experience_subjects (
 -- P13 Social graph
 -- ─────────────────────────────────────────────────────────────────────────
 create table graph_edges (
-  id         uuid primary key default gen_random_uuid(),
+  id         text primary key default gen_random_uuid()::text,
   kind       text not null check (kind in ('follow','block','mute')),
-  actor_id   uuid not null references actors(id) on delete cascade,
+  actor_id   text not null references actors(id) on delete cascade,
   target_ref text not null check (target_ref in ('actor','alias')),
-  target_id  uuid not null,
+  target_id  text not null,
   created_at timestamptz not null default now(),
   unique (kind, actor_id, target_ref, target_id),
   constraint no_self_edge check (actor_id <> target_id)
@@ -395,11 +400,11 @@ create index graph_edges_actor_idx on graph_edges (actor_id, kind);
 -- P14 Notifications
 -- ─────────────────────────────────────────────────────────────────────────
 create table notifications (
-  id                 uuid primary key default gen_random_uuid(),
-  recipient_actor_id uuid not null references actors(id) on delete cascade,
+  id                 text primary key default gen_random_uuid()::text,
+  recipient_actor_id text not null references actors(id) on delete cascade,
   kind               text not null,
   subject_ref        target_type not null,
-  subject_id         uuid not null,
+  subject_id         text not null,
   actor_label        text not null,
   dedupe_key         text not null,
   state              text not null default 'pending' check (state in ('pending','delivered','read','suppressed')),
@@ -412,8 +417,8 @@ create table notifications (
 create index notifications_recipient_idx on notifications (recipient_actor_id, created_at desc);
 
 create table notification_preferences (
-  id       uuid primary key default gen_random_uuid(),
-  actor_id uuid not null references actors(id) on delete cascade,
+  id       text primary key default gen_random_uuid()::text,
+  actor_id text not null references actors(id) on delete cascade,
   kind     text not null,
   enabled  boolean not null default true,
   unique (actor_id, kind)
@@ -423,7 +428,7 @@ create table notification_preferences (
 -- P15 Reputation
 -- ─────────────────────────────────────────────────────────────────────────
 create table actor_reputation (
-  actor_id             uuid primary key references actors(id) on delete cascade,
+  actor_id             text primary key references actors(id) on delete cascade,
   experiences_published int not null default 0,
   fair_yes_received    int not null default 0,
   fair_no_received     int not null default 0,
@@ -439,7 +444,7 @@ create table actor_reputation (
 -- P16 Ranking & trends
 -- ─────────────────────────────────────────────────────────────────────────
 create table ranking_inputs (
-  experience_id      uuid primary key references experiences(id) on delete cascade,
+  experience_id      text primary key references experiences(id) on delete cascade,
   engagement_score   numeric not null default 0,
   fairness_score     numeric not null default 0,
   recency_decay      numeric not null default 1,
@@ -449,25 +454,25 @@ create table ranking_inputs (
 );
 
 create table trends (
-  id          uuid primary key default gen_random_uuid(),
-  subject_id  uuid not null references subjects(id) on delete cascade,
-  window      trend_window not null,
+  id          text primary key default gen_random_uuid()::text,
+  subject_id  text not null references subjects(id) on delete cascade,
+  window_span trend_window not null,
   kind        experience_kind not null,
   volume      int not null default 0,
   velocity    numeric not null default 0,
   state       text not null default 'emerging' check (state in ('emerging','trending','cooling','expired')),
   computed_at timestamptz not null default now(),
-  unique (subject_id, window, kind)
+  unique (subject_id, window_span, kind)
 );
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- P17 Creator control
 -- ─────────────────────────────────────────────────────────────────────────
 create table deletion_requests (
-  id           uuid primary key default gen_random_uuid(),
-  actor_id     uuid not null references actors(id) on delete cascade,
+  id           text primary key default gen_random_uuid()::text,
+  actor_id     text not null references actors(id) on delete cascade,
   target_type  target_type not null,
-  target_id    uuid not null,
+  target_id    text not null,
   state        text not null default 'requested' check (state in ('requested','propagating','completed','partially_failed')),
   propagation  jsonb not null default '{}'::jsonb,
   created_at   timestamptz not null default now(),
@@ -475,8 +480,8 @@ create table deletion_requests (
 );
 
 create table export_requests (
-  id           uuid primary key default gen_random_uuid(),
-  actor_id     uuid not null references actors(id) on delete cascade,
+  id           text primary key default gen_random_uuid()::text,
+  actor_id     text not null references actors(id) on delete cascade,
   state        work_state not null default 'queued',
   artifact_key text,
   created_at   timestamptz not null default now()
@@ -486,10 +491,10 @@ create table export_requests (
 -- P18 Governance
 -- ─────────────────────────────────────────────────────────────────────────
 create table role_assignments (
-  id         uuid primary key default gen_random_uuid(),
-  actor_id   uuid not null references actors(id) on delete cascade,
+  id         text primary key default gen_random_uuid()::text,
+  actor_id   text not null references actors(id) on delete cascade,
   role       actor_role not null,
-  granted_by uuid not null references actors(id),
+  granted_by text not null references actors(id),
   granted_at timestamptz not null default now(),
   revoked_at timestamptz
 );
@@ -498,7 +503,7 @@ create table role_assignments (
 -- P19 Analytics — pseudonymous, content-free by construction
 -- ─────────────────────────────────────────────────────────────────────────
 create table analytics_events (
-  id             uuid primary key default gen_random_uuid(),
+  id             text primary key default gen_random_uuid()::text,
   event_name     text not null,
   -- A stable hash, never an actor_id. There is no FK here on purpose.
   actor_hash     text not null,
@@ -509,10 +514,10 @@ create table analytics_events (
 create index analytics_events_name_idx on analytics_events (event_name, occurred_at desc);
 
 create table metric_snapshots (
-  id          uuid primary key default gen_random_uuid(),
+  id          text primary key default gen_random_uuid()::text,
   metric_name text not null,
-  window      text not null,
+  window_span text not null,
   value       numeric not null,
   computed_at timestamptz not null default now(),
-  unique (metric_name, window, computed_at)
+  unique (metric_name, window_span, computed_at)
 );

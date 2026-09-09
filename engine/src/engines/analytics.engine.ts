@@ -2,6 +2,7 @@ import { ok } from '../runtime/result.ts';
 import { pseudonymize } from '../runtime/ids.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { Role } from '../runtime/authz.ts';
+import { eq } from '../ports/store.ts';
 import type { AnalyticsEvent, MetricSnapshot } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -118,7 +119,7 @@ export const computeMetrics = async (deps: EngineDeps): Promise<MetricsReport> =
 
   let withVotes = 0;
   for (const experience of published) {
-    const votes = await deps.store.fairVotes.count((row) => row.experienceId === experience.id);
+    const votes = await deps.store.fairVotes.countWhere([eq('experienceId', experience.id)]);
     if (votes > 0) withVotes += 1;
   }
   const fairnessParticipation = published.length === 0 ? 0 : Number((withVotes / published.length).toFixed(4));

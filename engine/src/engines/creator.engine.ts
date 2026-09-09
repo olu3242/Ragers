@@ -12,6 +12,7 @@ import {
 } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { experienceResource, loadExperience, writeAudit } from './support.ts';
+import { eq } from '../ports/store.ts';
 
 /**
  * P17 Creator Control Engine.
@@ -135,24 +136,24 @@ export const createDeletionPropagationConsumer = (deps: EngineDeps): Consumer =>
     await deps.store.searchDocuments.remove(experienceId);
     propagation.search = true;
 
-    for (const link of await deps.store.experienceSubjects.find((row) => row.experienceId === experienceId)) {
+    for (const link of await deps.store.experienceSubjects.query([eq('experienceId', experienceId)])) {
       await deps.store.experienceSubjects.remove(link.id);
     }
     propagation.subjects = true;
 
-    for (const notification of await deps.store.notifications.find((row) => row.subjectId === experienceId)) {
+    for (const notification of await deps.store.notifications.query([eq('subjectId', experienceId)])) {
       await deps.store.notifications.remove(notification.id);
     }
     propagation.notifications = true;
 
-    for (const reply of await deps.store.replies.find((row) => row.experienceId === experienceId)) {
+    for (const reply of await deps.store.replies.query([eq('experienceId', experienceId)])) {
       await deps.store.replies.remove(reply.id);
     }
     propagation.replies = true;
 
     // Media and transcript removal is verified, not assumed.
-    for (const asset of await deps.store.mediaAssets.find((row) => row.experienceId === experienceId)) {
-      for (const transcript of await deps.store.transcripts.find((row) => row.mediaAssetId === asset.id)) {
+    for (const asset of await deps.store.mediaAssets.query([eq('experienceId', experienceId)])) {
+      for (const transcript of await deps.store.transcripts.query([eq('mediaAssetId', asset.id)])) {
         await deps.store.transcripts.remove(transcript.id);
       }
       await deps.providers.objectStore.remove(asset.originalKey);
@@ -164,10 +165,10 @@ export const createDeletionPropagationConsumer = (deps: EngineDeps): Consumer =>
 
     await deps.store.counters.remove(experienceId);
     await deps.store.rankingInputs.remove(experienceId);
-    for (const reaction of await deps.store.reactions.find((row) => row.experienceId === experienceId)) {
+    for (const reaction of await deps.store.reactions.query([eq('experienceId', experienceId)])) {
       await deps.store.reactions.remove(reaction.id);
     }
-    for (const vote of await deps.store.fairVotes.find((row) => row.experienceId === experienceId)) {
+    for (const vote of await deps.store.fairVotes.query([eq('experienceId', experienceId)])) {
       await deps.store.fairVotes.remove(vote.id);
     }
     propagation.counters = true;
@@ -197,8 +198,8 @@ export const createExportConsumer = (deps: EngineDeps): Consumer => ({
     const request = await deps.store.exportRequests.get(requestId);
     if (!request || request.state === 'ready') return ok(undefined);
 
-    const experiences = await deps.store.experiences.find((row) => row.actorId === request.actorId);
-    const aliases = await deps.store.aliases.find((row) => row.actorId === request.actorId);
+    const experiences = await deps.store.experiences.query([eq('actorId', request.actorId)]);
+    const aliases = await deps.store.aliases.query([eq('actorId', request.actorId)]);
     const payload = JSON.stringify({
       actorId: request.actorId,
       experiences: experiences.map((row) => ({

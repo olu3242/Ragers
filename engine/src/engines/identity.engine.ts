@@ -13,6 +13,7 @@ import { isVisibility, type Visibility } from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { EngineDeps } from './deps.ts';
 import { writeAudit } from './support.ts';
+import { eq } from '../ports/store.ts';
 
 export interface RegisterInput {
   readonly email: string;
@@ -39,7 +40,7 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
     resolveResource: async () => ok({ type: 'actor' }),
     handle: async (input, ctx) => {
       const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
-      const existing = await deps.store.actors.findOne((row) => row.email === email);
+      const existing = await deps.store.actors.queryOne([eq('email', email)]);
       if (existing) {
         // Registration does not disclose whether an account already exists.
         return err(conflictError('registration_unavailable', 'that account cannot be registered'));
@@ -87,7 +88,7 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
     resolveResource: async () => ok({ type: 'actor' }),
     handle: async (input, ctx) => {
       const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
-      const actor = await deps.store.actors.findOne((row) => row.email === email);
+      const actor = await deps.store.actors.queryOne([eq('email', email)]);
       // A failed sign-in never reveals whether the account exists.
       if (!actor) return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
 
@@ -150,7 +151,7 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
     action: 'alias.create',
     resolveResource: async (_input, ctx) => ok({ type: 'alias', ownerActorId: ctx.actor.actorId }),
     handle: async (input, ctx) => {
-      const active = await deps.store.aliases.find((row) => row.isActive);
+      const active = await deps.store.aliases.query([{ field: 'isActive', op: 'isTrue' }]);
       const aliasResult = createAlias(
         { actorId: ctx.actor.actorId, aliasName: input.aliasName },
         active.map((row) => row.aliasName),

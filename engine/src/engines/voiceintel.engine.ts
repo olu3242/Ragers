@@ -1,5 +1,6 @@
 import { err, ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { Transcript } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -18,7 +19,7 @@ export const createTranscriptionConsumer = (deps: EngineDeps): Consumer => ({
     const asset = await deps.store.mediaAssets.get(mediaAssetId);
     if (!asset || asset.kind !== 'audio') return ok(undefined);
 
-    const existing = await deps.store.transcripts.findOne((row) => row.mediaAssetId === mediaAssetId);
+    const existing = await deps.store.transcripts.queryOne([eq('mediaAssetId', mediaAssetId)]);
     // Idempotent: a transcript that already has text is not re-requested.
     if (existing?.rawText !== undefined) return ok(undefined);
     if (existing?.processingStatus === 'dead_letter') return ok(undefined);

@@ -13,6 +13,44 @@ import type { WorkState } from '../runtime/work.ts';
 import type { Role } from '../runtime/authz.ts';
 
 /**
+ * Declarative query criteria.
+ *
+ * A JavaScript predicate cannot be pushed down to SQL, so engines filter with
+ * criteria instead: the in-memory adapter evaluates them directly and the
+ * Postgres adapter compiles them to a WHERE clause. `tests/unit/ports.query.test.ts`
+ * asserts no engine module uses the predicate form, so a full-table scan cannot
+ * be reintroduced silently.
+ */
+export type CriterionOp =
+  | 'eq'
+  | 'ne'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'in'
+  | 'isTrue'
+  | 'isFalse'
+  | 'isNull'
+  | 'notNull';
+
+export interface Criterion<T> {
+  readonly field: keyof T & string;
+  readonly op: CriterionOp;
+  readonly value?: unknown;
+}
+
+export type Criteria<T> = readonly Criterion<T>[];
+
+export interface QueryOptions<T> {
+  readonly limit?: number;
+  readonly orderBy?: { readonly field: keyof T & string; readonly direction: 'asc' | 'desc' };
+}
+
+/** Convenience builder for the common single-equality case. */
+export const eq = <T>(field: keyof T & string, value: unknown): Criterion<T> => ({ field, op: 'eq', value });
+
+/**
  * A minimal table port. Every persistence adapter implements the same shape, so
  * the in-memory adapter used by tests and the Postgres adapter used in
  * production are interchangeable without touching an engine.
@@ -22,10 +60,53 @@ export interface Table<T extends { readonly id: string }> {
   put(row: T): Promise<void>;
   remove(id: string): Promise<void>;
   all(): Promise<readonly T[]>;
+
+  /** Declarative, adapter-translatable filtering. Engines use these three. */
+  query(criteria: Criteria<T>, options?: QueryOptions<T>): Promise<readonly T[]>;
+  queryOne(criteria: Criteria<T>): Promise<T | undefined>;
+  countWhere(criteria: Criteria<T>): Promise<number>;
+
+  /**
+   * Predicate filtering. Retained for test convenience only: the Postgres
+   * adapter has to fetch the table to evaluate a JavaScript predicate, so
+   * engine code must use `query` instead.
+   */
   find(predicate: (row: T) => boolean): Promise<readonly T[]>;
   findOne(predicate: (row: T) => boolean): Promise<T | undefined>;
   count(predicate?: (row: T) => boolean): Promise<number>;
 }
+
+/** Evaluate one criterion against a row. Shared by the in-memory adapter and tests. */
+export const matchesCriterion = <T>(row: T, criterion: Criterion<T>): boolean => {
+  const actual = (row as Record<string, unknown>)[criterion.field];
+  switch (criterion.op) {
+    case 'eq':
+      return actual === criterion.value;
+    case 'ne':
+      return actual !== criterion.value;
+    case 'gt':
+      return typeof actual === 'number' && actual > (criterion.value as number);
+    case 'gte':
+      return typeof actual === 'number' && actual >= (criterion.value as number);
+    case 'lt':
+      return typeof actual === 'number' && actual < (criterion.value as number);
+    case 'lte':
+      return typeof actual === 'number' && actual <= (criterion.value as number);
+    case 'in':
+      return Array.isArray(criterion.value) && criterion.value.includes(actual);
+    case 'isTrue':
+      return actual === true;
+    case 'isFalse':
+      return actual === false;
+    case 'isNull':
+      return actual === undefined || actual === null;
+    case 'notNull':
+      return actual !== undefined && actual !== null;
+  }
+};
+
+export const matchesCriteria = <T>(row: T, criteria: Criteria<T>): boolean =>
+  criteria.every((criterion) => matchesCriterion(row, criterion));
 
 // ── P5 Feed ───────────────────────────────────────────────────────────────
 /**

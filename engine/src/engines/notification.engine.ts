@@ -3,6 +3,7 @@ import { notFoundError } from '../runtime/errors.ts';
 import { resolveIdentity } from '../domain/projection.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { Notification, NotificationKind, TargetType } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { isBlockedBetween, isMutedBy } from './graph.engine.ts';
@@ -174,8 +175,8 @@ export const notificationsFor = async (
   deps: EngineDeps,
   actorId: string,
 ): Promise<readonly Notification[]> =>
-  [...(await deps.store.notifications.find((row) => row.recipientActorId === actorId && row.state !== 'suppressed'))]
+  [...(await deps.store.notifications.query([eq('recipientActorId', actorId), { field: 'state', op: 'ne', value: 'suppressed' }]))]
     .sort((a, b) => b.createdAt - a.createdAt);
 
 export const unreadCountFor = async (deps: EngineDeps, actorId: string): Promise<number> =>
-  deps.store.notifications.count((row) => row.recipientActorId === actorId && row.state === 'delivered');
+  deps.store.notifications.countWhere([eq('recipientActorId', actorId), eq('state', 'delivered')]);

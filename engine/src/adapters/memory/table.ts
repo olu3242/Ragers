@@ -1,4 +1,9 @@
-import type { Table } from '../../ports/store.ts';
+import {
+  matchesCriteria,
+  type Criteria,
+  type QueryOptions,
+  type Table,
+} from '../../ports/store.ts';
 
 /**
  * In-memory table. Rows are frozen on write so a caller cannot mutate stored
@@ -6,6 +11,25 @@ import type { Table } from '../../ports/store.ts';
  */
 export const createMemoryTable = <T extends { readonly id: string }>(): Table<T> => {
   const rows = new Map<string, T>();
+
+  const applyOptions = (matched: readonly T[], options?: QueryOptions<T>): readonly T[] => {
+    let result = [...matched];
+    const orderBy = options?.orderBy;
+    if (orderBy) {
+      result.sort((a, b) => {
+        const left = (a as Record<string, unknown>)[orderBy.field];
+        const right = (b as Record<string, unknown>)[orderBy.field];
+        const comparison =
+          typeof left === 'number' && typeof right === 'number'
+            ? left - right
+            : String(left).localeCompare(String(right));
+        return orderBy.direction === 'desc' ? -comparison : comparison;
+      });
+    }
+    if (options?.limit !== undefined) result = result.slice(0, options.limit);
+    return result;
+  };
+
   return {
     get: async (id) => rows.get(id),
     put: async (row) => {
@@ -15,6 +39,14 @@ export const createMemoryTable = <T extends { readonly id: string }>(): Table<T>
       rows.delete(id);
     },
     all: async () => [...rows.values()],
+
+    query: async (criteria: Criteria<T>, options?: QueryOptions<T>) =>
+      applyOptions([...rows.values()].filter((row) => matchesCriteria(row, criteria)), options),
+    queryOne: async (criteria: Criteria<T>) =>
+      [...rows.values()].find((row) => matchesCriteria(row, criteria)),
+    countWhere: async (criteria: Criteria<T>) =>
+      [...rows.values()].filter((row) => matchesCriteria(row, criteria)).length,
+
     find: async (predicate) => [...rows.values()].filter(predicate),
     findOne: async (predicate) => [...rows.values()].find(predicate),
     count: async (predicate) =>

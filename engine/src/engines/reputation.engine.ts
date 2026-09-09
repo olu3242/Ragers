@@ -1,5 +1,6 @@
 import { ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { ActorReputation, Standing } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -22,14 +23,14 @@ export const standingFor = (
 };
 
 export const recomputeReputation = async (deps: EngineDeps, actorId: string): Promise<ActorReputation> => {
-  const experiences = await deps.store.experiences.find((row) => row.actorId === actorId);
+  const experiences = await deps.store.experiences.query([eq('actorId', actorId)]);
   const published = experiences.filter((row) => row.status === 'published');
   const removals = experiences.filter((row) => row.status === 'removed').length;
 
   let fairYes = 0;
   let fairNo = 0;
   for (const experience of experiences) {
-    const votes = await deps.store.fairVotes.find((row) => row.experienceId === experience.id);
+    const votes = await deps.store.fairVotes.query([eq('experienceId', experience.id)]);
     fairYes += votes.filter((row) => row.isFair).length;
     fairNo += votes.filter((row) => !row.isFair).length;
   }
@@ -112,7 +113,7 @@ export const aliasReputationOf = async (
   let fairYes = 0;
   let total = 0;
   for (const experience of experiences) {
-    const votes = await deps.store.fairVotes.find((row) => row.experienceId === experience.id);
+    const votes = await deps.store.fairVotes.query([eq('experienceId', experience.id)]);
     fairYes += votes.filter((row) => row.isFair).length;
     total += votes.length;
   }

@@ -1,5 +1,6 @@
 import { ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { Subject } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -56,7 +57,7 @@ export const createSubjectExtractionConsumer = (deps: EngineDeps): Consumer => (
 
     const asset = experience.mediaAssetId ? await deps.store.mediaAssets.get(experience.mediaAssetId) : undefined;
     const transcript = asset
-      ? await deps.store.transcripts.findOne((row) => row.mediaAssetId === asset.id)
+      ? await deps.store.transcripts.queryOne([eq('mediaAssetId', asset.id)])
       : undefined;
 
     // Only redacted text is ever read here.
@@ -70,7 +71,7 @@ export const createSubjectExtractionConsumer = (deps: EngineDeps): Consumer => (
     }
 
     for (const [term, source_] of terms) {
-      let subject = await deps.store.subjects.findOne((row) => row.canonicalTerm === term);
+      let subject = await deps.store.subjects.queryOne([eq('canonicalTerm', term)]);
       if (!subject) {
         subject = {
           id: deps.ids.next('subj'),
@@ -94,7 +95,7 @@ export const createSubjectExtractionConsumer = (deps: EngineDeps): Consumer => (
 
     // Counts are recomputed from links, so they converge under re-delivery.
     for (const subject of await deps.store.subjects.all()) {
-      const count = await deps.store.experienceSubjects.count((row) => row.subjectId === subject.id);
+      const count = await deps.store.experienceSubjects.countWhere([eq('subjectId', subject.id)]);
       if (count !== subject.experienceCount) {
         await deps.store.subjects.put({ ...subject, experienceCount: count });
       }
@@ -121,11 +122,11 @@ export const createSubjectPurgeConsumer = (deps: EngineDeps): Consumer => ({
   events: ['ContentRemoved', 'ExperienceDeleted'],
   handle: async (event) => {
     const experienceId = String(event.payload['experienceId'] ?? '');
-    for (const link of await deps.store.experienceSubjects.find((row) => row.experienceId === experienceId)) {
+    for (const link of await deps.store.experienceSubjects.query([eq('experienceId', experienceId)])) {
       await deps.store.experienceSubjects.remove(link.id);
     }
     for (const subject of await deps.store.subjects.all()) {
-      const count = await deps.store.experienceSubjects.count((row) => row.subjectId === subject.id);
+      const count = await deps.store.experienceSubjects.countWhere([eq('subjectId', subject.id)]);
       if (count !== subject.experienceCount) {
         await deps.store.subjects.put({ ...subject, experienceCount: count });
       }

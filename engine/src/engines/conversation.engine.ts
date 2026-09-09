@@ -6,6 +6,7 @@ import type { Consumer } from '../runtime/orchestrator.ts';
 import { MAX_REPLY_DEPTH, type Reply } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { experienceResource, loadExperience, loadReply, replyResource } from './support.ts';
+import { eq } from '../ports/store.ts';
 
 export interface CreateReplyCommand {
   readonly experienceId: string;
@@ -157,7 +158,7 @@ export const createReplyCascadeConsumer = (deps: EngineDeps): Consumer => ({
   handle: async (event) => {
     const experienceId = String(event.payload['experienceId'] ?? '');
     const terminal = event.eventName === 'ExperienceDeleted' ? 'deleted' : 'removed';
-    for (const reply of await deps.store.replies.find((row) => row.experienceId === experienceId)) {
+    for (const reply of await deps.store.replies.query([eq('experienceId', experienceId)])) {
       if (reply.status === 'deleted') continue;
       await deps.store.replies.put({ ...reply, status: terminal });
     }
