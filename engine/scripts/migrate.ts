@@ -35,6 +35,22 @@ try {
     )
   `);
 
+  // The migration ledger is operator state, not application data: it gets the
+  // same treatment as the other worker-owned tables. RLS on with no policies and
+  // no client grants means only the service role can see or change it — and it
+  // keeps the "every table has RLS" invariant true of the whole schema.
+  await client.query('alter table schema_migrations enable row level security');
+  await client.query('revoke all on schema_migrations from public');
+  for (const role of ['anon', 'authenticated']) {
+    await client.query(
+      `do $$ begin
+         if exists (select 1 from pg_roles where rolname = '${role}') then
+           execute 'revoke all on schema_migrations from ${role}';
+         end if;
+       end $$;`,
+    );
+  }
+
   const applied = new Map<string, string>(
     (await client.query<{ filename: string; checksum: string }>('select filename, checksum from schema_migrations'))
       .rows.map((row) => [row.filename, row.checksum]),
