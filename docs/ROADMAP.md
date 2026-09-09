@@ -1022,6 +1022,40 @@ governed. Reversing any pair produces a measure with nothing under it.
 
 ---
 
+### 6.4 The 41–50 gate — dependencies verified against what exists
+
+Phases 31–40 are certified (`PHASES_31_40_READY`), so this table is the gate for the
+band above. Each row is what 41–50 actually needs, checked against the implementation
+rather than against the roadmap's own promises.
+
+| Phase | Needs | Status | True gap |
+|---|---|---|---|
+| 41 Severity | structured experiences with asserted dimensions and an explicit confidence | **mostly delivered by P32** — `classifySeverity` produces a band with its basis and confidence from asserted dimensions only, and cannot read text | **urgency classification.** Severity says how bad; urgency says how soon, and nothing derives it. Population affected already exists as an asserted dimension. |
+| 42 Impact | asserted money, time, people; issue duration; unresolved exposure; minimum-sample safeguards | inputs **all exist** — P31 dimensions, P33 aging, P38 floors | **aggregating them into an estimate with an interval.** No confidence intervals anywhere, and an estimate without one is the thing P42's own design constraint forbids. |
+| 43 Prioritization | severity, impact, aging, escalation | severity ✓ (P32), aging ✓ (P33), escalation ✓ (P34) | **impact (P42), and an ordering that is not a composite score.** The band's own rule — metrics stay named and separate — makes a single priority number the wrong shape; a defensible P43 is a *sort with a stated reason*, not a scalar. |
+| 44 Copilot | governed proposals; a place to converse | proposals ✓ (E12) and a reviewer surface ✓ | **the whole surface.** Also needs a model provider, which is not configured. |
+| 45 Agent framework | the policy matrix and the leased-job runtime | both ✓, certified | **agent boundaries.** Deliberately absent: the governed proposal is the floor, and nothing autonomous exists. |
+| 46 Organization resolution agent | organization cases and responses | cases ✓ (P35), responses ✓ (E9) | **the agent.** Its forbidden actions are already structurally impossible — `case.engine.ts` has no write to `experiences` — which is what makes the agent safe to build later rather than dangerous. |
+| 47 Benchmarking | benchmark-safe aggregation, and enough governed volume for a floor to be satisfiable | aggregation ✓ (P39), with a row floor, a person floor and a differencing guard | **the comparative reads**, and **volume**. Below the floor the engine is correct and the output is empty, so this is data-blocked rather than code-blocked. |
+| 48 Commercial intelligence | 47 | — | entire. Vocabulary is internal-only per `CLAUDE.md`. |
+| 49 Platform API | 47, 48 | — | entire. |
+| 50 Certification | all of the above | the harness already reports three statuses and 47 gates | the band's own gates, once 41–49 exist. |
+
+Three things this changes about the plan as originally written:
+
+1. **Phase 41 is smaller than it looked.** P32 already delivers the severity engine's
+   core, including the constraint that severity is asserted rather than inferred. What
+   remains is urgency, which is a different question and should not be folded into the
+   band.
+2. **Phase 42 is the real blocker for 43.** Prioritisation reads impact, and impact is
+   the only 41–43 input with nothing under it. Building 43 first would mean ordering by
+   severity and calling it prioritisation.
+3. **Phase 47 is data-blocked, not code-blocked.** The aggregation it needs is built and
+   certified, including the differencing guard. It produces nothing until there are
+   enough contributors, which is the correct behaviour and not a defect to fix.
+
+Nothing in 41–50 requires rebuilding anything certified.
+
 ### Phase 41 — Experience Severity Engine
 
 - **Objective:** Distinguish inconvenience from materially serious failure, so
