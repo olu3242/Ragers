@@ -1,5 +1,6 @@
 import { ok } from '../runtime/result.ts';
 import { median } from '../domain/signal.ts';
+import { floorFor, measure, withheldCaption } from '../domain/sampling.ts';
 import { eq } from '../ports/store.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { Experience } from '../domain/experience.ts';
@@ -22,7 +23,15 @@ import { resolutionSummaryFor } from './resolution.engine.ts';
  * caught by `describeResponsiveness`, which refuses to characterise a record below
  * the floor. Two answered cases is not a track record.
  */
-export const MINIMUM_SAMPLE = 5;
+/**
+ * The floor, from the one governed policy rather than a constant of its own.
+ *
+ * Kept as a named re-export because callers and tests already reference it, and
+ * because the alternative — this engine holding its own 5 while Phase 39's aggregates
+ * hold a different one — is exactly how two surfaces come to disagree about whether
+ * the same number is safe to show.
+ */
+export const MINIMUM_SAMPLE = floorFor('responsiveness');
 
 const roundRate = (numerator: number, denominator: number): number =>
   denominator === 0 ? 0 : Number((numerator / denominator).toFixed(4));
@@ -207,7 +216,17 @@ export const publicResponsivenessFor = async (
     (await recomputeResponsiveness(deps, organizationId));
   if (!snapshot) return undefined;
 
-  const insufficient = snapshot.sampleSize < MINIMUM_SAMPLE;
+  // Through the shared policy, so "withheld" means the same thing here as everywhere.
+  const timings = measure('responsiveness', snapshot.sampleSize, () => ({
+    ...(snapshot.medianAcknowledgementMs === undefined
+      ? {}
+      : { medianAcknowledgementMs: snapshot.medianAcknowledgementMs }),
+    ...(snapshot.medianFirstResponseMs === undefined
+      ? {}
+      : { medianFirstResponseMs: snapshot.medianFirstResponseMs }),
+    ...(snapshot.medianResolutionMs === undefined ? {} : { medianResolutionMs: snapshot.medianResolutionMs }),
+  }));
+  const insufficient = timings.withheld;
   return {
     organizationId,
     displayName: profile.displayName,
@@ -217,21 +236,14 @@ export const publicResponsivenessFor = async (
     casesOpen: snapshot.casesOpen,
     responseRate: snapshot.responseRate,
     resolutionRate: snapshot.resolutionRate,
-    // Timings are withheld below the floor, not rounded or hedged.
-    ...(insufficient || snapshot.medianAcknowledgementMs === undefined
-      ? {}
-      : { medianAcknowledgementMs: snapshot.medianAcknowledgementMs }),
-    ...(insufficient || snapshot.medianFirstResponseMs === undefined
-      ? {}
-      : { medianFirstResponseMs: snapshot.medianFirstResponseMs }),
-    ...(insufficient || snapshot.medianResolutionMs === undefined
-      ? {}
-      : { medianResolutionMs: snapshot.medianResolutionMs }),
+    // Timings are withheld below the floor, not rounded or hedged. Spread from the
+    // measure's own branch, so a withheld measure has no `value` to leak.
+    ...(timings.withheld ? {} : timings.value),
     ...(snapshot.oldestOpenMs === undefined ? {} : { oldestOpenMs: snapshot.oldestOpenMs }),
     sampleSize: snapshot.sampleSize,
     insufficientSample: insufficient,
-    caption: insufficient
-      ? `Too few cases to describe a pattern yet (${snapshot.sampleSize} of ${MINIMUM_SAMPLE}).`
+    caption: timings.withheld
+      ? withheldCaption(timings)
       : '“Confirmed resolved” counts only what the people it happened to said. Answering does not move it.',
   };
 };

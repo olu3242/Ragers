@@ -1,9 +1,10 @@
 {
   "status": "RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS",
   "experienceSignalEngineStatus": "EXPERIENCE_SIGNAL_ENGINE_READY",
-  "generatedAt": "2026-09-09T17:30:42.924Z",
+  "governanceActionStatus": "PHASES_31_40_READY",
+  "generatedAt": "2026-09-09T23:00:38.080Z",
   "totals": {
-    "passed": 40,
+    "passed": 45,
     "failed": 0,
     "blocked": 2
   },
@@ -13,7 +14,7 @@
       "name": "Static validation (architecture, hygiene, content separation)",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 386,
+      "durationMs": 374,
       "detail": "clean (0.4s)"
     },
     {
@@ -21,31 +22,31 @@
       "name": "Schema & migrations (static)",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 363,
-      "detail": "18/18 assertions passed (0.4s)"
+      "durationMs": 345,
+      "detail": "20/20 assertions passed (0.3s)"
     },
     {
       "id": "unit",
       "name": "Unit tests",
       "requirement": "unit",
       "status": "passed",
-      "durationMs": 2061,
-      "detail": "268/268 assertions passed (2.1s)"
+      "durationMs": 2345,
+      "detail": "336/336 assertions passed (2.3s)"
     },
     {
       "id": "integration",
       "name": "Integration tests",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 3244,
-      "detail": "161/161 assertions passed (3.2s)"
+      "durationMs": 3386,
+      "detail": "175/175 assertions passed (3.4s)"
     },
     {
       "id": "authorization",
       "name": "Authorization",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 575,
+      "durationMs": 554,
       "detail": "27/27 assertions passed (0.6s)"
     },
     {
@@ -53,7 +54,7 @@
       "name": "Retry & dead-letter",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 342,
+      "durationMs": 315,
       "detail": "7/7 assertions passed (0.3s)"
     },
     {
@@ -61,7 +62,7 @@
       "name": "Concurrency & idempotency",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 605,
+      "durationMs": 610,
       "detail": "20/20 assertions passed (0.6s)"
     },
     {
@@ -69,7 +70,7 @@
       "name": "Voice capture & golden path",
       "requirement": "voice",
       "status": "passed",
-      "durationMs": 525,
+      "durationMs": 541,
       "detail": "21/21 assertions passed (0.5s)"
     },
     {
@@ -77,7 +78,7 @@
       "name": "Moderation failure path (fail-closed)",
       "requirement": "moderation failure-path",
       "status": "passed",
-      "durationMs": 461,
+      "durationMs": 522,
       "detail": "6/6 assertions passed (0.5s)"
     },
     {
@@ -85,7 +86,7 @@
       "name": "Privacy & search leakage",
       "requirement": "privacy/search leakage",
       "status": "passed",
-      "durationMs": 1109,
+      "durationMs": 1072,
       "detail": "39/39 assertions passed (1.1s)"
     },
     {
@@ -93,15 +94,15 @@
       "name": "Accessibility (static surfaces)",
       "requirement": "accessibility",
       "status": "passed",
-      "durationMs": 303,
-      "detail": "22/22 assertions passed (0.3s)"
+      "durationMs": 270,
+      "detail": "27/27 assertions passed (0.3s)"
     },
     {
       "id": "typecheck",
       "name": "Strict typecheck",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 2632,
+      "durationMs": 2593,
       "detail": "clean (2.6s)"
     },
     {
@@ -109,31 +110,31 @@
       "name": "Production build",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 25610,
-      "detail": "clean (25.6s)"
+      "durationMs": 26096,
+      "detail": "clean (26.1s)"
     },
     {
       "id": "browser_e2e",
       "name": "Browser E2E",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 37089,
-      "detail": "21 browser test(s) passed (37.1s)"
+      "durationMs": 46280,
+      "detail": "28 browser test(s) passed (46.3s)"
     },
     {
       "id": "security",
       "name": "Dependency audit",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 511,
-      "detail": "clean (0.5s)"
+      "durationMs": 564,
+      "detail": "clean (0.6s)"
     },
     {
       "id": "live_migrations",
       "name": "Migrations applied to a live database",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 369,
+      "durationMs": 395,
       "detail": "clean (0.4s)"
     },
     {
@@ -141,23 +142,23 @@
       "name": "Adapter parity (in-memory vs Postgres)",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 976,
-      "detail": "12/12 assertions passed (1.0s)"
+      "durationMs": 1091,
+      "detail": "12/12 assertions passed (1.1s)"
     },
     {
       "id": "rls_enforcement",
       "name": "RLS enforcement against a live database",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 1049,
-      "detail": "27/27 assertions passed (1.0s)"
+      "durationMs": 1104,
+      "detail": "27/27 assertions passed (1.1s)"
     },
     {
       "id": "durable_orchestration",
       "name": "Durable orchestration and restart recovery",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 3720,
+      "durationMs": 3726,
       "detail": "11/11 assertions passed (3.7s)"
     },
     {
@@ -165,7 +166,7 @@
       "name": "Backup and restore drill",
       "requirement": "backup/restore",
       "status": "passed",
-      "durationMs": 2419,
+      "durationMs": 2412,
       "detail": "6/6 assertions passed (2.4s)"
     },
     {
@@ -174,7 +175,7 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 279,
+      "durationMs": 275,
       "detail": "15/15 assertions passed (0.3s)"
     },
     {
@@ -183,7 +184,7 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 299,
+      "durationMs": 293,
       "detail": "26/26 assertions passed (0.3s)"
     },
     {
@@ -192,7 +193,7 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/normalization",
       "status": "passed",
-      "durationMs": 324,
+      "durationMs": 276,
       "detail": "20/20 assertions passed (0.3s)"
     },
     {
@@ -201,7 +202,7 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/language",
       "status": "passed",
-      "durationMs": 288,
+      "durationMs": 265,
       "detail": "9/9 assertions passed (0.3s)"
     },
     {
@@ -210,8 +211,8 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 558,
-      "detail": "16/16 assertions passed (0.6s)"
+      "durationMs": 539,
+      "detail": "16/16 assertions passed (0.5s)"
     },
     {
       "id": "ese_intelligence_chain",
@@ -219,7 +220,7 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 619,
+      "durationMs": 557,
       "detail": "21/21 assertions passed (0.6s)"
     },
     {
@@ -228,8 +229,8 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/resolution",
       "status": "passed",
-      "durationMs": 569,
-      "detail": "18/18 assertions passed (0.6s)"
+      "durationMs": 531,
+      "detail": "18/18 assertions passed (0.5s)"
     },
     {
       "id": "ese_host_surfaces",
@@ -237,7 +238,7 @@
       "scope": "experience_signal_engine",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 282,
+      "durationMs": 251,
       "detail": "4/4 assertions passed (0.3s)"
     },
     {
@@ -246,8 +247,8 @@
       "scope": "experience_signal_engine",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 2027,
-      "detail": "3/3 assertions passed (2.0s)"
+      "durationMs": 2075,
+      "detail": "3/3 assertions passed (2.1s)"
     },
     {
       "id": "ese_outbox_atomicity",
@@ -255,7 +256,7 @@
       "scope": "experience_signal_engine",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 1808,
+      "durationMs": 1789,
       "detail": "2/2 assertions passed (1.8s)"
     },
     {
@@ -264,8 +265,8 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 2491,
-      "detail": "6/6 assertions passed (2.5s)"
+      "durationMs": 2691,
+      "detail": "6/6 assertions passed (2.7s)"
     },
     {
       "id": "ese_been_there_backfill",
@@ -273,8 +274,8 @@
       "scope": "experience_signal_engine",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 1033,
-      "detail": "5/5 assertions passed (1.0s)"
+      "durationMs": 1139,
+      "detail": "5/5 assertions passed (1.1s)"
     },
     {
       "id": "ese_browser_boundary",
@@ -282,15 +283,15 @@
       "scope": "experience_signal_engine",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 11940,
-      "detail": "2 browser test(s) passed (11.9s)"
+      "durationMs": 11652,
+      "detail": "2 browser test(s) passed (11.7s)"
     },
     {
       "id": "contracts_domain",
       "name": "Contracts: dispute, Relate and proposal semantics",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 299,
+      "durationMs": 277,
       "detail": "22/22 assertions passed (0.3s)"
     },
     {
@@ -298,15 +299,15 @@
       "name": "Contracts: the four gaps end to end through the bus",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 551,
-      "detail": "17/17 assertions passed (0.6s)"
+      "durationMs": 518,
+      "detail": "17/17 assertions passed (0.5s)"
     },
     {
       "id": "persona_authorization",
       "name": "Persona authorization: the five refusals",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 515,
+      "durationMs": 481,
       "detail": "6/6 assertions passed (0.5s)"
     },
     {
@@ -314,15 +315,15 @@
       "name": "Outcome states are distinguishable, including a proposed resolution",
       "requirement": "ese/resolution",
       "status": "passed",
-      "durationMs": 293,
-      "detail": "10/10 assertions passed (0.3s)"
+      "durationMs": 247,
+      "detail": "10/10 assertions passed (0.2s)"
     },
     {
       "id": "host_surfaces",
       "name": "Host surface guards, including the fixture route",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 278,
+      "durationMs": 259,
       "detail": "4/4 assertions passed (0.3s)"
     },
     {
@@ -330,16 +331,61 @@
       "name": "Contracts against a live database: races, RLS and numerics",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 2387,
-      "detail": "6/6 assertions passed (2.4s)"
+      "durationMs": 2242,
+      "detail": "6/6 assertions passed (2.2s)"
     },
     {
       "id": "relate_reputation_surfaces",
       "name": "Surfaces: Relate carries no weight; reputation shows no score",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 16443,
-      "detail": "4 browser test(s) passed (16.4s)"
+      "durationMs": 16868,
+      "detail": "4 browser test(s) passed (16.9s)"
+    },
+    {
+      "id": "phases_31_40_domain",
+      "name": "P31–35: severity is asserted, escalation decides nothing",
+      "scope": "governance_action",
+      "requirement": "phases/31-35",
+      "status": "passed",
+      "durationMs": 309,
+      "detail": "31/31 assertions passed (0.3s)"
+    },
+    {
+      "id": "phases_38_40_domain",
+      "name": "P38–40: a measure withheld beats a measure invented",
+      "scope": "governance_action",
+      "requirement": "phases/38-40",
+      "status": "passed",
+      "durationMs": 309,
+      "detail": "18/18 assertions passed (0.3s)"
+    },
+    {
+      "id": "phases_31_40_bus",
+      "name": "P31–40 end to end through the bus",
+      "scope": "governance_action",
+      "requirement": "phases/31-40",
+      "status": "passed",
+      "durationMs": 564,
+      "detail": "14/14 assertions passed (0.6s)"
+    },
+    {
+      "id": "phases_31_40_live",
+      "name": "P31–40 against a live database: constraints, races and jsonb",
+      "scope": "governance_action",
+      "requirement": "phases/31-40/live",
+      "status": "passed",
+      "durationMs": 3494,
+      "detail": "10/10 assertions passed (3.5s)"
+    },
+    {
+      "id": "phases_31_40_browser",
+      "name": "P31–40 in a browser: no band without an assertion, no rate below the floor",
+      "scope": "governance_action",
+      "requirement": "phases/31-40/surfaces",
+      "status": "passed",
+      "durationMs": 15820,
+      "detail": "5 browser test(s) passed (15.8s)"
     },
     {
       "id": "deployment",

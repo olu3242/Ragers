@@ -2,7 +2,7 @@ import { err, ok } from '../runtime/result.ts';
 import { notFoundError, preconditionError, validationError } from '../runtime/errors.ts';
 import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
-import type { EvidenceAssessment, EvidenceRow } from '../ports/store.ts';
+import type { DisputeRow, EvidenceAssessment, EvidenceRow, ResolutionReportRow } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { experienceResource } from './support.ts';
 
@@ -32,6 +32,9 @@ export const MAX_EVIDENCE_BYTES = 25 * 1024 * 1024;
 export interface AttachEvidenceInput {
   readonly experienceId?: string;
   readonly corroborationId?: string;
+  /** Phase 37: evidence for a dispute, or for a report of the outcome. */
+  readonly disputeId?: string;
+  readonly resolutionReportId?: string;
   readonly kind: string;
   readonly originalKey: string;
   readonly byteSize: number;
@@ -53,22 +56,68 @@ export const registerEvidenceEngine = (deps: EngineDeps): void => {
     action: 'evidence.attach',
     resolveResource: async (input) => {
       // Evidence hangs off exactly one parent, and authorization follows that
-      // parent's owner — a corroborator owns their corroboration's evidence.
+      // parent's owner — a corroborator owns their corroboration's evidence, a raiser
+      // owns their dispute's, a reporter owns their report's. That last one is what
+      // stops an organization attaching to somebody else's account of the outcome.
       if (input.corroborationId) {
         const claim = await deps.store.corroborations.get(input.corroborationId);
         if (!claim) return err(notFoundError('corroboration_not_found', 'no such corroboration'));
         return ok({ type: 'corroboration', id: claim.id, ownerActorId: claim.corroboratorId });
       }
+      if (input.disputeId) {
+        const dispute = await deps.store.disputes.get(input.disputeId);
+        if (!dispute) return err(notFoundError('dispute_not_found', 'no such dispute'));
+        return ok({ type: 'dispute', id: dispute.id, ownerActorId: dispute.raisedBy });
+      }
+      if (input.resolutionReportId) {
+        const report = await deps.store.resolutionReports.get(input.resolutionReportId);
+        if (!report) return err(notFoundError('resolution_report_not_found', 'no such report'));
+        return ok({ type: 'resolution_report', id: report.id, ownerActorId: report.reporterId });
+      }
       return experienceResource(deps.store, input.experienceId ?? '');
     },
     handle: async (input, ctx) => {
-      const hasExperience = typeof input.experienceId === 'string' && input.experienceId.length > 0;
-      const hasCorroboration = typeof input.corroborationId === 'string' && input.corroborationId.length > 0;
-      if (hasExperience === hasCorroboration) {
+      // Exactly one parent. Counted rather than compared pairwise, because with four
+      // possible parents a pairwise check is four conditions that drift apart, and the
+      // database expresses the same rule as a sum.
+      const parents = (
+        [
+          ['experienceId', input.experienceId],
+          ['corroborationId', input.corroborationId],
+          ['disputeId', input.disputeId],
+          ['resolutionReportId', input.resolutionReportId],
+        ] as const
+      ).filter(([, value]) => typeof value === 'string' && value.length > 0);
+      if (parents.length !== 1) {
         return err(
-          validationError('evidence_needs_one_parent', 'evidence belongs to an experience or a corroboration, not both'),
+          validationError(
+            'evidence_needs_one_parent',
+            'evidence belongs to exactly one of an experience, a corroboration, a dispute or a resolution report',
+          ),
         );
       }
+      const [parentField, parentId] = parents[0] as [
+        'experienceId' | 'corroborationId' | 'disputeId' | 'resolutionReportId',
+        string,
+      ];
+
+      /**
+       * The experience this evidence ultimately concerns, whichever parent it hangs
+       * off.
+       *
+       * Resolved here because the signal consumer keys on `experienceId` in the event
+       * payload. Emitting only the immediate parent would silently stop signal
+       * recomputation for evidence attached to a dispute or a report — a regression
+       * with no error and no failing test anywhere near it.
+       */
+      const owningExperienceId = await (async (): Promise<string | undefined> => {
+        if (parentField === 'experienceId') return parentId;
+        if (parentField === 'corroborationId') {
+          return (await deps.store.corroborations.get(parentId))?.experienceId;
+        }
+        if (parentField === 'disputeId') return (await deps.store.disputes.get(parentId))?.experienceId;
+        return (await deps.store.resolutionReports.get(parentId))?.experienceId;
+      })();
       if (!EVIDENCE_KINDS.includes(input.kind)) {
         return err(validationError('invalid_evidence_kind', 'that is not a supported evidence kind'));
       }
@@ -87,9 +136,7 @@ export const registerEvidenceEngine = (deps: EngineDeps): void => {
       const existing = input.contentDigest
         ? await deps.store.evidence.queryOne([
             eq<EvidenceRow>('contentDigest', input.contentDigest),
-            ...(hasExperience
-              ? [eq<EvidenceRow>('experienceId', input.experienceId ?? '')]
-              : [eq<EvidenceRow>('corroborationId', input.corroborationId ?? '')]),
+            eq<EvidenceRow>(parentField, parentId),
           ])
         : undefined;
       if (existing) {
@@ -101,8 +148,7 @@ export const registerEvidenceEngine = (deps: EngineDeps): void => {
 
       const row: EvidenceRow = {
         id: deps.ids.next('evd'),
-        ...(hasExperience ? { experienceId: input.experienceId as string } : {}),
-        ...(hasCorroboration ? { corroborationId: input.corroborationId as string } : {}),
+        [parentField]: parentId,
         submittedBy: ctx.actor.actorId,
         kind: input.kind,
         originalKey: input.originalKey,
@@ -129,12 +175,17 @@ export const registerEvidenceEngine = (deps: EngineDeps): void => {
         events: [
           {
             aggregateType: 'experience',
-            aggregateId: input.experienceId ?? input.corroborationId ?? row.id,
+            aggregateId: owningExperienceId ?? parentId,
             eventName: 'EvidenceAttached',
             payload: {
               evidenceId: row.id,
-              ...(hasExperience ? { experienceId: input.experienceId } : {}),
-              ...(hasCorroboration ? { corroborationId: input.corroborationId } : {}),
+              // Which parent, named rather than four optional keys: a consumer should
+              // not have to test four fields to learn what this hangs off.
+              parentType: parentField,
+              parentId,
+              // And the experience it concerns, always — the signal consumer keys on
+              // this, and it must not depend on which parent was used.
+              ...(owningExperienceId === undefined ? {} : { experienceId: owningExperienceId }),
               kind: row.kind,
             },
           },
@@ -249,4 +300,41 @@ export const evidenceSummaryFor = async (
     protectedCount: rows.filter((row) => row.protectionStatus === 'protected').length,
     latestOutcome,
   };
+};
+
+/**
+ * Evidence on an outcome, by side — Phase 37.
+ *
+ * Counted per side rather than pooled, because "three pieces of evidence" says nothing
+ * about a contested outcome: it matters whether they came from the people it happened
+ * to or from the organization disputing them. Counts only — never a judgement about
+ * whose is better, and nothing here is ever labelled *verified*.
+ */
+export interface OutcomeEvidence {
+  /** Attached to reports of the outcome by the people it happened to. */
+  readonly fromReporters: number;
+  /** Attached to disputes, by whichever side raised them. */
+  readonly fromDisputes: number;
+}
+
+export const outcomeEvidenceFor = async (
+  deps: EngineDeps,
+  experienceId: string,
+): Promise<OutcomeEvidence> => {
+  const reports = await deps.store.resolutionReports.query([
+    eq<ResolutionReportRow>('experienceId', experienceId),
+  ]);
+  const disputes = await deps.store.disputes.query([eq<DisputeRow>('experienceId', experienceId)]);
+
+  let fromReporters = 0;
+  for (const report of reports) {
+    fromReporters += await deps.store.evidence.countWhere([
+      eq<EvidenceRow>('resolutionReportId', report.id),
+    ]);
+  }
+  let fromDisputes = 0;
+  for (const dispute of disputes) {
+    fromDisputes += await deps.store.evidence.countWhere([eq<EvidenceRow>('disputeId', dispute.id)]);
+  }
+  return { fromReporters, fromDisputes };
 };

@@ -601,6 +601,16 @@ export interface EvidenceRow {
   readonly id: string;
   readonly experienceId?: string;
   readonly corroborationId?: string;
+  /**
+   * A dispute or a resolution report as a parent — Phase 37.
+   *
+   * The column for `disputeId` has existed since migration 0007, which replaced the
+   * one-parent check to admit it; nothing could write it because the port row did not
+   * carry the field. `resolutionReportId` is new in 0009. Exactly one parent is set,
+   * enforced by the database.
+   */
+  readonly disputeId?: string;
+  readonly resolutionReportId?: string;
   readonly submittedBy: string;
   readonly kind: string;
   /** Internal only, like original media. */
@@ -742,6 +752,20 @@ export interface EscalationRow {
   readonly resolvedAt?: number;
 }
 
+/**
+ * A record that governed state was offered to the intelligence layer, and which
+ * proposal it produced. It holds no recommendation of its own — the proposal lives in
+ * `intelligence_proposals`, under the contract that refuses one without traceable
+ * evidence.
+ */
+export interface HandoffRow {
+  readonly id: string;
+  readonly triggerId: string;
+  readonly subjectId: string;
+  readonly proposalId?: string;
+  readonly createdAt: number;
+}
+
 export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
@@ -809,4 +833,7 @@ export interface EngineStore {
   readonly severities: Table<SeverityRow>;
   readonly escalations: Table<EscalationRow>;
   readonly organizationCases: Table<OrganizationCaseRow>;
+
+  // ── Phase 40: the governed intelligence handoff ledger ──────────────────
+  readonly handoffs: Table<HandoffRow>;
 }

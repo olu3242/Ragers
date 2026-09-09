@@ -209,17 +209,25 @@ test('the full signal flow: claim, corroborate, cluster, respond, resolve', asyn
   expect(finalReport.reporters).toBe(2);
   expect(finalReport.resolvedShare).toBe(1);
 
-  // ── The aggregate figures follow ────────────────────────────────────────
+  // ── The aggregate figures follow, and the rate is withheld ──────────────
+  //
+  // This used to assert `resolutionRate === 1`. Phase 38 withholds it instead, and
+  // that is the point: a 100% resolution rate over a pattern containing one account
+  // is a claim about a pattern from a sample of one. The flow is still proved — the
+  // resolution API above reports `resolved` with `resolvedShare: 1`, which is the
+  // actual outcome — while the *comparative* figure says how far off it is.
   await expect
     .poll(
       async () => {
         const response = await request.get(`/api/clusters/${clusterId}`);
-        const body = (await response.json()) as { signal: { resolutionRate: number } | null };
-        return body.signal?.resolutionRate ?? -1;
+        const body = (await response.json()) as {
+          signal: { resolutionRate: { withheld: boolean; sampleSize: number; shortBy?: number } } | null;
+        };
+        return body.signal?.resolutionRate ?? null;
       },
       { timeout: 20_000, intervals: [200, 300, 500] },
     )
-    .toBe(1);
+    .toMatchObject({ withheld: true, sampleSize: 1, shortBy: 4 });
 
   // ── And the pages say all of it in plain language ───────────────────────
   await page.goto('/');

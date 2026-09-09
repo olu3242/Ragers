@@ -1,8 +1,21 @@
 import { getEngine } from '../../../lib/engine-instance.ts';
 import { clusterWithMembers } from '../../../src/engines/matching.engine.ts';
 import { publicSignalFor } from '../../../src/engines/signal.engine.ts';
+import { withheldCaption, type Measure } from '../../../src/domain/sampling.ts';
 import { publicResponsesFor } from '../../../src/engines/organization.engine.ts';
 import { OrganizationResponses } from '../../../components/OrganizationResponses.tsx';
+
+/**
+ * A rate, or the reason there isn't one yet.
+ *
+ * Never a zero. "Not enough yet" and "0%" mean opposite things, and only one of them
+ * is an accusation.
+ */
+const describeRate = (rate: Measure<number> | undefined): string => {
+  if (rate === undefined) return 'not enough yet';
+  if (rate.withheld) return withheldCaption(rate, 'accounts');
+  return `${Math.round(rate.value * 100)}%`;
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -59,13 +72,17 @@ const ClusterPage = async ({ params }: { params: Promise<{ id: string }> }) => {
           <dt>With added context</dt>
           <dd>{signal?.withContext ?? 0}</dd>
         </div>
+        {/* Rates are withheld below the sample floor rather than shown small. A
+            `?? 0` here used to publish "0% reported resolved" whenever there was no
+            data yet, which is a serious thing to say about an organization by
+            accident. */}
         <div>
           <dt>Reported resolved</dt>
-          <dd>{Math.round((signal?.resolutionRate ?? 0) * 100)}%</dd>
+          <dd>{describeRate(signal?.resolutionRate)}</dd>
         </div>
         <div>
           <dt>Answered</dt>
-          <dd>{Math.round((signal?.responseRate ?? 0) * 100)}%</dd>
+          <dd>{describeRate(signal?.responseRate)}</dd>
         </div>
       </dl>
 

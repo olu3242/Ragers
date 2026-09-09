@@ -13,6 +13,7 @@ import { expect } from '../../src/runtime/result.ts';
 import { enrichmentFor, nearDuplicatesOf } from '../../src/engines/enrichment.engine.ts';
 import { severityFor } from '../../src/engines/severity.engine.ts';
 import { evaluateEscalations, openEscalations } from '../../src/engines/escalation.engine.ts';
+import { handOff } from '../../src/engines/handoff.engine.ts';
 import type { ActorContext } from '../../src/runtime/authz.ts';
 import type { AuthResult } from '../../src/engines/identity.engine.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
@@ -231,6 +232,86 @@ describe(
         ),
         /cases_one_per_experience/,
       );
+    });
+
+    test('an idle connection dying does not take the process with it', async () => {
+      // `pg` emits `'error'` on the pool when an idle connection fails — a restart, a
+      // failover, an administrator terminating a backend. Without a listener Node
+      // turns that into an uncaught exception and the process exits, converting a
+      // recoverable blip into an outage. This kills every connection this pool holds
+      // and then asserts the pool still works.
+      await h.query(`select 1`);
+      const terminated = await h.query<{ pid: number }>(
+        `select pg_terminate_backend(pid) as pid from pg_stat_activity
+         where datname = current_database() and pid <> pg_backend_pid()`,
+      );
+      assert.ok(terminated.length >= 0, 'the termination ran');
+
+      // Give the socket errors a tick to arrive on the idle clients.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Still alive, and still usable: the pool discarded the broken clients and the
+      // next query gets a fresh one.
+      const after = await h.query<{ ok: number }>(`select 1 as ok`);
+      assert.equal(after[0]?.ok, 1);
+    });
+
+    test('the database enforces exactly one evidence parent, all four of them', async () => {
+      const actor = await signUp('live-ivy@example.com');
+      const experienceId = await publish(actor, 'Northwind Air lost the pushchair as well');
+
+      // Two parents at once, straight to SQL — the application is not in the way.
+      await assert.rejects(
+        h.query(
+          `insert into evidence (id, experience_id, resolution_report_id, submitted_by, kind,
+                                 original_key, protection_status, byte_size, mime_type)
+           values ('evd_live_bad', $1, 'rr_x', $2, 'photo', 'k', 'queued', 10, 'image/png')`,
+          [experienceId, actor.actorId],
+        ),
+        /evidence_has_one_parent|violates foreign key/,
+      );
+
+      // And none at all.
+      await assert.rejects(
+        h.query(
+          `insert into evidence (id, submitted_by, kind, original_key, protection_status, byte_size, mime_type)
+           values ('evd_live_none', $1, 'photo', 'k', 'queued', 10, 'image/png')`,
+          [actor.actorId],
+        ),
+        /evidence_has_one_parent/,
+      );
+    });
+
+    test('a handoff is claimed once under concurrency, so a reviewer sees one proposal', async () => {
+      const actor = await signUp('live-jo@example.com');
+      const experienceId = await publish(actor, 'The emergency exit was blocked again this week');
+      await h.query(`update actors set role = 'moderator' where id = $1`, ['engine']).catch(() => undefined);
+      await assertDim(actor, experienceId, { dimension: 'safety_involved', flag: true });
+
+      // The consumer has already handed this off during settle(). Six concurrent
+      // sweeps on top of it must add nothing — only the unique constraint on
+      // (trigger_id, subject_id) can arbitrate that.
+      await Promise.all(
+        Array.from({ length: 6 }, async () =>
+          handOff(engine, experienceId, { actorId: 'engine', role: 'moderator' }),
+        ),
+      );
+
+      const rows = await h.query<{ trigger_id: string; count: string }>(
+        `select trigger_id, count(*)::text as count from intelligence_handoffs
+         where subject_id = $1 group by trigger_id`,
+        [experienceId],
+      );
+      assert.ok(rows.length > 0, 'the condition was handed off');
+      for (const row of rows) {
+        assert.equal(row.count, '1', `${row.trigger_id} was claimed exactly once`);
+      }
+
+      const proposals = await h.query<{ count: string }>(
+        `select count(*)::text as count from intelligence_proposals where subject_id = $1`,
+        [experienceId],
+      );
+      assert.equal(proposals[0]?.count, String(rows.length), 'one proposal per condition, not per sweep');
     });
 
     test('a proposal written through the engine survives Postgres — the jsonb array regression', async () => {

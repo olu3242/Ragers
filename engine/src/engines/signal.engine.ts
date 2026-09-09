@@ -1,5 +1,6 @@
 import { ok } from '../runtime/result.ts';
 import { computeSignal, highestConcentration, isTrending, type SignalInputs } from '../domain/signal.ts';
+import { measure, type Measure } from '../domain/sampling.ts';
 import { eq } from '../ports/store.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { ClusterMember, EvidenceRow, SignalSnapshotRow } from '../ports/store.ts';
@@ -191,8 +192,16 @@ export interface PublicSignal {
   readonly withContext: number;
   readonly withVoice: number;
   readonly withEvidence: number;
-  readonly responseRate: number;
-  readonly resolutionRate: number;
+  /**
+   * Rates, through the Phase 38 floor.
+   *
+   * `Measure` rather than `number` because a rate over two experiences describes two
+   * experiences, and the page that used to render `resolutionRate ?? 0` published
+   * "0% reported resolved" whenever there was no data — a serious thing to say about
+   * an organization by accident. A withheld measure has no value to fall back to.
+   */
+  readonly responseRate: Measure<number>;
+  readonly resolutionRate: Measure<number>;
   readonly repeatIncidence: number;
   /** The location carrying the most claims, with how many. Never a precise place. */
   readonly topLocation?: { readonly locationId: string; readonly count: number };
@@ -209,6 +218,7 @@ export const publicSignalFor = async (
   if (!cluster || !snapshot) return undefined;
 
   const top = highestConcentration(snapshot.geographicConcentration);
+  const experienceCount = snapshot.rageCount + snapshot.raveCount;
   return {
     clusterId,
     headline: cluster.headline,
@@ -218,8 +228,9 @@ export const publicSignalFor = async (
     withContext: snapshot.contextSupportedCount,
     withVoice: snapshot.voiceSupportedCount,
     withEvidence: snapshot.evidenceSupportedCount,
-    responseRate: snapshot.responseRate,
-    resolutionRate: snapshot.resolutionRate,
+    // The denominator is experiences in the pattern, which is what the rate is over.
+    responseRate: measure('resolution_rate', experienceCount, () => snapshot.responseRate),
+    resolutionRate: measure('resolution_rate', experienceCount, () => snapshot.resolutionRate),
     repeatIncidence: snapshot.repeatIncidence,
     ...(top === undefined ? {} : { topLocation: top }),
     trending: isTrending(

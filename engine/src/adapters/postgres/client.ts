@@ -52,6 +52,13 @@ export interface PostgresOptions {
   readonly connectionString: string;
   readonly max?: number;
   readonly statementTimeoutMs?: number;
+  /**
+   * Called when an *idle* pooled connection fails.
+   *
+   * Optional, and swallowing it is the correct default — see the note in
+   * `createDb`. Supply it to log; never to rethrow.
+   */
+  readonly onIdleError?: (cause: unknown) => void;
 }
 
 /**
@@ -74,6 +81,26 @@ export const createDb = (options: PostgresOptions): Db => {
     max: options.max ?? 10,
     // A query that runs forever is an outage, not a slow query.
     statement_timeout: options.statementTimeoutMs ?? 15_000,
+  });
+
+  /**
+   * An idle connection failing is not this process's problem to crash over.
+   *
+   * `pg` emits `'error'` on the pool when a connection that is sitting idle dies —
+   * a Postgres restart, a failover, an administrator running `pg_terminate_backend`.
+   * With no listener, Node turns that into an **uncaught exception and the process
+   * exits**, which converts a recoverable blip into an outage. The pool already
+   * discards the broken client and hands the next caller a fresh one, so the
+   * correct handling is to not die: the next query either succeeds or fails on its
+   * own terms, where the retry policy can see it.
+   *
+   * Found because it kept killing a live test run: dropping a temporary database
+   * terminated a backend, and the resulting idle-client error surfaced as an
+   * uncaught exception attributed to whichever test was unlucky. The test was the
+   * symptom; a process that exits when the database restarts was the defect.
+   */
+  pool.on('error', (cause) => {
+    options.onIdleError?.(cause);
   });
 
   const fromClient = (client: PoolClient): Db => ({

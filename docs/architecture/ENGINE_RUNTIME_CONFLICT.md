@@ -94,5 +94,33 @@ directory. Whichever merges second conflicts structurally, not just textually.
 4. **Discard everything else**, recording the dispute/resolve contradiction in the
    PR so the reason is on the record rather than in somebody's memory.
 
-Nothing in this slice ports anything: this document is the disposition, and the
-port is its own change with its own tests.
+## Acted on
+
+**`fingerprint()` is ported.** It is the only thing ported, and it landed as its own
+change with its own tests — `fingerprintOf` in `src/domain/enrichment.ts`, exercised in
+`tests/unit/severity.escalation.test.ts`, `tests/integration/governance.action.test.ts`
+and `tests/live/governance.action.live.test.ts`.
+
+Two changes from the original, both deliberate:
+
+1. **Confirmed structure only.** The original fingerprinted whatever `entityId` sat on
+   the row. Feeding it an unconfirmed entity here would create a second path by which
+   extraction acts as agreement — the rule normalization exists to hold. An
+   unconfirmed field arrives as `undefined` and contributes an empty segment, and a
+   test asserts that a confirmed and an unconfirmed entity produce different
+   fingerprints.
+2. **A match is an input to review, never an action.** Nothing suppresses, hides or
+   deletes on a fingerprint match, and the index is deliberately **non-unique** — two
+   people may legitimately have identical accounts of the same failure, and a unique
+   index would have refused the second person's experience outright. Both are tested,
+   in-memory and against a live database.
+
+Everything else in the discard list stays discarded, for the reasons recorded above.
+The independent-signal thresholds and the `relatedSimilarity` calibration point remain
+open considerations rather than ports; neither is a composite score and neither has
+been adopted.
+
+**The path collision is unresolved and still needs an owner decision.** Porting one
+pure function does not resolve it: PR #6's files would still land inside the
+TypeScript package directory, and whichever branch merges second conflicts
+structurally.

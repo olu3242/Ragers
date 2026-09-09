@@ -63,4 +63,5 @@ export const createMemoryStore = (): EngineStore => ({
   severities: createMemoryTable(),
   escalations: createMemoryTable(),
   organizationCases: createMemoryTable(),
+  handoffs: createMemoryTable(),
 });

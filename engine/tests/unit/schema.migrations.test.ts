@@ -177,6 +177,7 @@ test('every port table has a corresponding relation in the migration', () => {
     enrichments: 'experience_enrichments',
     severities: 'experience_severities',
     escalations: 'experience_escalations',
+    handoffs: 'intelligence_handoffs',
   };
   const relations = new Set(tableNames(allMigrations));
   const missing: string[] = [];

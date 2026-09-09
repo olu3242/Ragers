@@ -167,10 +167,31 @@ describe(
 
       const signal = await publicSignalFor(engine, experience?.clusterId ?? '');
       assert.ok(signal, 'a snapshot exists');
-      for (const [name, value] of Object.entries(signal ?? {})) {
-        if (['clusterId', 'headline', 'topLocation', 'trending'].includes(name)) continue;
+
+      // The numeric round-trip is asserted on the stored row, which is where it
+      // actually happens. The presentation type is checked separately below: the
+      // rates are `Measure`s now, because a rate over one or two accounts is withheld
+      // rather than published, and asserting `typeof rate === 'number'` would be
+      // asserting the absence of that floor.
+      const snapshot = await engine.store.signalSnapshots.get(`sig_${experience?.clusterId}_all`);
+      assert.ok(snapshot, 'the snapshot row exists');
+      for (const [name, value] of Object.entries(snapshot ?? {})) {
+        if (typeof value === 'string' && !/^-?\d+(\.\d+)?$/.test(value)) continue;
+        if (['id', 'clusterId', 'window', 'geographicConcentration'].includes(name)) continue;
         assert.equal(typeof value, 'number', `${name} must be a number, got ${typeof value}`);
       }
+
+      for (const [name, value] of Object.entries(signal ?? {})) {
+        if (['clusterId', 'headline', 'topLocation', 'trending', 'responseRate', 'resolutionRate'].includes(name)) {
+          continue;
+        }
+        assert.equal(typeof value, 'number', `${name} must be a number, got ${typeof value}`);
+      }
+      // Two accounts is below the floor, so the rates are withheld and carry no value
+      // for a caller to read as a zero.
+      assert.equal(signal?.responseRate.withheld, true);
+      assert.equal('value' in (signal?.responseRate ?? {}), false);
+
       assert.equal(signal?.peopleAffected, 2, 'author plus corroborator');
       assert.equal(signal?.corroborations, 1);
 

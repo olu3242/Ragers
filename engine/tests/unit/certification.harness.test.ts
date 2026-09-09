@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   buildReport,
   decideStatus,
-decideExperienceSignalEngineStatus,
+  decideExperienceSignalEngineStatus,
+  decideGovernanceActionStatus,
   GATES,
   renderLedger,
   type GateResult,
@@ -202,4 +203,43 @@ test('the ledger reports both statuses', () => {
   assert.match(ledger, /Certification status: `RAGERS_ENGINE_E2E_READY`/);
   assert.match(ledger, /Experience Signal Engine status: `EXPERIENCE_SIGNAL_ENGINE_READY`/);
   assert.match(ledger, /a response is never a resolution/, 'and says what the second status means');
+});
+
+test('the Phases 31–40 band has its own status, and its own gates to earn it', () => {
+  const band = GATES.filter((gate) => gate.scope === 'governance_action');
+  assert.ok(band.length >= 5, 'the band is certified by its own gates, not by the engine gates');
+
+  // The band covers every layer: domain, the bus, a live database, and a browser.
+  const requirements = band.map((gate) => gate.requirement);
+  assert.ok(requirements.some((r) => r.includes('31-35')));
+  assert.ok(requirements.some((r) => r.includes('38-40')));
+  assert.ok(requirements.some((r) => r === 'phases/31-40'));
+  assert.ok(requirements.some((r) => r.endsWith('/live')));
+  assert.ok(requirements.some((r) => r.endsWith('/surfaces')));
+});
+
+test('a band status is decided by the band’s own gates and nothing else', () => {
+  const passing = [
+    { id: 'a', name: 'a', scope: 'governance_action' as const, requirement: 'r', status: 'passed' as const, durationMs: 1, detail: '' },
+  ];
+  assert.equal(decideGovernanceActionStatus(passing), 'PHASES_31_40_READY');
+
+  // An engine gate failing does not make the band not-ready, and vice versa: rolling
+  // them together would hide which of the two is actually broken.
+  assert.equal(
+    decideGovernanceActionStatus([
+      ...passing,
+      { id: 'b', name: 'b', requirement: 'r', status: 'failed' as const, durationMs: 1, detail: '' },
+    ]),
+    'PHASES_31_40_READY',
+  );
+  assert.equal(
+    decideGovernanceActionStatus([
+      ...passing,
+      { id: 'c', name: 'c', scope: 'governance_action' as const, requirement: 'r', status: 'blocked' as const, durationMs: 1, detail: '' },
+    ]),
+    'PHASES_31_40_READY_WITH_EXTERNAL_BLOCKERS',
+  );
+  // No gates at all is not ready. An empty band cannot certify itself.
+  assert.equal(decideGovernanceActionStatus([]), 'PHASES_31_40_NOT_READY');
 });

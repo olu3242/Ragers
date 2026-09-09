@@ -24,8 +24,24 @@ export type ExperienceSignalEngineStatus =
   | 'EXPERIENCE_SIGNAL_ENGINE_READY_WITH_BLOCKERS'
   | 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY';
 
+/**
+ * The Trust, Governance & Action band (Phases 31–40), reported separately.
+ *
+ * A third status for the same reason there is a second: it answers a different
+ * question. The engine status is about whether the platform is operable; the ESE
+ * status is about whether the corroboration contract holds; this one is about whether
+ * *measuring is kept apart from deciding* — that severity comes from what people
+ * asserted, that a measure below its floor is withheld rather than invented, that an
+ * escalation opens a review and nothing more, and that a handoff proposes without
+ * mutating anything. Rolling it into either of the others would hide which is broken.
+ */
+export type GovernanceActionStatus =
+  | 'PHASES_31_40_READY'
+  | 'PHASES_31_40_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_31_40_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
-export type GateScope = 'engine' | 'experience_signal_engine';
+export type GateScope = 'engine' | 'experience_signal_engine' | 'governance_action';
 
 export interface GateDefinition {
   readonly id: string;
@@ -370,6 +386,45 @@ export const GATES: readonly GateDefinition[] = [
     requirement: 'browser E2E',
     command: ['npx', 'playwright', 'test', '--project=relate-reputation'],
   },
+  // ── Phases 31–40: Trust, Governance & Action ────────────────────────────
+  {
+    id: 'phases_31_40_domain',
+    name: 'P31–35: severity is asserted, escalation decides nothing',
+    scope: 'governance_action',
+    requirement: 'phases/31-35',
+    command: ['node', '--test', 'tests/unit/severity.escalation.test.ts'],
+  },
+  {
+    id: 'phases_38_40_domain',
+    name: 'P38–40: a measure withheld beats a measure invented',
+    scope: 'governance_action',
+    requirement: 'phases/38-40',
+    command: ['node', '--test', 'tests/unit/sampling.aggregation.test.ts'],
+  },
+  {
+    id: 'phases_31_40_bus',
+    name: 'P31–40 end to end through the bus',
+    scope: 'governance_action',
+    requirement: 'phases/31-40',
+    command: ['node', '--test', 'tests/integration/governance.action.test.ts'],
+  },
+  {
+    id: 'phases_31_40_live',
+    name: 'P31–40 against a live database: constraints, races and jsonb',
+    scope: 'governance_action',
+    requirement: 'phases/31-40/live',
+    command: ['node', '--test', 'tests/live/governance.action.live.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. The unique constraints that arbitrate concurrent escalations and handoffs, and the jsonb round trip, cannot be certified without one.',
+  },
+  {
+    id: 'phases_31_40_browser',
+    name: 'P31–40 in a browser: no band without an assertion, no rate below the floor',
+    scope: 'governance_action',
+    requirement: 'phases/31-40/surfaces',
+    command: ['npx', 'playwright', 'test', '--project=governance-action'],
+  },
   {
     id: 'deployment',
     name: 'Deployment to a target environment',
@@ -419,9 +474,18 @@ export const decideExperienceSignalEngineStatus = (
   return 'EXPERIENCE_SIGNAL_ENGINE_READY';
 };
 
+export const decideGovernanceActionStatus = (results: readonly GateResult[]): GovernanceActionStatus => {
+  const own = results.filter((result) => result.scope === 'governance_action');
+  if (own.length === 0) return 'PHASES_31_40_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_31_40_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'PHASES_31_40_READY_WITH_EXTERNAL_BLOCKERS';
+  return 'PHASES_31_40_READY';
+};
+
 export interface CertificationReport {
   readonly status: CertificationStatus;
   readonly experienceSignalEngineStatus: ExperienceSignalEngineStatus;
+  readonly governanceActionStatus: GovernanceActionStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -430,6 +494,7 @@ export interface CertificationReport {
 export const buildReport = (results: readonly GateResult[], generatedAt: string): CertificationReport => ({
   status: decideStatus(results),
   experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
+  governanceActionStatus: decideGovernanceActionStatus(results),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -457,11 +522,16 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Experience Signal Engine status: \`${report.experienceSignalEngineStatus}\``);
   lines.push('');
+  lines.push(`## Phases 31–40 status: \`${report.governanceActionStatus}\``);
+  lines.push('');
   lines.push(
-    'Two statuses, because they answer different questions. The engine status is about ' +
+    'Three statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
-      'share is never a claim, and that a response is never a resolution.',
+      'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
+      'status is about whether measuring is kept apart from deciding: severity from what people ' +
+      'asserted, a measure withheld rather than invented below its floor, an escalation that ' +
+      'opens a review and nothing more, and a handoff that proposes without mutating anything.',
   );
   lines.push('');
   lines.push(

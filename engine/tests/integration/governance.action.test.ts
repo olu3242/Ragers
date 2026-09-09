@@ -6,6 +6,7 @@ import { enrichmentFor, nearDuplicatesOf } from '../../src/engines/enrichment.en
 import { severityFor } from '../../src/engines/severity.engine.ts';
 import { escalationsOf, evaluateEscalations } from '../../src/engines/escalation.engine.ts';
 import { caseFor, openCasesFor } from '../../src/engines/case.engine.ts';
+import { handOff, handoffsFor } from '../../src/engines/handoff.engine.ts';
 import { eq } from '../../src/ports/store.ts';
 import type { ActorContext } from '../../src/runtime/authz.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
@@ -290,4 +291,155 @@ test('a revoked membership can neither work a case nor be assigned one', async (
     idempotencyKey: h.nextKey(),
   });
   assert.equal(refused.ok, false, 'a revoked membership confers nothing');
+});
+
+// ── Phases 37 and 40, through the bus ───────────────────────────────────
+test('evidence attaches to a report of the outcome, and the organization cannot touch it', async () => {
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: bo } = await h.signUp('bo@example.com', 'Bo');
+  const experienceId = await publish(h, ada, 'The replacement part never arrived');
+
+  const reported = expect(
+    await h.engine.bus.dispatch<unknown, { reportId: string }>({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved', note: 'Nothing has changed' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  const attached = expect(
+    await h.engine.bus.dispatch<unknown, { evidenceId: string }>({
+      name: 'evidence.attach',
+      input: {
+        resolutionReportId: reported.reportId,
+        kind: 'photo',
+        originalKey: 'ok/1',
+        byteSize: 1_024,
+        mimeType: 'image/jpeg',
+      },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'attach to report',
+  );
+  await h.settle();
+
+  const row = await h.engine.store.evidence.get(attached.evidenceId);
+  assert.equal(row?.resolutionReportId, reported.reportId);
+  assert.equal(row?.experienceId, undefined, 'exactly one parent');
+
+  // Somebody else — an organization included — cannot attach to another person's
+  // account of the outcome. Authorization follows the parent's owner.
+  const refused = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: {
+      resolutionReportId: reported.reportId,
+      kind: 'document',
+      originalKey: 'ok/2',
+      byteSize: 512,
+      mimeType: 'application/pdf',
+    },
+    actor: bo,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false);
+});
+
+test('evidence must have exactly one parent, and four are offered', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The invoice was wrong twice');
+
+  const both = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: {
+      experienceId,
+      disputeId: 'dsp_nonexistent',
+      kind: 'photo',
+      originalKey: 'ok/3',
+      byteSize: 10,
+      mimeType: 'image/png',
+    },
+    actor,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(both.ok, false, 'two parents is refused');
+
+  const none = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: { kind: 'photo', originalKey: 'ok/4', byteSize: 10, mimeType: 'image/png' },
+    actor,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(none.ok, false, 'no parent is refused');
+});
+
+test('a handoff proposes over governed state and writes nothing an engine owns', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The fire door has been chained shut for a fortnight');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  // The handoff consumer has already run: `settle()` drains it, subscribed to
+  // `ExperienceEnriched`. Asserting on the consumer's own result rather than calling
+  // `handOff` again is the honest test — a second call correctly finds the condition
+  // already claimed and does nothing.
+  const opened = await handoffsFor(h.engine, experienceId);
+  assert.ok(opened.length > 0, 'a critical unresolved experience is handed off');
+
+  const before = await h.engine.store.experiences.get(experienceId);
+  await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  const after = await h.engine.store.experiences.get(experienceId);
+  assert.deepEqual(after, before, 'the experience row is untouched');
+
+  // The handoff produced a real proposal, and the proposal carries evidence a reviewer
+  // can open — the E12 contract refuses one that does not.
+  const handoff = opened[0];
+  assert.ok(handoff?.proposalId, 'a proposal was created');
+  const proposal = await h.engine.store.proposals.get(handoff.proposalId ?? '');
+  assert.ok(proposal);
+  assert.equal(proposal.status, 'proposed');
+  assert.ok(proposal.evidenceRefs.length > 0);
+  assert.equal(proposal.evidenceRefs[0]?.id, experienceId);
+  // And no pre-authorised action: this band hands over a situation to judge, and does
+  // not pre-authorise anything against anybody.
+  assert.equal(proposal.proposedCommand, undefined);
+  assert.ok(proposal.rationale.includes('safety_involved'), 'the rationale cites the governed state');
+});
+
+test('handing off the same condition twice produces one proposal', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The lift alarm has not worked for weeks');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  // Once by the consumer, then twice more by an explicit sweep.
+  const fromConsumer = await handoffsFor(h.engine, experienceId);
+  assert.ok(fromConsumer.length > 0);
+  const sweepOne = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  const sweepTwo = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  assert.deepEqual(sweepOne, [], 'an hourly sweep does not hand a reviewer the same thing again');
+  assert.deepEqual(sweepTwo, []);
+
+  const all = await handoffsFor(h.engine, experienceId);
+  assert.equal(new Set(all.map((row) => row.triggerId)).size, all.length, 'one handoff per condition');
+  const proposals = await h.engine.store.proposals.all();
+  const forThis = proposals.filter((row) => row.subjectId === experienceId);
+  assert.equal(forThis.length, all.length, 'one proposal per handoff, not one per sweep');
+});
+
+test('an unassessed experience is never handed off, however long it sits', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The shop was closed at the advertised time');
+
+  h.clock.advance(200 * DAY);
+  const opened = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  // Nothing was asserted, so there is no governed state to hand over. Proposing on the
+  // default band would be proposing on an absence of information.
+  assert.deepEqual(opened, []);
 });

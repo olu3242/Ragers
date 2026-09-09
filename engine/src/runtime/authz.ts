@@ -45,6 +45,7 @@ export type ResourceType =
   | 'relation'
   | 'proposal'
   | 'organization_case'
+  | 'resolution_report'
   | 'responsiveness'
   | 'system';
 

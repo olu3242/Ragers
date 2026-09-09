@@ -6,7 +6,7 @@ import { mayReportResolution, resolutionSummaryFor } from '../../../src/engines/
 import { publicResponsesFor } from '../../../src/engines/organization.engine.ts';
 import { disputesFor } from '../../../src/engines/dispute.engine.ts';
 import { relatedTo } from '../../../src/engines/relation.engine.ts';
-import { evidenceSummaryFor } from '../../../src/engines/evidence.engine.ts';
+import { evidenceSummaryFor, outcomeEvidenceFor } from '../../../src/engines/evidence.engine.ts';
 import { ReactionRow } from '../../../components/ReactionRow.tsx';
 import { SignalRow } from '../../../components/SignalRow.tsx';
 import { ResolutionRow } from '../../../components/ResolutionRow.tsx';
@@ -56,6 +56,7 @@ const ExperiencePage = async ({ params }: { params: Promise<{ id: string }> }) =
   const responses = await publicResponsesFor(engine, { experienceId: id });
   const evidence = await evidenceSummaryFor(engine, id);
   const severity = await severityFor(engine, id);
+  const outcomeEvidence = await outcomeEvidenceFor(engine, id);
   // Only the author's own enrichment is read, and only to avoid asking them twice.
   // Nobody else's view of this page touches the row.
   const isAuthor = viewer.actor.authenticated && experience?.actorId === viewer.actor.actorId;
@@ -127,6 +128,22 @@ const ExperiencePage = async ({ params }: { params: Promise<{ id: string }> }) =
           experienceId={id}
           asserted={enrichment ? assertedValues(enrichment).map((value) => value.dimension) : []}
         />
+      ) : null}
+
+      {/* Phase 37: what each side attached, counted per side. "Three pieces of
+          evidence" says nothing about a contested outcome — it matters whose. Counts
+          only, no judgement, and nothing is ever labelled verified. */}
+      {outcomeEvidence.fromReporters + outcomeEvidence.fromDisputes > 0 ? (
+        <p className="outcome-evidence">
+          On the outcome:{' '}
+          {outcomeEvidence.fromReporters > 0
+            ? `${outcomeEvidence.fromReporters} attached by the people it happened to`
+            : 'nothing attached by the people it happened to'}
+          {outcomeEvidence.fromDisputes > 0
+            ? `, ${outcomeEvidence.fromDisputes} attached to a dispute`
+            : ''}
+          .
+        </p>
       ) : null}
 
       <RelateControl

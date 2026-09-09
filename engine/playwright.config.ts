@@ -61,6 +61,13 @@ export default defineConfig({
       testMatch: /relate-reputation\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3104' },
     },
+    {
+      // Its own server again: these tests assert on an *absent* severity band, which
+      // another suite's asserted band on a shared feed would defeat.
+      name: 'governance-action',
+      testMatch: /governance-action\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3105' },
+    },
   ],
   webServer: [
     {
@@ -88,6 +95,13 @@ export default defineConfig({
     {
       command: 'npx next start -p 3104',
       url: 'http://127.0.0.1:3104',
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: { RAGERS_TEST_SEED: 'enabled' },
+    },
+    {
+      command: 'npx next start -p 3105',
+      url: 'http://127.0.0.1:3105',
       reuseExistingServer: false,
       timeout: 120_000,
       env: { RAGERS_TEST_SEED: 'enabled' },
