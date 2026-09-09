@@ -10,14 +10,8 @@ const runtime = new DurableIntegrityRuntime({ file: process.env.RAGERS_DATA_FILE
 const root = process.cwd();
 
 const mime = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg'
+  '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'
 };
 
 function send(res, status, body, headers = {}) {
@@ -29,15 +23,8 @@ function send(res, status, body, headers = {}) {
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1_000_000) req.destroy(new Error('payload_too_large'));
-    });
-    req.on('end', () => {
-      if (!body) return resolve({});
-      try { resolve(JSON.parse(body)); }
-      catch { reject(new Error('invalid_json')); }
-    });
+    req.on('data', (chunk) => { body += chunk; if (body.length > 1_000_000) req.destroy(new Error('payload_too_large')); });
+    req.on('end', () => { if (!body) return resolve({}); try { resolve(JSON.parse(body)); } catch { reject(new Error('invalid_json')); } });
     req.on('error', reject);
   });
 }
@@ -46,34 +33,18 @@ function publicFeed() {
   return [...runtime.engine.experiences.values()]
     .filter((exp) => exp.distributionDecision !== 'quarantine')
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
-    .map((exp) => ({
-      id: exp.id,
-      actorId: exp.actorId,
-      type: exp.type,
-      body: exp.text || exp.transcript,
-      category: exp.topicId || 'General',
-      entityId: exp.entityId,
-      createdAt: exp.submittedAt,
-      status: exp.status,
-      confidence: exp.scores?.experienceConfidence ?? 0,
-      confidenceBand: runtime.engine.getPublicSummary(exp.id).confidenceBand,
-      distribution: exp.distributionDecision,
-      cluster: runtime.engine.getPublicSummary(exp.id).cluster
-    }));
+    .map((exp) => {
+      const summary = runtime.engine.getPublicSummary(exp.id);
+      return { id: exp.id, actorId: exp.actorId, type: exp.type, body: exp.text || exp.transcript, category: exp.topicId || 'General', entityId: exp.entityId,
+        createdAt: exp.submittedAt, status: exp.status, confidence: exp.scores?.experienceConfidence ?? 0, confidenceBand: summary.confidenceBand,
+        distribution: exp.distributionDecision, cluster: summary.cluster };
+    });
 }
 
 async function api(req, res, url) {
-  if (req.method === 'GET' && url.pathname === '/api/health') {
-    return send(res, 200, { ok: true, service: 'ragers-integrity-runtime', experiences: runtime.engine.experiences.size, outboxPending: runtime.outbox.filter((e) => e.status === 'pending').length });
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/experiences') {
-    return send(res, 200, { experiences: publicFeed() });
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/trends') {
-    return send(res, 200, { clusters: runtime.engine.listClusters() });
-  }
+  if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { ok: true, service: 'ragers-integrity-runtime', experiences: runtime.engine.experiences.size, outboxPending: runtime.outbox.filter((e) => e.status === 'pending').length });
+  if (req.method === 'GET' && url.pathname === '/api/experiences') return send(res, 200, { experiences: publicFeed() });
+  if (req.method === 'GET' && url.pathname === '/api/trends') return send(res, 200, { clusters: runtime.engine.listClusters() });
 
   if (req.method === 'POST' && url.pathname === '/api/experiences') {
     const input = await readJson(req);
@@ -96,16 +67,12 @@ async function api(req, res, url) {
     }
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/internal/revalidate') {
-    return send(res, 200, runtime.revalidateAll());
-  }
-
+  if (req.method === 'POST' && url.pathname === '/api/internal/revalidate') return send(res, 202, runtime.requestRevalidation());
   if (req.method === 'POST' && url.pathname === '/api/internal/outbox/drain') {
     const delivered = [];
     const result = runtime.drainOutbox((event) => delivered.push(event.id));
     return send(res, 200, { ...result, eventIds: delivered });
   }
-
   return false;
 }
 
@@ -133,8 +100,5 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
-  server.listen(PORT, () => console.log(`Ragers running at http://localhost:${PORT}`));
-}
-
+if (require.main === module) server.listen(PORT, () => console.log(`Ragers running at http://localhost:${PORT}`));
 module.exports = { server, runtime };
