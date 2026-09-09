@@ -58,11 +58,12 @@ export const createEngineHarness = (options: Omit<EngineOptions, 'clock' | 'ids'
   };
 
   const settle = async (): Promise<void> => {
-    // Advance past any backoff between rounds so retries actually run.
     for (let round = 0; round < 12; round += 1) {
       const report = await engine.orchestrator.drain();
       if (report.claimed === 0) break;
-      clock.advance(120_000);
+      // Only advance time when something is actually backing off, so settling a
+      // healthy pipeline does not consume time-based windows under test.
+      if (report.retried > 0) clock.advance(120_000);
     }
   };
 

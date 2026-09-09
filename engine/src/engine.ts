@@ -39,6 +39,25 @@ import {
   createFeedSuppressionConsumer,
 } from './engines/feed.engine.ts';
 import { createCounterProjectionConsumer, registerReactionEngine } from './engines/reaction.engine.ts';
+import { createSearchIndexConsumer, createSearchPurgeConsumer } from './engines/search.engine.ts';
+import {
+  createSubjectExtractionConsumer,
+  createSubjectPurgeConsumer,
+} from './engines/subject.engine.ts';
+import { createBlockApplicationConsumer, registerGraphEngine } from './engines/graph.engine.ts';
+import {
+  createNotificationFanOutConsumer,
+  registerNotificationEngine,
+} from './engines/notification.engine.ts';
+import { createReputationConsumer } from './engines/reputation.engine.ts';
+import { createRankingConsumer } from './engines/ranking.engine.ts';
+import {
+  createDeletionPropagationConsumer,
+  createExportConsumer,
+  registerCreatorEngine,
+} from './engines/creator.engine.ts';
+import { registerGovernanceEngine } from './engines/governance.engine.ts';
+import { createAnalyticsIngestConsumer } from './engines/analytics.engine.ts';
 import { createReplyCascadeConsumer, registerConversationEngine } from './engines/conversation.engine.ts';
 import type { EngineStore } from './ports/store.ts';
 import type { HealthRegistry } from './runtime/health.ts';
@@ -116,6 +135,10 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerSafetyEngine(deps);
   registerReactionEngine(deps);
   registerConversationEngine(deps);
+  registerGraphEngine(deps);
+  registerNotificationEngine(deps);
+  registerCreatorEngine(deps);
+  registerGovernanceEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -129,6 +152,17 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createFeedPurgeConsumer(deps));
   orchestrator.subscribe(createCounterProjectionConsumer(deps));
   orchestrator.subscribe(createReplyCascadeConsumer(deps));
+  orchestrator.subscribe(createSubjectExtractionConsumer(deps));
+  orchestrator.subscribe(createSubjectPurgeConsumer(deps));
+  orchestrator.subscribe(createSearchIndexConsumer(deps));
+  orchestrator.subscribe(createSearchPurgeConsumer(deps));
+  orchestrator.subscribe(createBlockApplicationConsumer(deps));
+  orchestrator.subscribe(createNotificationFanOutConsumer(deps));
+  orchestrator.subscribe(createReputationConsumer(deps));
+  orchestrator.subscribe(createRankingConsumer(deps));
+  orchestrator.subscribe(createDeletionPropagationConsumer(deps));
+  orchestrator.subscribe(createExportConsumer(deps));
+  orchestrator.subscribe(createAnalyticsIngestConsumer(deps));
 
   const health = createHealthRegistry(clock);
   health.register({
