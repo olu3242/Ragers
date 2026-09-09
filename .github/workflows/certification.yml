@@ -105,6 +105,18 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
+
       - name: Install Postgres 16 client tools
         # pg_dump/pg_restore must match the server major version for the
         # backup/restore drill to be meaningful.
@@ -197,6 +209,18 @@ jobs:
       - name: Production build
         working-directory: engine
         run: npm run build
+
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
 
       - name: Install Chromium for Playwright
         working-directory: engine
@@ -296,6 +320,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: engine/package-lock.json
+
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
 
       - name: Install Postgres 16 client tools
         run: |
