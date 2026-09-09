@@ -42,7 +42,59 @@ merges; it is not a product-surface call.
 
 ---
 
-## 1. Surfaces implemented in this slice
+## 1. Surfaces implemented in slice 2 — Relate and reputation views
+
+**Surface:** Relate control and related-experience list
+**Phase:** product surface slice 2
+**Persona:** Community Participant
+**Engines consumed:** E6
+**Endpoints/events consumed:** `GET|POST|DELETE /api/experiences/[id]/relations`
+**States represented:** `same_occurrence · same_pattern · related_context`; active/retracted
+**Implemented:** `components/RelateControl.tsx`. Visually quieter than the claim controls, because relating is a weaker statement. Says in words that it does not count as a Re-Rage, because the count sits near numbers that *do* mean "people this happened to" and placement alone would not carry it. Asserts `trustWeight: 0` back from the API.
+**Backend dependency:** none — E6 contract landed in the contract slice.
+**Browser evidence:** relating moves `reRages`/`corroborators` not at all; the reverse pair is refused 409; the note is asserted verbatim.
+
+**Surface:** Experience detail page
+**Phase:** product surface slice 2
+**Persona:** all
+**Engines consumed:** E1 E4 E6 E7 E9 E10
+**Endpoints/events consumed:** feed projection, counters, `resolutionSummaryFor`, `disputesFor`, `relatedTo`, `publicResponsesFor`, `evidenceSummaryFor`
+**States represented:** publication, outcome (all seven presentations), contested, evidence assessment
+**Implemented:** `app/experiences/[id]/page.tsx`. Read from the feed projection, so it cannot leak an author. Ordering is the argument: the account, then what people claimed, then what the organization said, then what the people it happened to reported. A response never sits above the account it answers.
+**Backend dependency:** none
+
+**Surface:** Dispute control
+**Phase:** product surface slice 2
+**Persona:** Consumer, Community, Business
+**Engines consumed:** E10
+**Endpoints/events consumed:** `GET|POST /api/experiences/[id]/disputes`
+**States represented:** `open · under_review · upheld · declined`; contested badge
+**Implemented:** `components/DisputeControl.tsx`. Kept visibly separate from resolution reporting because they are different acts. Reasons offered depend on which side the viewer is; somebody who is both sees a "Disputing as" selector so they choose which hat. Says that a moderator reviews it, that neither side can decide it, and that it is not a finding about who is right. Refreshes server state on success rather than leaving half the page optimistic.
+**Backend dependency:** none
+
+**Surface:** Contribution view
+**Phase:** product surface slice 2
+**Persona:** Consumer, Community
+**Engines consumed:** E11
+**Endpoints/events consumed:** `GET /api/actors/[id]/contribution`
+**States represented:** four named counts; explicit insufficient-sample state
+**Implemented:** `components/ContributionView.tsx`. No composite, nothing from the trust layer, nothing about popularity. `approvalRate` renders as "not enough votes yet" when withheld.
+**Backend dependency:** none
+
+**Surface:** Responsiveness panel
+**Phase:** product surface slice 2
+**Persona:** Business, and public
+**Engines consumed:** E11
+**Endpoints/events consumed:** `GET /api/organizations/[id]/responsiveness`
+**States represented:** cases total/answered/confirmed-resolved/open; medians when the sample supports them
+**Implemented:** `components/ResponsivenessPanel.tsx`, replacing the counted-in-page figures on the organization page so staff see the same record a viewer does. Not called an SLA and no overdue indicator, because none exists. Durations are worded plainly ("2 days"), never falsely precise.
+**Backend dependency:** none
+
+**Browser evidence (slice 2):** `e2e/relate-reputation.spec.ts` — 4 tests on their own server. Relating moves no claim count; a dispute is offered separately, reads as a disagreement, and leaves the outcome axis at `open`; responsiveness withholds timings below the floor and shows how far off; no reputation payload key matches `score|rating|rank|grade|trust|risk`.
+
+---
+
+## 1b. Surfaces implemented in slice 1
 
 **Surface:** Persona navigation and shell
 **Phase:** product surface slice 1
@@ -142,11 +194,13 @@ Covered end to end except:
 1. Five authoritative contract documents absent (§0). Blocking for contract-conformance.
 2. Divergent `engine/` implementation on PR #6, colliding on path (§0). Needs an owner decision.
 3. **E12 Intelligence** — no engine, no proposal ledger, no approve/reject/escalate commands, no agent framework.
-4. **E11 Reputation** — no read contract shaped for a viewer surface.
-5. **Consumer dispute** — `resolution_report_kind` cannot express "the organization's account is untrue".
-6. **SLA measures** — no time-to-first-response or time-to-resolution in the engine.
-7. **Relate** — no mechanic distinct from corroboration and `same`.
+4. ~~**E11 Reputation** — no read contract shaped for a viewer surface.~~ **Closed** — `contributionViewOf`, `publicResponsivenessFor`.
+5. ~~**Consumer dispute**~~ **Closed** — `experience_disputes` is its own object on a third axis; `dispute.open` accepts consumer and organization origins.
+6. ~~**SLA measures**~~ **Closed as responsiveness**, deliberately not as an SLA: acknowledgement, first-response and resolution medians with a sample floor. No overdue indicator, because no agreement exists to be overdue against.
+7. ~~**Relate**~~ **Closed** — `experience_relations`, canonicalised pair, zero trust weight.
 8. **Deployment target** — still absent; deployment and rollback gates remain blocked.
+9. **E12 recommendation cards** — the proposal contract now exists (`/api/proposals`, `/api/proposals/[id]/decision`), but `/operate/proposals` still only renders normalization suggestions. Approve/reject/escalate UX over `intelligence_proposals` is the next product surface.
+10. **`engine/` path collision with PR #6** — unresolved; see `docs/architecture/ENGINE_RUNTIME_CONFLICT.md`.
 
 ---
 
@@ -172,4 +226,5 @@ static validation: PASS (121 source files, 6 migrations)
 typecheck: clean · production build: clean
 ```
 
-**SHA:** `1d34b09` (parent of this slice's commit)
+**SHA (slice 2):** `2c56a7b`
+**SHA (slice 1):** `1d34b09` (parent of this slice's commit)

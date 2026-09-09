@@ -56,6 +56,11 @@ export default defineConfig({
       testMatch: /personas\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3103' },
     },
+    {
+      name: 'relate-reputation',
+      testMatch: /relate-reputation\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3104' },
+    },
   ],
   webServer: [
     {
@@ -76,6 +81,13 @@ export default defineConfig({
     {
       command: 'npx next start -p 3103',
       url: 'http://127.0.0.1:3103',
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: { RAGERS_TEST_SEED: 'enabled' },
+    },
+    {
+      command: 'npx next start -p 3104',
+      url: 'http://127.0.0.1:3104',
       reuseExistingServer: false,
       timeout: 120_000,
       env: { RAGERS_TEST_SEED: 'enabled' },

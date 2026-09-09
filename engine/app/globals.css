@@ -431,3 +431,58 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 .proposal-confidence { color: var(--text-faint); font-size: 12px; }
 .proposal-evidence { color: var(--text-dim); font-style: italic; }
 .proposal-owner { margin: 0; font-size: 12px; color: var(--text-faint); }
+
+/* ── Relate ──────────────────────────────────────────────────────────────
+   Visually quieter than the claim controls, because relating is a weaker
+   statement than claiming and must not read like one. */
+.relate { margin-top: 12px; font-size: 13px; }
+.relate-heading { margin: 0 0 6px; color: var(--text-dim); font-size: 12px; }
+.relate-list { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 5px; }
+.relate-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.relate-assertion { color: var(--text-dim); }
+.relate-count { color: var(--text-faint); }
+.relate-note { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.relate-open,
+.dispute-open {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.relate-open:hover,
+.dispute-open:hover { background: var(--bg-hover); color: var(--text); }
+.relate-form,
+.dispute-form { display: grid; gap: 6px; margin-top: 8px; }
+.relate-actions,
+.dispute-actions { display: flex; gap: 8px; margin-top: 4px; }
+.relate-error,
+.dispute-error { margin: 6px 0 0; color: var(--rage); font-size: 12px; }
+
+/* ── Dispute ─────────────────────────────────────────────────────────────
+   Contested sits next to the account, never inside the outcome badge: they are
+   different questions. */
+.dispute { margin-top: 12px; font-size: 13px; }
+.badge-contested { border-color: var(--rage); color: var(--rage); }
+.dispute-list { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 5px; font-size: 13px; }
+.dispute-origin { color: var(--text); }
+.dispute-status { color: var(--text-faint); }
+.dispute-note { margin: 0 0 8px; font-size: 12px; color: var(--text-dim); }
+.dispute-hint { margin: 2px 0 0; font-size: 12px; color: var(--text-faint); }
+
+/* ── Reputation reads ────────────────────────────────────────────────────
+   Named counts in a grid. No composite anywhere, by design. */
+.contribution { margin-top: 8px; }
+.contribution-note { margin: 0 0 6px; font-size: 13px; color: var(--text-dim); }
+.responsiveness { margin: 8px 0 16px; }
+.responsiveness-note { margin: 0 0 8px; font-size: 13px; color: var(--text-dim); }
+.responsiveness-timings { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 5px; font-size: 13px; color: var(--text-dim); }
+
+.card-detail { margin-top: 4px; }
+.evidence-note { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.detail-cluster { margin: 12px 0 0; font-size: 13px; }
+.inbox-link { margin: 0 0 8px; font-size: 12px; }

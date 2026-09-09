@@ -26,6 +26,10 @@ const personaNav = read('components', 'PersonaNav.tsx');
 const queue = read('components', 'ModerationQueue.tsx');
 const inbox = read('components', 'OrganizationCaseInbox.tsx');
 const outcomeBadge = read('components', 'OutcomeBadge.tsx');
+const relate = read('components', 'RelateControl.tsx');
+const disputeControl = read('components', 'DisputeControl.tsx');
+const contribution = read('components', 'ContributionView.tsx');
+const responsiveness = read('components', 'ResponsivenessPanel.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -123,6 +127,10 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['ModerationQueue', queue],
     ['OrganizationCaseInbox', inbox],
     ['OutcomeBadge', outcomeBadge],
+    ['RelateControl', relate],
+    ['DisputeControl', disputeControl],
+    ['ContributionView', contribution],
+    ['ResponsivenessPanel', responsiveness],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -143,6 +151,8 @@ test('every button in the app surfaces declares an explicit type', () => {
     ['ResolutionRow', resolution],
     ['ModerationQueue', queue],
     ['OrganizationCaseInbox', inbox],
+    ['RelateControl', relate],
+    ['DisputeControl', disputeControl],
   ] as const) {
     const buttons = [...source.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1] ?? '');
     for (const attributes of buttons) {
@@ -157,13 +167,17 @@ test('all app surface files are accounted for by these assertions', () => {
     components.sort(),
     [
       'Composer.tsx',
+      'ContributionView.tsx',
+      'DisputeControl.tsx',
       'ModerationQueue.tsx',
       'OrganizationCaseInbox.tsx',
       'OrganizationResponses.tsx',
       'OutcomeBadge.tsx',
       'PersonaNav.tsx',
       'ReactionRow.tsx',
+      'RelateControl.tsx',
       'ResolutionRow.tsx',
+      'ResponsivenessPanel.tsx',
       'SignalRow.tsx',
       'VoicePlayer.tsx',
       'VoiceRecorder.tsx',
@@ -177,6 +191,8 @@ test('every operator and organization control that mutates has a label', () => {
   for (const [name, source] of [
     ['ModerationQueue', queue],
     ['OrganizationCaseInbox', inbox],
+    ['RelateControl', relate],
+    ['DisputeControl', disputeControl],
   ] as const) {
     // A bare input or select with no label is unusable with a screen reader, and
     // these are the surfaces where a mislabelled control has consequences.
@@ -199,6 +215,8 @@ test('operator and organization errors are announced, not only shown', () => {
   for (const [name, source] of [
     ['ModerationQueue', queue],
     ['OrganizationCaseInbox', inbox],
+    ['RelateControl', relate],
+    ['DisputeControl', disputeControl],
   ] as const) {
     assert.match(source, /role="alert"/, `${name} must announce a refusal`);
   }
@@ -209,4 +227,45 @@ test('the persona label is text, not colour alone', () => {
   // are on without relying on a hue.
   assert.match(personaNav, /PERSONA_LABELS\[target\.persona\]/, 'personas are labelled in words');
   assert.match(css, /\.tab-persona/, 'and styled from that label, not instead of it');
+});
+
+test('Relate says in words that it is not a claim', () => {
+  // The count sits near numbers that do mean "people this happened to", so the
+  // distinction cannot be left to placement.
+  assert.match(relate, /do not count as Re-Rages/, 'stated, not implied');
+});
+
+test('a dispute says it is not a finding about who is right', () => {
+  // Whitespace-tolerant: the copy is line-wrapped in the source.
+  assert.match(disputeControl, /not a\s+finding about which is right/);
+  // And that neither side decides it.
+  assert.match(disputeControl, /Neither side can decide it/);
+});
+
+test('the reputation reads carry no composite score', () => {
+  // Comments are stripped first: these files explain *why* there is no score, and a
+  // rule that cannot tell an explanation from a feature teaches people to delete the
+  // explanation.
+  const withoutComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+  for (const [name, source] of [
+    ['ContributionView', withoutComments(contribution)],
+    ['ResponsivenessPanel', withoutComments(responsiveness)],
+  ] as const) {
+    for (const forbidden of ['score', 'rating', 'rank', 'grade'] as const) {
+      assert.equal(
+        new RegExp(`\\b${forbidden}`, 'i').test(source),
+        false,
+        `${name} must not present a ${forbidden}`,
+      );
+    }
+  }
+  // Responsiveness must not call itself an SLA: none exists.
+  assert.equal(
+    /\bSLA\b/.test(responsiveness.replace(/\/\*[\s\S]*?\*\//g, '')),
+    false,
+    'nothing here is a service-level agreement',
+  );
+  assert.match(responsiveness, /Confirmed resolved/, 'and confirmation is attributed');
 });

@@ -145,6 +145,9 @@ export const OrganizationCaseInbox = ({
             </div>
 
             <p className="inbox-body">{item.bodyText}</p>
+            <p className="inbox-link">
+              <a href={`/experiences/${item.experienceId}`}>Open the full account</a>
+            </p>
 
             <p className="inbox-signal">
               {/* People, not engagement. Stated as a claim, not as a finding. */}

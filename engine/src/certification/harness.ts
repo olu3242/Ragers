@@ -365,6 +365,12 @@ export const GATES: readonly GateDefinition[] = [
       'No database is configured, so the partial unique index and the dispute RLS policies cannot be executed.',
   },
   {
+    id: 'relate_reputation_surfaces',
+    name: 'Surfaces: Relate carries no weight; reputation shows no score',
+    requirement: 'browser E2E',
+    command: ['npx', 'playwright', 'test', '--project=relate-reputation'],
+  },
+  {
     id: 'deployment',
     name: 'Deployment to a target environment',
     requirement: 'deployment',
