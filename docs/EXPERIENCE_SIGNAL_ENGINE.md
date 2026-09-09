@@ -221,26 +221,39 @@ here because each one was a property the code claimed to have.
 | The Postgres outbox allocated `sequence` as `max(sequence) + 1` | Two people corroborating the same experience at the same moment allocated the same sequence; the unique index turned one of them into a conflict error they had done nothing to earn. Six concurrent claimants: three failed. | An explicit per-aggregate counter (`outbox_sequences`), incremented in the same statement that inserts the event. This is what the in-memory adapter always did — the two were not at parity under concurrency. |
 | The adapter's timestamp columns were a hand-maintained list | `retracted_at` was missing from it, so retracting a corroboration wrote epoch milliseconds into a `timestamptz` and failed. Every future timestamp column had the same trap waiting. | Recognised by convention (`<name>_at`), with a schema test asserting the migrations keep to the convention in both directions. |
 | Two consumers each wrote the whole `experience_counters` row from its own view | The reaction consumer zeroed `re_rage_count`, and the corroboration consumer zeroed `same` — silently in memory, where a `put` replaces the record, and inconsistently in Postgres, where an omitted column keeps its value. | One `recomputeCounters` shared by both, recomputing every field from rows. |
+| The outbox was not transactional with the state change | A process dying between a handler's rows and its event committed a state change whose event never existed — a corroboration whose count never moves. | The Postgres `Db` carries an ambient transaction scope, and the bus opens one transaction around the transition and the append. No engine changed. |
 | An optional field absent from a written row cleared in memory but persisted in Postgres | A re-claim after a retraction left `retracted_at` dated in the database and cleared in memory. | The field is written explicitly rather than omitted, and adapter parity now asserts the clearing case. |
 
 The last three are not corroboration bugs. They are adapter-parity bugs that the
 corroboration work happened to be the first to exercise, which is the argument
 for asserting the same behaviour against both adapters rather than trusting one.
 
-### Known gap: the outbox is not yet transactional with the state change
+### Closed: the outbox is now transactional with the state change
 
-The command bus writes the handler's rows, then appends to the outbox as a
-separate statement. If the process dies between the two, the state change is
-committed with no event, and every projection derived from that event is
-permanently behind. This is the dual-write problem the outbox pattern exists to
-solve, and the pattern is only half-implemented until the handler's writes and
-the append share one transaction.
+Batch A found the outbox pattern only half-implemented. The command bus wrote the
+handler's rows, then appended to the outbox as a separate statement — so a
+process that died between the two committed a state change whose event never
+existed, leaving every projection derived from it permanently behind. A
+corroboration that exists but whose count never moves is precisely the failure
+the ESE exists to prevent, so this could not be deferred.
 
-It is recorded here rather than fixed in Batch A because it requires a
-transactional scope on the store port, which every engine touches. **The ESE
-cannot report `EXPERIENCE_SIGNAL_ENGINE_READY` while this stands** — a
-corroboration count that can silently stop updating is exactly the failure the
-ESE exists to prevent.
+The fix keeps the burden off the handlers. Threading a transaction-scoped store
+through every command would mean each handler had to remember to use it, and one
+that forgot is one silent dual write. Instead the Postgres `Db` carries an
+ambient transaction scope (`AsyncLocalStorage`): whatever `Db` a store was built
+over routes to the current transaction's client while one is open, and to the
+pool otherwise. The bus opens one transaction around the domain transition and
+the append; no engine changed.
+
+Idempotency completion stays deliberately *outside* that transaction. Rolling it
+back with the rest would let a retry re-run a command whose effects had already
+committed.
+
+Proven by failing on purpose: `tests/live/outbox.atomicity.test.ts` breaks the
+outbox insert with a `not valid` check constraint so the handler's rows are
+already written when the failure lands, then asserts the corroboration row is
+gone too. With the transaction removed the test fails, which is what makes it
+evidence rather than decoration.
 
 ## 7. Certification boundary
 

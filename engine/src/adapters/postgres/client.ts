@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { err, ok, type Result } from '../../runtime/result.ts';
 import { conflictError, transientError, type EngineError } from '../../runtime/errors.ts';
@@ -53,6 +54,20 @@ export interface PostgresOptions {
   readonly statementTimeoutMs?: number;
 }
 
+/**
+ * The transaction a piece of work is currently inside, if any.
+ *
+ * The alternative is threading a transaction-scoped store through every command
+ * handler, which would put the burden of remembering on each of them — and one
+ * handler that forgets is a state change that commits without its event. An
+ * ambient scope means a handler cannot forget: whatever `Db` it holds routes to
+ * the current transaction's client while one is open, and to the pool otherwise.
+ */
+const ambient = new AsyncLocalStorage<Db>();
+
+/** True while the caller is inside `db.transaction`. */
+export const inTransaction = (): boolean => ambient.getStore() !== undefined;
+
 export const createDb = (options: PostgresOptions): Db => {
   const pool = new Pool({
     connectionString: options.connectionString,
@@ -70,13 +85,25 @@ export const createDb = (options: PostgresOptions): Db => {
   });
 
   return {
-    query: wrap((sql, params) => pool.query(sql, params as unknown[])),
+    // Routed through the ambient scope, so a store built once at construction
+    // still participates in whatever transaction is open around the call.
+    query: async <R extends QueryResultRow>(sql: string, params: readonly unknown[] = []) => {
+      const current = ambient.getStore();
+      if (current) return current.query<R>(sql, params);
+      return wrap((s2, p2) => pool.query(s2, p2 as unknown[]))<R>(sql, params);
+    },
 
     transaction: async <T>(work: (tx: Db) => Promise<Result<T, EngineError>>) => {
+      // Already inside one: reuse it rather than opening a second connection and
+      // deadlocking against the rows the outer transaction already holds.
+      const current = ambient.getStore();
+      if (current) return current.transaction(work);
+
       const client = await pool.connect();
       try {
         await client.query('begin');
-        const outcome = await work(fromClient(client));
+        const scoped = fromClient(client);
+        const outcome = await ambient.run(scoped, () => work(scoped));
         if (!outcome.ok) {
           await client.query('rollback');
           return outcome;

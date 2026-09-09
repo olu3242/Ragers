@@ -42,6 +42,21 @@ export interface CommandHandler<TInput, TOutput> {
   handle(input: TInput, ctx: CommandContext): Promise<Result<HandlerOutcome<TOutput>, EngineError>>;
 }
 
+/**
+ * Run work atomically. The domain transition and the outbox append must commit
+ * together or not at all — that is the whole point of an outbox, and without it
+ * a process that dies between the two commits a state change whose event never
+ * exists, leaving every projection derived from it permanently behind.
+ *
+ * In-memory runs supply a pass-through: there is no second store to fall out of
+ * step with, since the outbox and the rows live in the same process.
+ */
+export type Transactional = <T>(
+  work: () => Promise<Result<T, EngineError>>,
+) => Promise<Result<T, EngineError>>;
+
+export const passThroughTransaction: Transactional = (work) => work();
+
 export interface CommandBusDeps {
   readonly authorizer: Authorizer;
   readonly idempotency: IdempotencyStore;
@@ -50,6 +65,8 @@ export interface CommandBusDeps {
   readonly ids: IdFactory;
   readonly logger: Logger;
   readonly metrics: Metrics;
+  /** Defaults to a pass-through, which is correct only for in-memory runs. */
+  readonly transaction?: Transactional;
 }
 
 export interface CommandBus {
@@ -127,15 +144,25 @@ export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
         return await finishErr(unauthorizedError(decision.code, decision.reason, { action: handler.action }));
       }
 
-      // 4. Domain transition.
-      const outcome = await handler.handle(envelope.input, ctx);
+      // 4 + 5. Domain transition and its events, in one transaction. A rollback
+      // has to take both: a state change without its event is invisible to every
+      // projection, and an event without its state change describes something
+      // that never happened.
+      const transaction = deps.transaction ?? passThroughTransaction;
+      const outcome = await transaction(async () => {
+        const transitioned = await handler.handle(envelope.input, ctx);
+        if (!transitioned.ok) return transitioned;
+        const events = transitioned.value.events ?? [];
+        if (events.length > 0) await deps.outbox.append(events, correlationId);
+        return transitioned;
+      });
       if (!outcome.ok) return await finishErr(outcome.error);
 
-      // 5. Persist domain events transactionally with the state change.
       const events = outcome.value.events ?? [];
-      if (events.length > 0) await deps.outbox.append(events, correlationId);
 
-      // 6. Complete idempotency.
+      // 6. Complete idempotency. Deliberately outside the transaction: a
+      // completion that rolled back with it would let a retry re-run a command
+      // whose effects had already committed.
       await deps.idempotency.complete(envelope.idempotencyKey, outcome.value.value);
 
       deps.metrics.increment('command.succeeded', { command: envelope.name });

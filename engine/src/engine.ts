@@ -1,4 +1,4 @@
-import { createCommandBus } from './runtime/bus.ts';
+import { createCommandBus, type Transactional } from './runtime/bus.ts';
 import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
 import { createMetrics } from './runtime/metrics.ts';
@@ -130,7 +130,22 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   const workers = db ? createPostgresWorkerRegistry(db) : createMemoryWorkerRegistry();
   const jobHistory = db ? createPostgresJobHistory(db, ids) : createMemoryJobHistory();
 
-  const bus = createCommandBus({ authorizer, idempotency, outbox, clock, ids, logger, metrics });
+  // With a database, a command's rows and its events commit together. Without
+  // one there is nothing to fall out of step with, so the pass-through stands.
+  const transaction: Transactional | undefined = db
+    ? (work) => db.transaction(async () => work())
+    : undefined;
+
+  const bus = createCommandBus({
+    authorizer,
+    idempotency,
+    outbox,
+    clock,
+    ids,
+    logger,
+    metrics,
+    ...(transaction === undefined ? {} : { transaction }),
+  });
   const orchestrator = createOrchestrator({
     outbox,
     deliveries,
