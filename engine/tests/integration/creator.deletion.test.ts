@@ -45,14 +45,15 @@ const buildFullExperience = async (h: EngineHarness, author: ActorContext, reade
   );
   await h.settle();
 
-  for (const command of [
+  const engagement: readonly { name: string; input: Record<string, unknown> }[] = [
     { name: 'reaction.toggle', input: { experienceId: created.experienceId, reactionType: 'been_there' } },
     { name: 'reaction.castFairVote', input: { experienceId: created.experienceId, isFair: true } },
     {
       name: 'conversation.createReply',
       input: { experienceId: created.experienceId, creationMode: 'text', bodyText: 'Same here.', visibility: 'public' },
     },
-  ]) {
+  ];
+  for (const command of engagement) {
     expect(
       await h.engine.bus.dispatch({ ...command, actor: reader, idempotencyKey: h.nextKey() }),
       command.name,

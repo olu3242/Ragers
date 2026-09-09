@@ -4,13 +4,29 @@
   "private": true,
   "type": "module",
   "description": "Ragers Engine — canonical Rage/Rave/Experience runtime. Internal; not a public surface.",
-  "engines": { "node": ">=22.18.0" },
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "test": "node --test \"tests/**/*.test.ts\"",
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
     "test:integration": "node --test \"tests/integration/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "certify": "node scripts/certify.ts"
+    "certify": "node scripts/certify.ts",
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "typescript": "5.9"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
 }
