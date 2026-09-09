@@ -21,7 +21,15 @@ test('no engine module filters with a JavaScript predicate', () => {
   for (const file of readdirSync(enginesDir).filter((name) => name.endsWith('.ts'))) {
     const source = readFileSync(join(enginesDir, file), 'utf8');
     for (const [index, line] of source.split('\n').entries()) {
-      if (/\.(find|findOne|count)\(\s*\(/.test(line)) {
+      // Precise about the receiver on purpose. `findOne` and `count` exist only
+      // on the port, so a call to either is always the predicate form; `find`
+      // also exists on Array, so it is flagged only when the receiver is a store
+      // table — otherwise ordinary array work reads as a full-table scan and the
+      // guard trains people to route around it.
+      if (/\bstore\.[A-Za-z]+\.find\(/.test(line)) offenders.push(`${file}:${index + 1}`);
+      // `count()` with no argument compiles to `select count(*)`, so it is only
+      // the predicate form when something is actually passed.
+      else if (/\.findOne\(/.test(line) || /\.count\(\s*[^)\s]/.test(line)) {
         offenders.push(`${file}:${index + 1}`);
       }
     }

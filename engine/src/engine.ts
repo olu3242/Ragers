@@ -70,6 +70,17 @@ import {
 } from './engines/creator.engine.ts';
 import { registerGovernanceEngine } from './engines/governance.engine.ts';
 import { createAnalyticsIngestConsumer } from './engines/analytics.engine.ts';
+import { createExtractionConsumer, registerNormalizationEngine } from './engines/normalization.engine.ts';
+import {
+  createClusterAssignmentConsumer,
+  createClusterCounterConsumer,
+} from './engines/matching.engine.ts';
+import { createSignalSnapshotConsumer } from './engines/signal.engine.ts';
+import { registerEvidenceEngine } from './engines/evidence.engine.ts';
+import {
+  createAbuseDetectionConsumer,
+  createTrustRecomputeConsumer,
+} from './engines/trust.engine.ts';
 import {
   createCorroborationCounterConsumer,
   registerCorroborationEngine,
@@ -196,6 +207,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerCreatorEngine(deps);
   registerGovernanceEngine(deps);
   registerCorroborationEngine(deps);
+  registerNormalizationEngine(deps);
+  registerEvidenceEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -221,6 +234,14 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createExportConsumer(deps));
   orchestrator.subscribe(createAnalyticsIngestConsumer(deps));
   orchestrator.subscribe(createCorroborationCounterConsumer(deps));
+  // Experience Signal Engine intelligence: extract -> cluster -> measure, then
+  // trust over the durable facts all three produce.
+  orchestrator.subscribe(createExtractionConsumer(deps));
+  orchestrator.subscribe(createClusterAssignmentConsumer(deps));
+  orchestrator.subscribe(createClusterCounterConsumer(deps));
+  orchestrator.subscribe(createSignalSnapshotConsumer(deps));
+  orchestrator.subscribe(createTrustRecomputeConsumer(deps));
+  orchestrator.subscribe(createAbuseDetectionConsumer(deps));
 
   const health = createHealthRegistry(clock);
   health.register({

@@ -1,6 +1,7 @@
 import { err, ok } from '../runtime/result.ts';
 import { notFoundError, preconditionError } from '../runtime/errors.ts';
 import { hasAtLeast, type Role } from '../runtime/authz.ts';
+import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { AuditEvent, DeadLetterRecordView } from './governance.types.ts';
 import type { EngineDeps } from './deps.ts';
@@ -106,10 +107,11 @@ export const readAuditTrail = async (
   filter: { resourceId?: string } = {},
 ): Promise<readonly AuditEvent[]> => {
   if (!requireStaff(actor.role, 'admin')) return [];
-  const rows = await deps.store.auditEvents.find(
-    (row) => filter.resourceId === undefined || row.resourceId === filter.resourceId,
+  const rows = await deps.store.auditEvents.query(
+    filter.resourceId === undefined ? [] : [eq<AuditEvent>('resourceId', filter.resourceId)],
+    { orderBy: { field: 'createdAt', direction: 'asc' } },
   );
-  return [...rows].sort((a, b) => a.createdAt - b.createdAt);
+  return rows;
 };
 
 export const readDeadLetters = async (

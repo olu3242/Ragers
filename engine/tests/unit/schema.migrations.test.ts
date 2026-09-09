@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { BODY_MAX_LENGTH, REACTION_TYPES, REJECTED_REACTION_TYPES, VOICE_MAX_BYTES, VOICE_MAX_DURATION_MS, VOICE_MIN_DURATION_MS } from '../../src/domain/types.ts';
-import { isTimestampColumn } from '../../src/adapters/postgres/table.ts';
+import { isNumericColumn, isTimestampColumn } from '../../src/adapters/postgres/table.ts';
 import { createMemoryStore } from '../../src/adapters/memory/store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -203,4 +203,20 @@ test('no non-timestamp column is named as though it were one', () => {
     .filter((match) => match[2] !== 'timestamptz')
     .map((match) => `${match[1]} ${match[2]}`);
   assert.deepEqual(mistyped, [], `columns named _at but not timestamptz: ${mistyped.join(', ')}`);
+});
+
+test('the adapter recognises every numeric column the migrations declare', () => {
+  // pg returns numeric and bigint as strings. A column missing from the adapter's
+  // set reads back as a string, and arithmetic on it concatenates instead of
+  // adding — which is how "1" + 1 becomes a corroboration count of 11.
+  const declared = [
+    ...stripComments(allMigrations).matchAll(/^\s+([a-z_]+)\s+(?:numeric|bigint)\b/gm),
+  ].map((match) => match[1] ?? '');
+  assert.ok(declared.length > 10, 'the migrations should declare several numeric columns');
+  const unrecognised = [...new Set(declared)].filter((column) => !isNumericColumn(column));
+  assert.deepEqual(
+    unrecognised,
+    [],
+    `numeric columns the adapter would return as strings: ${unrecognised.join(', ')}`,
+  );
 });

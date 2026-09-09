@@ -39,6 +39,16 @@ const snake = (field: string): string => field.replace(/[A-Z]/g, (c) => `_${c.to
 export const isTimestampColumn = (column: string): boolean => column === 'at' || column.endsWith('_at');
 
 /** Columns declared `numeric` in SQL, which pg returns as strings. */
+/**
+ * Columns declared `numeric` or `bigint` in SQL, which pg returns as strings.
+ *
+ * Unlike timestamps these share no naming convention, so the set is explicit —
+ * and therefore the same trap the timestamp list was: a new numeric column that
+ * nobody adds here reads back as a string, and arithmetic on it silently
+ * concatenates. `tests/unit/schema.migrations.test.ts` asserts that every
+ * numeric and bigint column in the migrations appears here, so the omission is a
+ * test failure rather than a wrong number in production.
+ */
 const NUMERIC_COLUMNS = new Set([
   'approval_rate',
   'confidence',
@@ -52,7 +62,24 @@ const NUMERIC_COLUMNS = new Set([
   'velocity',
   'value',
   'byte_size',
+  // ── Experience Signal Engine ────────────────────────────────────────────
+  'score',
+  'response_rate',
+  'resolution_rate',
+  'repeat_incidence',
+  'growth_rate',
+  'signal_acceleration',
+  'reopen_rate',
+  'median_resolution_ms',
+  'account_confidence',
+  'contribution_confidence',
+  'evidence_confidence',
+  // Runtime bookkeeping.
+  'sequence',
+  'last_sequence',
 ]);
+
+export const isNumericColumn = (column: string): boolean => NUMERIC_COLUMNS.has(column);
 
 const toDbValue = (column: string, value: unknown): unknown => {
   if (value === undefined) return null;

@@ -4,7 +4,7 @@ import { resolveIdentity } from '../domain/projection.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import { eq } from '../ports/store.ts';
-import type { Notification, NotificationKind, TargetType } from '../ports/store.ts';
+import type { Notification, NotificationKind, NotificationPreference, TargetType } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { isBlockedBetween, isMutedBy } from './graph.engine.ts';
 
@@ -42,9 +42,10 @@ const fanOut = async (deps: EngineDeps, spec: FanOutSpec): Promise<void> => {
   } else if (await isMutedBy(deps, spec.recipientActorId, spec.originActorId)) {
     suppressionReason = 'muted';
   } else {
-    const preference = await deps.store.notificationPreferences.findOne(
-      (row) => row.actorId === spec.recipientActorId && row.kind === spec.kind,
-    );
+    const preference = await deps.store.notificationPreferences.queryOne([
+      eq<NotificationPreference>('actorId', spec.recipientActorId),
+      eq<NotificationPreference>('kind', spec.kind),
+    ]);
     if (preference && !preference.enabled) suppressionReason = 'preference';
   }
 

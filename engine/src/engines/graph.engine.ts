@@ -3,7 +3,7 @@ import { preconditionError, validationError } from '../runtime/errors.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import { eq } from '../ports/store.ts';
-import type { GraphEdge, GraphTargetRef } from '../ports/store.ts';
+import type { GraphEdge, GraphTargetRef, Notification } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -103,9 +103,12 @@ export const createBlockApplicationConsumer = (deps: EngineDeps): Consumer => ({
     }
 
     // Pending notifications across the boundary are suppressed, not delivered.
-    for (const notification of await deps.store.notifications.find(
-      (row) => row.state === 'pending' && (row.recipientActorId === actorId || row.recipientActorId === targetId),
-    )) {
+    // Both directions of the boundary, declaratively: an `in` on the recipient
+    // pushes down to SQL, where a predicate would have scanned the table.
+    for (const notification of await deps.store.notifications.query([
+      eq<Notification>('state', 'pending'),
+      { field: 'recipientActorId', op: 'in', value: [actorId, targetId] },
+    ])) {
       await deps.store.notifications.put({
         ...notification,
         state: 'suppressed',

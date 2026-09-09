@@ -1,6 +1,7 @@
 import { ok } from '../runtime/result.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import { eq } from '../ports/store.ts';
+import type { Experience } from '../domain/experience.ts';
 import type { ActorReputation, Standing } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 
@@ -107,9 +108,10 @@ export const aliasReputationOf = async (
   const alias = await deps.store.aliases.get(aliasId);
   if (!alias) return undefined;
 
-  const experiences = await deps.store.experiences.find(
-    (row) => row.aliasId === aliasId && row.status === 'published',
-  );
+  const experiences = await deps.store.experiences.query([
+    eq<Experience>('aliasId', aliasId),
+    eq<Experience>('status', 'published'),
+  ]);
   let fairYes = 0;
   let total = 0;
   for (const experience of experiences) {

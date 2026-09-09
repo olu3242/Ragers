@@ -197,7 +197,7 @@ Dependency-ordered, in three batches.
 Taxonomy tables · experience structure · corroboration · shares · the atomic
 invariants under concurrency.
 
-**B — Intelligence**
+**B — Intelligence** *(delivered — see §6.2)*
 Normalization with user confirmation · matching · clustering · signal
 aggregation · evidence · trust assessments.
 
@@ -254,6 +254,96 @@ outbox insert with a `not valid` check constraint so the handler's rows are
 already written when the failure lands, then asserts the corroboration row is
 gone too. With the transaction removed the test fails, which is what makes it
 evidence rather than decoration.
+
+## 6.2 Batch B — intelligence
+
+Normalization, matching, clustering, signal aggregation, evidence and trust.
+
+### The rule that shapes all of it
+
+**Structure comes from confirmation, not from extraction.** Extraction writes to
+`extracted`; confirmation writes to `confirmed`; matching, clustering and the
+signal read `confirmed` alone. An unconfirmed suggestion is scored as *unknown*
+(0.5) rather than as agreement (1), which is why `identifierAgreement`
+distinguishes the two at all.
+
+The alternative — using extraction when nobody objected — would let a misread
+company name reassign someone's experience to a company they never mentioned, and
+would do it most often to the people least likely to check. So an experience
+nobody confirmed joins no cluster, however unambiguous its wording, and that is
+demonstrated rather than asserted: two experiences with *identical text* about an
+unconfirmed entity produce zero clusters.
+
+### Deterministic agreement decides; similarity only refines
+
+`matchExperiences` gates on entity and issue before the score is consulted.
+Different entity → `no_match`, whatever the wording. Text similarity can weaken
+or qualify a relationship the identifiers already permit; it can never create
+one. Cluster membership records the relationship *and* the factor breakdown, so a
+person reviewing a cluster can check the reasoning rather than trust it.
+
+### What the signal deliberately is not
+
+Named metrics, never a single score: how many people, how much context, how often
+it repeats, how much is unresolved. There is a test asserting the public signal
+exposes no key containing `score`, `outrage`, `severity` or `rank`, because
+collapsing these into one number is how a system starts optimising for the
+loudest thing instead of the most serious one.
+
+### Evidence, without overclaiming
+
+Assessment outcomes are `consistent`, `inconclusive`, `contradicted` — what a
+reviewer can actually determine. **`verified` is refused at the boundary**: no
+artefact establishes that events happened as described, and labelling some
+experiences verified would implicitly brand the rest as doubted. Evidence is also
+optional, because requiring it would silence the people least able to produce it.
+Re-uploading the same artefact is deduplicated by digest, so a support count is
+not inflatable by re-upload, and nothing can be assessed before protection has
+run.
+
+### Trust, internal only
+
+Three separate confidences — account, contribution, evidence — never one score,
+and never public. A brand-new account with a careful, well-corroborated report is
+low on account confidence and high on contribution confidence; flattening that
+loses the only part that matters. Everything derives from durable facts (account
+age, published experiences, upheld reports, moderation outcomes), never from tone:
+a furious, accurate report must not cost its author trust. A member cannot read a
+trust assessment even for themselves — asserted against live RLS as a real client
+role.
+
+Coordinated-burst detection raises a **flag and an event, never an action**. Six
+people corroborating within minutes is recorded as one finding for the window,
+and every one of those six corroborations remains active and counted. Arriving in
+a burst is not evidence that any individual claim is false, and treating it that
+way would punish people for a pattern they did not know they were part of. Risk
+rows carry a summary, never the content that triggered them.
+
+### A safety change this work forced
+
+The PII detector reads any pair of capitalised words as a possible person name, so
+"Northwind Air" tripped it and every experience naming a company routed to human
+review. At any real volume that means the reports most worth reading are the ones
+sitting in a queue. Spans matching a **known entity or alias** are therefore no
+longer treated as person names. Nothing else is relaxed: an unknown capitalised
+pair still stops publication, and a phone number still does even alongside a known
+entity. Both directions are tested.
+
+### Two more adapter traps closed
+
+The numeric-column list had the same shape as the timestamp list that failed in
+Batch A: hand-maintained, and now missing ten Experience Signal Engine columns.
+Postgres returns `numeric` and `bigint` as strings, so an unlisted metric reads
+back as `"0.5"`, renders fine, and silently concatenates the first time anything
+adds to it. The list is extended and a schema test now asserts every numeric and
+bigint column in the migrations appears in it.
+
+Separately, the guard against JavaScript-predicate filtering had a hole: its regex
+required the arrow on the same line, so any multi-line predicate call was
+invisible to it. Tightening it exposed **eight pre-existing full-table scans** in
+governance, graph, notification, ranking, reputation and safety — bounded by a
+10,000-row scan limit, which means silently truncated results in production. All
+eight are now declarative criteria.
 
 ## 7. Certification boundary
 

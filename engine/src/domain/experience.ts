@@ -36,6 +36,29 @@ export interface Experience {
   readonly publishedAt?: number;
   readonly deletedAt?: number;
   readonly version: number;
+
+  // ── Experience Signal Engine structure ──────────────────────────────────
+  /**
+   * Structure, written only from a *confirmed* normalization or a migration.
+   * Never from extraction — an unconfirmed suggestion is not a fact, and these
+   * columns are what matching and clustering read.
+   */
+  readonly title?: string;
+  readonly entityId?: string;
+  readonly categoryId?: string;
+  readonly issueTypeId?: string;
+  readonly locationId?: string;
+  /** When the experience happened, as distinct from when it was posted. */
+  readonly occurredAt?: number;
+  /**
+   * The outcome axis, entirely separate from `status`. `status` is publication
+   * state and is load-bearing for fail-closed media protection and moderation;
+   * collapsing the two would let an experience read as resolved while its media
+   * was still unprotected.
+   */
+  readonly resolutionStatus?: string;
+  readonly resolutionStatusAt?: number;
+  readonly clusterId?: string;
 }
 
 /** The lifecycle transition table. Anything absent here is illegal. */

@@ -4,6 +4,7 @@ import { publishExperience, removeExperience, restoreExperience } from '../domai
 import { REPORT_REASONS, type ModerationActionKind, type ReportReason } from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
+import { eq } from '../ports/store.ts';
 import type { QueueItem, Report, TargetType } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { experienceResource, loadExperience, writeAudit } from './support.ts';
@@ -22,9 +23,10 @@ const enqueue = async (
   targetId: string,
   priority: number,
 ): Promise<void> => {
-  const existing = await deps.store.queueItems.findOne(
-    (row) => row.targetType === targetType && row.targetId === targetId,
-  );
+  const existing = await deps.store.queueItems.queryOne([
+    eq<QueueItem>('targetType', targetType),
+    eq<QueueItem>('targetId', targetId),
+  ]);
   if (existing) return; // idempotent
   const item: QueueItem = {
     id: deps.ids.next('mq'),
@@ -58,8 +60,26 @@ export const createScreeningConsumer = (deps: EngineDeps): Consumer => ({
       return err(detection.error);
     }
 
+    // A known organization's name is not a person's name.
+    //
+    // The detector's person-name heuristic reads any pair of capitalised words as
+    // a possible person, so "Northwind Air" trips it. Left alone, that routes
+    // every experience that names a company to human review — which at any real
+    // volume means the reports most worth reading are the ones that sit in a
+    // queue. Spans matching a known entity or alias are therefore not treated as
+    // person names. Nothing else is relaxed: phone numbers, and capitalised pairs
+    // that are not known entities, still route to review.
+    const entityNames = new Set<string>();
+    for (const entity of await deps.store.entities.all()) entityNames.add(entity.name.toLowerCase());
+    for (const alias of await deps.store.entityAliases.all()) entityNames.add(alias.alias.toLowerCase());
+
     const signals = detection.value
       .filter((finding) => finding.piiClass === 'person_name' || finding.piiClass === 'phone')
+      .filter(
+        (finding) =>
+          finding.piiClass !== 'person_name' ||
+          !entityNames.has(experience.bodyText.slice(finding.start, finding.end).toLowerCase()),
+      )
       .map((finding) => finding.piiClass);
 
     await deps.store.screenings.put({
@@ -208,14 +228,17 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
         createdAt: ctx.clock.now(),
       });
 
-      const item = await deps.store.queueItems.findOne(
-        (row) => row.targetType === input.targetType && row.targetId === input.targetId,
-      );
+      const item = await deps.store.queueItems.queryOne([
+        eq<QueueItem>('targetType', input.targetType),
+        eq<QueueItem>('targetId', input.targetId),
+      ]);
       if (item) await deps.store.queueItems.put({ ...item, state: 'actioned' });
 
-      for (const report of await deps.store.reports.find(
-        (row) => row.targetType === input.targetType && row.targetId === input.targetId && row.status === 'open',
-      )) {
+      for (const report of await deps.store.reports.query([
+        eq<Report>('targetType', input.targetType),
+        eq<Report>('targetId', input.targetId),
+        eq<Report>('status', 'open'),
+      ])) {
         await deps.store.reports.put({ ...report, status: 'reviewed' });
       }
 

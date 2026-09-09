@@ -128,7 +128,14 @@ export const createTranscriptRedactionConsumer = (deps: EngineDeps): Consumer =>
           aggregateType: 'experience',
           aggregateId: asset?.experienceId ?? transcript.mediaAssetId,
           eventName: 'TranscriptRedacted',
-          payload: { transcriptId: transcript.id, mediaAssetId: transcript.mediaAssetId },
+          payload: {
+            transcriptId: transcript.id,
+            mediaAssetId: transcript.mediaAssetId,
+            // Named explicitly rather than left implicit in the aggregate id:
+            // consumers should not have to know that the aggregate happens to be
+            // the experience.
+            ...(asset?.experienceId === undefined ? {} : { experienceId: asset.experienceId }),
+          },
         },
       ],
       event.correlationId,
