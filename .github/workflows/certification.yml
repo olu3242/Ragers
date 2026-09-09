@@ -337,6 +337,8 @@ jobs:
                 const report = require("../docs/certification-report.json");
                 console.log("**Status:** `" + report.status + "`");
                 console.log();
+                console.log("**Experience Signal Engine:** `" + report.experienceSignalEngineStatus + "`");
+                console.log();
                 console.log("| | Gate | Result |");
                 console.log("|---|---|---|");
                 const icon = { passed: "✅", failed: "❌", blocked: "⛔" };
@@ -349,14 +351,20 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail the build on a NO_GO status
+      - name: Fail the build on a NO_GO or NOT_READY status
         if: always()
         working-directory: engine
         run: |
           status=$(node -e 'process.stdout.write(require("../docs/certification-report.json").status)')
+          ese=$(node -e 'process.stdout.write(require("../docs/certification-report.json").experienceSignalEngineStatus)')
           echo "certification status: $status"
+          echo "experience signal engine status: $ese"
           if [ "$status" = "RAGERS_ENGINE_E2E_NO_GO" ]; then
             echo "::error::certification reported RAGERS_ENGINE_E2E_NO_GO"; exit 1
+          fi
+          # A green platform with a broken corroboration contract is not shippable.
+          if [ "$ese" = "EXPERIENCE_SIGNAL_ENGINE_NOT_READY" ]; then
+            echo "::error::certification reported EXPERIENCE_SIGNAL_ENGINE_NOT_READY"; exit 1
           fi
 
       - name: Upload the evidence bundle

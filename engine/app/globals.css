@@ -265,3 +265,62 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
   font-size: 13px;
   padding: 18px 0 0;
 }
+
+/* ── Outcome ─────────────────────────────────────────────────────────────
+   The status and the organization's response are visually distinct, because
+   conflating them is the specific misreading this product cannot afford. */
+.resolution { margin-top: 12px; font-size: 13px; }
+.resolution-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 6px; }
+.resolution-badge {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.resolution-tally { color: var(--text-dim); }
+.resolution-note { margin: 0 0 8px; color: var(--text-faint); font-size: 12px; }
+.resolution-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.resolution-prompt { color: var(--text-dim); }
+.resolution-report {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.resolution-report:hover { background: var(--bg-hover); color: var(--text); }
+.resolution-error { margin: 6px 0 0; color: var(--rage); font-size: 12px; }
+
+/* An organization's account, beside the ones it answers — never above them. */
+.org-responses { margin-top: 12px; display: grid; gap: 8px; }
+.org-response {
+  border-left: 2px solid var(--border-strong);
+  padding: 8px 0 8px 12px;
+}
+.org-response-head { margin: 0 0 4px; font-size: 12px; color: var(--text-dim); }
+.org-response-body { margin: 0; font-size: 13px; color: var(--text); }
+
+/* ── Pattern ─────────────────────────────────────────────────────────────
+   Named figures in a grid. Deliberately no single headline number. */
+.signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+.signal-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.signal-grid dt { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.signal-grid dd { margin: 0; font-size: 22px; font-variant-numeric: tabular-nums; }
+.signal-caption { font-size: 12px; color: var(--text-faint); margin: 0 0 16px; }
+.cluster-members { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.cluster-members li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.cluster-relationship { color: var(--text-faint); }

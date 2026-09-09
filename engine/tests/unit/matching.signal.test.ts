@@ -179,8 +179,21 @@ test('the resolution lifecycle allows the documented paths', () => {
   assert.ok(canTransitionResolution('under_review', 'partially_resolved'));
   assert.ok(canTransitionResolution('resolved', 'reopened'), 'resolution is not permanent');
   assert.ok(canTransitionResolution('partially_resolved', 'resolved'));
-  assert.equal(canTransitionResolution('open', 'resolved'), false, 'resolution needs a path through review');
-  assert.equal(canTransitionResolution('resolved', 'open'), false);
+  assert.ok(
+    canTransitionResolution('open', 'resolved'),
+    'an experiencer must be able to report a fix on a fresh experience: requiring a path ' +
+      'through review would let an organization hold an outcome open by staying silent',
+  );
+  assert.equal(
+    canTransitionResolution('resolved', 'open'),
+    false,
+    'a resolution that stopped holding becomes reopened, which is a different thing from never having happened',
+  );
+  assert.ok(canTransitionResolution('resolved', 'reopened'));
+
+  // The path is open; what protects the invariant is the source guard, not the
+  // state machine — an organization is refused whichever path it takes.
+  assert.equal(applyResolution({ current: 'open', to: 'resolved', source: 'organization' }).ok, false);
 });
 
 test('an organization response can never mark an experience resolved', () => {
@@ -223,7 +236,30 @@ test('resolution is derived from what experiencers reported', () => {
   assert.equal(
     resolutionFromReports([report('a', 'still_unresolved'), report('b', 'still_unresolved')]),
     undefined,
-    'still unresolved is not a new state',
+    'still unresolved is not a new state on a fresh experience',
+  );
+
+  // `resolved` needs everyone who claims the experience, not merely everyone who
+  // reported: one satisfied person out of three is not the pattern being fixed.
+  assert.equal(
+    resolutionFromReports([report('a', 'resolved_for_me')], { current: 'open', experiencers: 3 }),
+    'partially_resolved',
+    'two experiencers have not spoken yet',
+  );
+  assert.equal(
+    resolutionFromReports([report('a', 'resolved_for_me')], { current: 'open', experiencers: 1 }),
+    'resolved',
+    'the only experiencer says it was fixed',
+  );
+
+  // A resolution that stops holding is reopened, not silently still resolved.
+  assert.equal(
+    resolutionFromReports([report('a', 'still_unresolved')], { current: 'resolved', experiencers: 1 }),
+    'reopened',
+  );
+  assert.equal(
+    resolutionFromReports([report('a', 'still_unresolved')], { current: 'partially_resolved', experiencers: 1 }),
+    'reopened',
   );
 });
 

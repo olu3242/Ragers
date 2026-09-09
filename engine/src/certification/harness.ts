@@ -13,9 +13,25 @@ export type CertificationStatus =
   | 'RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS'
   | 'RAGERS_ENGINE_E2E_NO_GO';
 
+/**
+ * The Experience Signal Engine's own status, reported alongside the engine's
+ * rather than replacing it. They answer different questions: the engine status is
+ * about whether the platform is operable, this one about whether the corroboration
+ * contract actually holds.
+ */
+export type ExperienceSignalEngineStatus =
+  | 'EXPERIENCE_SIGNAL_ENGINE_READY'
+  | 'EXPERIENCE_SIGNAL_ENGINE_READY_WITH_BLOCKERS'
+  | 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY';
+
+/** Which certification a gate belongs to. Absent means the engine's. */
+export type GateScope = 'engine' | 'experience_signal_engine';
+
 export interface GateDefinition {
   readonly id: string;
   readonly name: string;
+  /** Defaults to the engine certification. */
+  readonly scope?: GateScope;
   /** Which required gate from docs/ROADMAP.md §P20 this satisfies. */
   readonly requirement: string;
   /** Absent for a gate that is blocked unconditionally. */
@@ -35,6 +51,7 @@ export interface GateDefinition {
 export interface GateResult {
   readonly id: string;
   readonly name: string;
+  readonly scope?: GateScope;
   readonly requirement: string;
   readonly status: GateStatus;
   readonly durationMs: number;
@@ -202,6 +219,111 @@ export const GATES: readonly GateDefinition[] = [
     requiresEnv: 'RAGERS_TEST_DATABASE_URL',
     blockedWithoutEnv: 'No database is configured. The procedure is documented in docs/OPERATIONS.md §6.',
   },
+  // ── Experience Signal Engine ──────────────────────────────────────────
+  // These certify the corroboration contract rather than the platform: that a
+  // count of people is a count of people, that a share is never a claim, and
+  // that a response is never a resolution.
+  {
+    id: 'ese_corroboration_contract',
+    name: 'ESE: corroboration is a claim, not a repost or a reaction',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/contract',
+    command: ['node', '--test', 'tests/unit/corroboration.contract.test.ts'],
+  },
+  {
+    id: 'ese_matching_signal',
+    name: 'ESE: matching, signal and resolution semantics',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/intelligence',
+    command: ['node', '--test', 'tests/unit/matching.signal.test.ts'],
+  },
+  {
+    id: 'ese_normalization_trust',
+    name: 'ESE: AI suggests, the person confirms; trust stays internal',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/normalization',
+    command: ['node', '--test', 'tests/unit/normalization.trust.test.ts'],
+  },
+  {
+    id: 'ese_language_guidance',
+    name: 'ESE: language guidance advises and never rewrites',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/language',
+    command: ['node', '--test', 'tests/unit/language.guidance.test.ts'],
+  },
+  {
+    id: 'ese_corroboration_engine',
+    name: 'ESE: corroboration engine end to end through the bus',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/contract',
+    command: ['node', '--test', 'tests/integration/corroboration.engine.test.ts'],
+  },
+  {
+    id: 'ese_intelligence_chain',
+    name: 'ESE: extract, confirm, cluster, measure',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/intelligence',
+    command: ['node', '--test', 'tests/integration/intelligence.chain.test.ts'],
+  },
+  {
+    id: 'ese_resolution_organization',
+    name: 'ESE: a response is not a resolution',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/resolution',
+    command: ['node', '--test', 'tests/integration/resolution.organization.test.ts'],
+  },
+  {
+    id: 'ese_host_surfaces',
+    name: 'ESE: host surface guards, including the fixture route',
+    scope: 'experience_signal_engine',
+    requirement: 'security',
+    command: ['node', '--test', 'tests/unit/host.surfaces.test.ts'],
+  },
+  {
+    id: 'ese_duplicate_concurrency',
+    name: 'ESE: one person, one corroboration, under real concurrency',
+    scope: 'experience_signal_engine',
+    requirement: 'concurrency',
+    command: ['node', '--test', 'tests/live/corroboration.concurrency.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. In-memory interleaving is not the same as simultaneous statements across pooled connections, so this cannot be certified without one.',
+  },
+  {
+    id: 'ese_outbox_atomicity',
+    name: 'ESE: state change and event commit together',
+    scope: 'experience_signal_engine',
+    requirement: 'concurrency',
+    command: ['node', '--test', 'tests/live/outbox.atomicity.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured, so the transaction cannot be made to fail between the rows and the event.',
+  },
+  {
+    id: 'ese_intelligence_live',
+    name: 'ESE: intelligence chain against a live database',
+    scope: 'experience_signal_engine',
+    requirement: 'ese/intelligence',
+    command: ['node', '--test', 'tests/live/intelligence.chain.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured, so the jsonb and numeric round-trips cannot be exercised.',
+  },
+  {
+    id: 'ese_been_there_backfill',
+    name: 'ESE: the Been There backfill loses and invents nothing',
+    scope: 'experience_signal_engine',
+    requirement: 'schema/migrations',
+    command: ['node', '--test', 'tests/live/migration.retire-been-there.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured, so the data migration cannot be run against rows.',
+  },
+  {
+    id: 'ese_browser_boundary',
+    name: 'ESE: the certification boundary flow, in a browser',
+    scope: 'experience_signal_engine',
+    requirement: 'browser E2E',
+    command: ['npx', 'playwright', 'test', '--project=experience-signal-engine'],
+  },
   {
     id: 'deployment',
     name: 'Deployment to a target environment',
@@ -231,8 +353,29 @@ export const decideStatus = (results: readonly GateResult[]): CertificationStatu
   return 'RAGERS_ENGINE_E2E_READY';
 };
 
+/**
+ * The Experience Signal Engine's status, decided over its own gates only.
+ *
+ * Reported separately because the two can legitimately differ: the platform can
+ * be held short of READY by a missing deployment target while the corroboration
+ * contract itself is fully certified — and conflating them would hide whichever
+ * of the two is actually broken.
+ */
+export const decideExperienceSignalEngineStatus = (
+  results: readonly GateResult[],
+): ExperienceSignalEngineStatus => {
+  const own = results.filter((result) => result.scope === 'experience_signal_engine');
+  if (own.length === 0) return 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) {
+    return 'EXPERIENCE_SIGNAL_ENGINE_READY_WITH_BLOCKERS';
+  }
+  return 'EXPERIENCE_SIGNAL_ENGINE_READY';
+};
+
 export interface CertificationReport {
   readonly status: CertificationStatus;
+  readonly experienceSignalEngineStatus: ExperienceSignalEngineStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -240,6 +383,7 @@ export interface CertificationReport {
 
 export const buildReport = (results: readonly GateResult[], generatedAt: string): CertificationReport => ({
   status: decideStatus(results),
+  experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -264,6 +408,15 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push(`**Generated:** ${report.generatedAt}`);
   lines.push('');
   lines.push(`## Certification status: \`${report.status}\``);
+  lines.push('');
+  lines.push(`## Experience Signal Engine status: \`${report.experienceSignalEngineStatus}\``);
+  lines.push('');
+  lines.push(
+    'Two statuses, because they answer different questions. The engine status is about ' +
+      'whether the platform is operable; the Experience Signal Engine status is about whether ' +
+      'the corroboration contract holds — that a count of people is a count of people, that a ' +
+      'share is never a claim, and that a response is never a resolution.',
+  );
   lines.push('');
   lines.push(
     `${report.totals.passed} gate(s) passed, ${report.totals.failed} failed, ${report.totals.blocked} blocked by an external dependency.`,

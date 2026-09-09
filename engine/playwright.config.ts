@@ -29,11 +29,42 @@ export default defineConfig({
       ],
     },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
-    command: 'npx next start -p 3101',
-    url: 'http://127.0.0.1:3101',
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  /**
+   * Two servers, so each suite gets a clean process.
+   *
+   * The engine holds state in the server process, so one shared server would make
+   * every assertion about "the feed" depend on what another spec had already
+   * posted — and the first symptom of that is a strict-mode violation, not a clear
+   * failure. Separate ports keep both suites deterministic and let the golden path
+   * legitimately assert an empty feed.
+   */
+  projects: [
+    {
+      name: 'golden-path',
+      testMatch: /golden-path\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3101' },
+    },
+    {
+      name: 'experience-signal-engine',
+      testMatch: /experience-signal-engine\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3102' },
+    },
+  ],
+  webServer: [
+    {
+      command: 'npx next start -p 3101',
+      url: 'http://127.0.0.1:3101',
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      command: 'npx next start -p 3102',
+      url: 'http://127.0.0.1:3102',
+      reuseExistingServer: false,
+      timeout: 120_000,
+      // Only this server has the fixture route at all, so the golden-path server
+      // is exactly what a deployment runs.
+      env: { RAGERS_TEST_SEED: 'enabled' },
+    },
+  ],
 });

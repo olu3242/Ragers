@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildReport,
   decideStatus,
+decideExperienceSignalEngineStatus,
   GATES,
   renderLedger,
   type GateResult,
@@ -115,4 +116,90 @@ test('a clean ledger omits the blocker and failure sections', () => {
   assert.match(ledger, /RAGERS_ENGINE_E2E_READY/);
   assert.equal(ledger.includes('## External blockers'), false);
   assert.equal(ledger.includes('## Failing gates'), false);
+});
+
+// ── The Experience Signal Engine's own status ────────────────────────────
+test('the ESE status is decided over ESE gates only', () => {
+  const gate = (
+    id: string,
+    status: 'passed' | 'failed' | 'blocked',
+    scope?: 'experience_signal_engine',
+  ) => ({
+    id,
+    name: id,
+    requirement: 'ese/contract',
+    status,
+    durationMs: 1,
+    detail: '',
+    ...(scope === undefined ? {} : { scope }),
+  });
+
+  // A platform blocker must not hold the contract's status down, and a contract
+  // failure must not be hidden by a green platform.
+  assert.equal(
+    decideExperienceSignalEngineStatus([
+      gate('deployment', 'blocked'),
+      gate('ese_contract', 'passed', 'experience_signal_engine'),
+    ]),
+    'EXPERIENCE_SIGNAL_ENGINE_READY',
+    'a missing deployment target says nothing about whether corroboration holds',
+  );
+
+  assert.equal(
+    decideExperienceSignalEngineStatus([
+      gate('static', 'passed'),
+      gate('ese_contract', 'failed', 'experience_signal_engine'),
+    ]),
+    'EXPERIENCE_SIGNAL_ENGINE_NOT_READY',
+  );
+
+  assert.equal(
+    decideExperienceSignalEngineStatus([
+      gate('ese_contract', 'passed', 'experience_signal_engine'),
+      gate('ese_live', 'blocked', 'experience_signal_engine'),
+    ]),
+    'EXPERIENCE_SIGNAL_ENGINE_READY_WITH_BLOCKERS',
+  );
+
+  assert.equal(
+    decideExperienceSignalEngineStatus([gate('static', 'passed')]),
+    'EXPERIENCE_SIGNAL_ENGINE_NOT_READY',
+    'no ESE gates ran, so nothing was certified',
+  );
+});
+
+test('every ESE gate names a command or a blocker, and none is silently skipped', () => {
+  const own = GATES.filter((gate) => gate.scope === 'experience_signal_engine');
+  assert.ok(own.length >= 12, 'the contract is certified by more than a couple of gates');
+  for (const gate of own) {
+    assert.ok(
+      gate.command !== undefined || gate.blockedBy !== undefined,
+      `${gate.id} must either run or say why it cannot`,
+    );
+    if (gate.requiresEnv !== undefined) {
+      assert.ok(gate.blockedWithoutEnv, `${gate.id} must say what is missing when ${gate.requiresEnv} is unset`);
+    }
+  }
+});
+
+test('the ledger reports both statuses', () => {
+  const ledger = renderLedger(
+    buildReport(
+      [
+        {
+          id: 'ese_contract',
+          name: 'ESE contract',
+          scope: 'experience_signal_engine',
+          requirement: 'ese/contract',
+          status: 'passed',
+          durationMs: 1,
+          detail: 'ok',
+        },
+      ],
+      '2026-01-01T00:00:00.000Z',
+    ),
+  );
+  assert.match(ledger, /Certification status: `RAGERS_ENGINE_E2E_READY`/);
+  assert.match(ledger, /Experience Signal Engine status: `EXPERIENCE_SIGNAL_ENGINE_READY`/);
+  assert.match(ledger, /a response is never a resolution/, 'and says what the second status means');
 });

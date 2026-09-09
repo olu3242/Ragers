@@ -77,6 +77,8 @@ import {
 } from './engines/matching.engine.ts';
 import { createSignalSnapshotConsumer } from './engines/signal.engine.ts';
 import { registerEvidenceEngine } from './engines/evidence.engine.ts';
+import { createSignalStatusConsumer, registerResolutionEngine } from './engines/resolution.engine.ts';
+import { registerOrganizationEngine } from './engines/organization.engine.ts';
 import {
   createAbuseDetectionConsumer,
   createTrustRecomputeConsumer,
@@ -209,6 +211,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerCorroborationEngine(deps);
   registerNormalizationEngine(deps);
   registerEvidenceEngine(deps);
+  registerResolutionEngine(deps);
+  registerOrganizationEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -242,6 +246,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createSignalSnapshotConsumer(deps));
   orchestrator.subscribe(createTrustRecomputeConsumer(deps));
   orchestrator.subscribe(createAbuseDetectionConsumer(deps));
+  orchestrator.subscribe(createSignalStatusConsumer(deps));
 
   const health = createHealthRegistry(clock);
   health.register({

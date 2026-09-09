@@ -3,7 +3,12 @@ import { getRankedFeed } from '../src/engines/ranking.engine.ts';
 import { summariseFairness } from '../src/engines/reaction.engine.ts';
 import { ReactionRow } from '../components/ReactionRow.tsx';
 import { SignalRow } from '../components/SignalRow.tsx';
+import { ResolutionRow } from '../components/ResolutionRow.tsx';
+import { OrganizationResponses } from '../components/OrganizationResponses.tsx';
 import { VoicePlayer } from '../components/VoicePlayer.tsx';
+import { resolutionSummaryFor, mayReportResolution } from '../src/engines/resolution.engine.ts';
+import { publicResponsesFor } from '../src/engines/organization.engine.ts';
+import { currentActor } from '../lib/session.ts';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +25,7 @@ const formatDuration = (ms: number): string => {
 const FeedPage = async () => {
   const engine = getEngine();
   const { entries } = await getRankedFeed(engine, { limit: 25 });
+  const viewer = await currentActor();
 
   const cards = await Promise.all(
     entries.map(async (entry) => {
@@ -41,6 +47,13 @@ const FeedPage = async () => {
           replyCount: counters?.replyCount ?? 0,
         },
         fairness: summariseFairness(counters?.fairYes ?? 0, counters?.fairNo ?? 0),
+        resolution: await resolutionSummaryFor(engine, entry.experienceId),
+        responses: await publicResponsesFor(engine, { experienceId: entry.experienceId }),
+        // Only someone who claims the experience may report its outcome, so only
+        // they are offered the control.
+        canReport:
+          viewer.authenticated &&
+          (await mayReportResolution(engine, entry.experienceId, viewer.actorId)),
       };
     }),
   );
@@ -61,7 +74,7 @@ const FeedPage = async () => {
           </a>
         </div>
       ) : (
-        cards.map(({ entry, counters, signals, fairness, mediaAssetId }) => (
+        cards.map(({ entry, counters, signals, fairness, mediaAssetId, resolution, responses, canReport }) => (
           <article className="card" key={entry.experienceId}>
             <div className="card-head">
               <span className={entry.kind === 'rage' ? 'badge badge-rage' : 'badge badge-rave'}>
@@ -81,6 +94,23 @@ const FeedPage = async () => {
 
             <SignalRow experienceId={entry.experienceId} kind={entry.kind} counts={signals} />
             <ReactionRow experienceId={entry.experienceId} counts={counters} />
+
+            {resolution === undefined ? null : (
+              <ResolutionRow
+                experienceId={entry.experienceId}
+                state={{
+                  status: resolution.status,
+                  reporters: resolution.reporters,
+                  resolvedShare: resolution.resolvedShare,
+                  partial: resolution.partial,
+                  unresolved: resolution.unresolved,
+                  organizationResponded: resolution.organizationResponded,
+                }}
+                canReport={canReport}
+              />
+            )}
+
+            <OrganizationResponses responses={responses} />
 
             <div className="fairness">
               {fairness.fairPercent === undefined ? (

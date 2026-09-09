@@ -36,6 +36,7 @@ for (const gate of GATES) {
     results.push({
       id: gate.id,
       name: gate.name,
+      ...(gate.scope === undefined ? {} : { scope: gate.scope }),
       requirement: gate.requirement,
       status: 'blocked',
       durationMs: 0,
@@ -81,6 +82,7 @@ for (const gate of GATES) {
   results.push({
     id: gate.id,
     name: gate.name,
+    ...(gate.scope === undefined ? {} : { scope: gate.scope }),
     requirement: gate.requirement,
     status: passed ? 'passed' : 'failed',
     durationMs,
@@ -102,4 +104,12 @@ if (only.length === 0) {
 }
 
 process.stdout.write(`\nCertification status: ${report.status}\n`);
-process.exit(report.status === 'RAGERS_ENGINE_E2E_NO_GO' ? 1 : 0);
+process.stdout.write(`Experience Signal Engine status: ${report.experienceSignalEngineStatus}\n`);
+// Either certification failing is a failure: a green platform with a broken
+// corroboration contract is not a shippable product.
+process.exit(
+  report.status === 'RAGERS_ENGINE_E2E_NO_GO' ||
+    report.experienceSignalEngineStatus === 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY'
+    ? 1
+    : 0,
+);

@@ -201,7 +201,7 @@ invariants under concurrency.
 Normalization with user confirmation · matching · clustering · signal
 aggregation · evidence · trust assessments.
 
-**C — Outcome and surface**
+**C — Outcome and surface** *(delivered — see §6.3)*
 Resolution lifecycle and reports · organization responses · feed and discovery
 ranking · language-safety composer · UI · browser certification of the full
 vertical slice.
@@ -344,6 +344,89 @@ invisible to it. Tightening it exposed **eight pre-existing full-table scans** i
 governance, graph, notification, ranking, reputation and safety — bounded by a
 10,000-row scan limit, which means silently truncated results in production. All
 eight are now declarative criteria.
+
+## 6.3 Batch C — outcome and surface
+
+Resolution lifecycle, organization responses, language guidance, the UI, and the
+browser certification of the whole flow.
+
+### A response is not a resolution
+
+Enforced in three places, so no single layer is the guarantee. The domain refuses
+an organization-sourced move to a resolved state; the engine refuses it again; and
+the organization has no write path to `experiences` at all, so there is nothing to
+resolve *with*. Even `publish_resolution` — an organization's account of a fix — is
+recorded as their account and leaves the outcome where it was. What an
+organization *can* do to the outcome axis is acknowledge it, put it under review,
+or dispute it, and a dispute is recorded as a disagreement between two accounts
+rather than a correction of the first.
+
+The UI states this rather than implying it. Where a response exists, the card says
+in words: *"The organization has responded. That is their account, not a
+resolution."* Conflating the two is the specific misreading this product cannot
+afford, so it is answered on the surface and not only in the schema.
+
+### `resolved` needs everyone who claims the experience
+
+Two changes fell out of building this, both in the conservative direction:
+
+- **Everyone, not every reporter.** If one of three experiencers says it was fixed
+  for them and the other two have said nothing, the status is `partially_resolved`.
+  Counting only reporters would let an organization close a pattern by satisfying
+  whoever complained loudest, and would do it before the others had a chance to
+  speak. `resolutionFromReports` now takes the experiencer count.
+- **A resolution that stops holding is reopened.** When every report says it is
+  still unresolved, that means nothing new on a fresh experience, but on one
+  already marked resolved it means the fix did not hold. Leaving it resolved would
+  make the outcome a one-way door.
+
+A third change was to the state machine: `open → resolved` is now a legal
+transition. Requiring a path through review would have let an organization hold an
+outcome open by staying silent, and the invariant is protected by the *source*
+guard, not by the path — an organization is refused whichever route it takes.
+
+### Language guidance advises; it never rewrites
+
+The composer offers observations about a draft and returns no rewritten text. The
+only finding that blocks is a threat. Everything else — an attack on the person
+rather than the behaviour, an absolute claim, an account too short for anyone to
+recognise — is advice. A filter that rewrote an account would put words in
+someone's mouth, and one that blocked on wording would fall hardest on people
+writing in a second language or writing while upset, which is most people when
+something has gone wrong. The two things that *do* block publication are unchanged
+and live elsewhere: identifying details, and naming a private individual.
+
+### The test-only fixture route
+
+The browser flow needs taxonomy rows and a claimed organization, so there is a
+fixture endpoint — and it is a genuine hazard: reachable in a deployment, it would
+let anyone enrol themselves as an organization's staff, which is exactly what the
+organization rules exist to prevent. It is therefore gated on an explicit
+`RAGERS_TEST_SEED` flag rather than on `NODE_ENV`, answers as though it does not
+exist when the flag is absent, and a test asserts the guard precedes the first
+write. The browser suite runs two servers: one with the flag, one without — and
+asserts the route returns 404 on the second, which is the server a deployment
+matches.
+
+### Certification
+
+Both statuses are now emitted, and they are separate on purpose: the platform can
+be held short of READY by a missing deployment target while the corroboration
+contract is fully certified, and conflating them would hide whichever of the two is
+actually broken. `npm run certify` exits non-zero on either
+`RAGERS_ENGINE_E2E_NO_GO` or `EXPERIENCE_SIGNAL_ENGINE_NOT_READY`.
+
+Against a live Postgres 16 and a real browser:
+
+```
+33 gates passed · 0 failed · 2 blocked
+RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS
+EXPERIENCE_SIGNAL_ENGINE_READY
+```
+
+The two blocked gates are deployment and the rollback drill, both waiting on the
+same missing dependency: no deployment target is configured. Neither is an ESE
+gate, which is why the Experience Signal Engine reports a plain READY.
 
 ## 7. Certification boundary
 

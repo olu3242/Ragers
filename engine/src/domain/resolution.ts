@@ -34,7 +34,10 @@ export const RESOLUTION_STATUSES: readonly ResolutionStatus[] = [
 ];
 
 const TRANSITIONS: Readonly<Record<ResolutionStatus, readonly ResolutionStatus[]>> = {
-  open: ['gaining_signal', 'acknowledged', 'under_review', 'disputed'],
+  // An experiencer's report is the most authoritative source there is, so it must
+  // be recordable on a fresh experience. Requiring an acknowledgement first would
+  // mean an organization's silence could hold an outcome open indefinitely.
+  open: ['gaining_signal', 'acknowledged', 'under_review', 'partially_resolved', 'resolved', 'disputed'],
   gaining_signal: ['acknowledged', 'under_review', 'partially_resolved', 'resolved', 'disputed'],
   acknowledged: ['under_review', 'partially_resolved', 'resolved', 'disputed'],
   under_review: ['partially_resolved', 'resolved', 'disputed'],
@@ -109,19 +112,38 @@ export const tallyReports = (reports: readonly ResolutionReport[]): ResolutionTa
  * Derive the resolution status the reports justify, or undefined when they
  * justify no change.
  *
- * Deliberately conservative: `resolved` requires that every reporter says it was
- * resolved for them. One person being made whole is not the experience being
- * resolved, and treating it as such would let an organization satisfy one
- * complainant and claim the pattern was fixed.
+ * Deliberately conservative in two ways.
+ *
+ * **`resolved` needs everyone who claims the experience**, not merely everyone
+ * who happened to report. If one of three experiencers says it was fixed for
+ * them and the other two have said nothing, the experience is partially
+ * resolved — reading it as resolved would let an organization close a pattern by
+ * satisfying whoever complained loudest, and would do it before the others had a
+ * chance to speak.
+ *
+ * **A resolution that stops holding is reopened.** When every report says it is
+ * still unresolved, that means nothing new on a fresh experience, but on one
+ * already marked resolved or partially resolved it means the fix did not hold.
+ * Leaving it marked resolved would make the outcome a one-way door.
  */
 export const resolutionFromReports = (
   reports: readonly ResolutionReport[],
+  context: { readonly current: ResolutionStatus; readonly experiencers: number } = {
+    current: 'open',
+    experiencers: 0,
+  },
 ): ResolutionStatus | undefined => {
   const tally = tallyReports(reports);
   if (tally.reporters === 0) return undefined;
-  if (tally.resolved === tally.reporters) return 'resolved';
+
+  // Everyone who claims the experience has reported, and all of them say fixed.
+  const everyoneReported = tally.reporters >= Math.max(1, context.experiencers);
+  if (tally.resolved === tally.reporters && everyoneReported) return 'resolved';
+
   if (tally.resolved > 0 || tally.partial > 0) return 'partially_resolved';
-  // Everyone still says it is unresolved, which is not a new state.
+
+  // Every report says it is still unresolved.
+  if (context.current === 'resolved' || context.current === 'partially_resolved') return 'reopened';
   return undefined;
 };
 

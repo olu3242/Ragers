@@ -1,8 +1,9 @@
 {
   "status": "RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS",
-  "generatedAt": "2026-09-09T11:25:41.786Z",
+  "experienceSignalEngineStatus": "EXPERIENCE_SIGNAL_ENGINE_READY",
+  "generatedAt": "2026-09-09T16:27:15.357Z",
   "totals": {
-    "passed": 20,
+    "passed": 33,
     "failed": 0,
     "blocked": 2
   },
@@ -12,7 +13,7 @@
       "name": "Static validation (architecture, hygiene, content separation)",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 315,
+      "durationMs": 331,
       "detail": "clean (0.3s)"
     },
     {
@@ -20,31 +21,31 @@
       "name": "Schema & migrations (static)",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 287,
-      "detail": "15/15 assertions passed (0.3s)"
+      "durationMs": 338,
+      "detail": "18/18 assertions passed (0.3s)"
     },
     {
       "id": "unit",
       "name": "Unit tests",
       "requirement": "unit",
       "status": "passed",
-      "durationMs": 1502,
-      "detail": "147/147 assertions passed (1.5s)"
+      "durationMs": 1926,
+      "detail": "230/230 assertions passed (1.9s)"
     },
     {
       "id": "integration",
       "name": "Integration tests",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 1993,
-      "detail": "82/82 assertions passed (2.0s)"
+      "durationMs": 2783,
+      "detail": "138/138 assertions passed (2.8s)"
     },
     {
       "id": "authorization",
       "name": "Authorization",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 511,
+      "durationMs": 475,
       "detail": "27/27 assertions passed (0.5s)"
     },
     {
@@ -52,7 +53,7 @@
       "name": "Retry & dead-letter",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 332,
+      "durationMs": 339,
       "detail": "7/7 assertions passed (0.3s)"
     },
     {
@@ -60,31 +61,31 @@
       "name": "Concurrency & idempotency",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 530,
-      "detail": "19/19 assertions passed (0.5s)"
+      "durationMs": 585,
+      "detail": "20/20 assertions passed (0.6s)"
     },
     {
       "id": "voice",
       "name": "Voice capture & golden path",
       "requirement": "voice",
       "status": "passed",
-      "durationMs": 448,
-      "detail": "21/21 assertions passed (0.4s)"
+      "durationMs": 497,
+      "detail": "21/21 assertions passed (0.5s)"
     },
     {
       "id": "moderation_failure_path",
       "name": "Moderation failure path (fail-closed)",
       "requirement": "moderation failure-path",
       "status": "passed",
-      "durationMs": 415,
-      "detail": "6/6 assertions passed (0.4s)"
+      "durationMs": 456,
+      "detail": "6/6 assertions passed (0.5s)"
     },
     {
       "id": "privacy_search_leakage",
       "name": "Privacy & search leakage",
       "requirement": "privacy/search leakage",
       "status": "passed",
-      "durationMs": 969,
+      "durationMs": 1046,
       "detail": "39/39 assertions passed (1.0s)"
     },
     {
@@ -92,80 +93,197 @@
       "name": "Accessibility (static surfaces)",
       "requirement": "accessibility",
       "status": "passed",
-      "durationMs": 267,
-      "detail": "13/13 assertions passed (0.3s)"
+      "durationMs": 264,
+      "detail": "16/16 assertions passed (0.3s)"
     },
     {
       "id": "typecheck",
       "name": "Strict typecheck",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 2315,
-      "detail": "clean (2.3s)"
+      "durationMs": 2528,
+      "detail": "clean (2.5s)"
     },
     {
       "id": "build",
       "name": "Production build",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 23597,
-      "detail": "clean (23.6s)"
+      "durationMs": 23432,
+      "detail": "clean (23.4s)"
     },
     {
       "id": "browser_e2e",
       "name": "Browser E2E",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 10707,
-      "detail": "10 browser test(s) passed (10.7s)"
+      "durationMs": 18374,
+      "detail": "13 browser test(s) passed (18.4s)"
     },
     {
       "id": "security",
       "name": "Dependency audit",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 565,
-      "detail": "clean (0.6s)"
+      "durationMs": 759,
+      "detail": "clean (0.8s)"
     },
     {
       "id": "live_migrations",
       "name": "Migrations applied to a live database",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 379,
-      "detail": "clean (0.4s)"
+      "durationMs": 808,
+      "detail": "clean (0.8s)"
     },
     {
       "id": "persistence_parity",
       "name": "Adapter parity (in-memory vs Postgres)",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 774,
-      "detail": "10/10 assertions passed (0.8s)"
+      "durationMs": 980,
+      "detail": "12/12 assertions passed (1.0s)"
     },
     {
       "id": "rls_enforcement",
       "name": "RLS enforcement against a live database",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 791,
-      "detail": "27/27 assertions passed (0.8s)"
+      "durationMs": 989,
+      "detail": "27/27 assertions passed (1.0s)"
     },
     {
       "id": "durable_orchestration",
       "name": "Durable orchestration and restart recovery",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 2884,
-      "detail": "11/11 assertions passed (2.9s)"
+      "durationMs": 3814,
+      "detail": "11/11 assertions passed (3.8s)"
     },
     {
       "id": "backup_restore",
       "name": "Backup and restore drill",
       "requirement": "backup/restore",
       "status": "passed",
-      "durationMs": 1513,
-      "detail": "6/6 assertions passed (1.5s)"
+      "durationMs": 2271,
+      "detail": "6/6 assertions passed (2.3s)"
+    },
+    {
+      "id": "ese_corroboration_contract",
+      "name": "ESE: corroboration is a claim, not a repost or a reaction",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 294,
+      "detail": "15/15 assertions passed (0.3s)"
+    },
+    {
+      "id": "ese_matching_signal",
+      "name": "ESE: matching, signal and resolution semantics",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 309,
+      "detail": "26/26 assertions passed (0.3s)"
+    },
+    {
+      "id": "ese_normalization_trust",
+      "name": "ESE: AI suggests, the person confirms; trust stays internal",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/normalization",
+      "status": "passed",
+      "durationMs": 321,
+      "detail": "20/20 assertions passed (0.3s)"
+    },
+    {
+      "id": "ese_language_guidance",
+      "name": "ESE: language guidance advises and never rewrites",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/language",
+      "status": "passed",
+      "durationMs": 297,
+      "detail": "9/9 assertions passed (0.3s)"
+    },
+    {
+      "id": "ese_corroboration_engine",
+      "name": "ESE: corroboration engine end to end through the bus",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 554,
+      "detail": "16/16 assertions passed (0.6s)"
+    },
+    {
+      "id": "ese_intelligence_chain",
+      "name": "ESE: extract, confirm, cluster, measure",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 563,
+      "detail": "21/21 assertions passed (0.6s)"
+    },
+    {
+      "id": "ese_resolution_organization",
+      "name": "ESE: a response is not a resolution",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/resolution",
+      "status": "passed",
+      "durationMs": 575,
+      "detail": "18/18 assertions passed (0.6s)"
+    },
+    {
+      "id": "ese_host_surfaces",
+      "name": "ESE: host surface guards, including the fixture route",
+      "scope": "experience_signal_engine",
+      "requirement": "security",
+      "status": "passed",
+      "durationMs": 275,
+      "detail": "4/4 assertions passed (0.3s)"
+    },
+    {
+      "id": "ese_duplicate_concurrency",
+      "name": "ESE: one person, one corroboration, under real concurrency",
+      "scope": "experience_signal_engine",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 1685,
+      "detail": "3/3 assertions passed (1.7s)"
+    },
+    {
+      "id": "ese_outbox_atomicity",
+      "name": "ESE: state change and event commit together",
+      "scope": "experience_signal_engine",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 1379,
+      "detail": "2/2 assertions passed (1.4s)"
+    },
+    {
+      "id": "ese_intelligence_live",
+      "name": "ESE: intelligence chain against a live database",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 2281,
+      "detail": "6/6 assertions passed (2.3s)"
+    },
+    {
+      "id": "ese_been_there_backfill",
+      "name": "ESE: the Been There backfill loses and invents nothing",
+      "scope": "experience_signal_engine",
+      "requirement": "schema/migrations",
+      "status": "passed",
+      "durationMs": 945,
+      "detail": "5/5 assertions passed (0.9s)"
+    },
+    {
+      "id": "ese_browser_boundary",
+      "name": "ESE: the certification boundary flow, in a browser",
+      "scope": "experience_signal_engine",
+      "requirement": "browser E2E",
+      "status": "passed",
+      "durationMs": 8568,
+      "detail": "2 browser test(s) passed (8.6s)"
     },
     {
       "id": "deployment",
