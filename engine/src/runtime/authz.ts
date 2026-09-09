@@ -33,6 +33,14 @@ export type ResourceType =
   | 'analytics'
   | 'role_assignment'
   | 'export'
+  | 'corroboration'
+  | 'share'
+  | 'evidence'
+  | 'cluster'
+  | 'signal'
+  | 'entity'
+  | 'organization'
+  | 'trust'
   | 'system';
 
 export interface ResourceRef {
@@ -97,7 +105,23 @@ export type PolicyAction =
   | 'dead_letter.read'
   | 'dead_letter.replay'
   | 'analytics.read'
-  | 'health.read';
+  | 'health.read'
+  // ── Experience Signal Engine ──────────────────────────────────────────
+  | 'corroboration.create'
+  | 'corroboration.retract'
+  | 'share.create'
+  | 'evidence.attach'
+  | 'evidence.read_original'
+  | 'evidence.assess'
+  | 'resolution.report'
+  | 'cluster.read'
+  | 'signal.read'
+  | 'signal.read_internal'
+  | 'entity.claim'
+  | 'organization.respond'
+  | 'organization.manage_members'
+  | 'trust.read_internal'
+  | 'experience.confirm_metadata';
 
 export interface ActorContext {
   readonly actorId: string;

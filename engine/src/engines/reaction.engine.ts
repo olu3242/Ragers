@@ -1,18 +1,25 @@
 import { err, ok } from '../runtime/result.ts';
 import { preconditionError, validationError } from '../runtime/errors.ts';
-import { isReactionType, REJECTED_REACTION_TYPES, type ReactionType } from '../domain/types.ts';
+import {
+  isReactionType,
+  REJECTED_REACTION_TYPES,
+  RETIRED_REACTION_TYPES,
+  type ReactionType,
+} from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import { eq } from '../ports/store.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { EngineDeps } from './deps.ts';
-import { ensureCounters, experienceResource } from './support.ts';
+import { experienceResource, recomputeCounters } from './support.ts';
 
 /**
  * P6 Reaction Engine — Ragers-native mechanics only.
  *
- * `been_there`, `same`, `fair_point`, `disagree`, plus the `Fair Rager?`
- * fairness vote. A generic Like / Upvote / Repost is rejected by name, so the
- * engagement model cannot drift into a conventional social feed.
+ * `same`, `fair_point`, `disagree`, plus the `Fair Rager?` fairness vote. These
+ * are *responses* to a claim; the claim itself ("this happened to me too") is a
+ * corroboration and lives in the Corroboration Engine. A generic Like / Upvote /
+ * Repost is rejected by name, so the engagement model cannot drift into a
+ * conventional social feed.
  */
 export const registerReactionEngine = (deps: EngineDeps): void => {
   const toggle: CommandHandler<
@@ -27,6 +34,14 @@ export const registerReactionEngine = (deps: EngineDeps): void => {
         return err(
           validationError('reaction_mechanic_not_supported', 'Ragers does not use that engagement mechanic', {
             reactionType: input.reactionType,
+          }),
+        );
+      }
+      if (RETIRED_REACTION_TYPES.includes(String(input.reactionType))) {
+        return err(
+          validationError('reaction_retired', 'Been There is now Re-Rage — corroborate the experience instead', {
+            reactionType: input.reactionType,
+            use: 'corroboration.create',
           }),
         );
       }
@@ -142,27 +157,7 @@ export const createCounterProjectionConsumer = (deps: EngineDeps): Consumer => (
   handle: async (event) => {
     const experienceId = String(event.payload['experienceId'] ?? '');
     if (!experienceId) return ok(undefined);
-    await ensureCounters(deps, experienceId);
-
-    const reactions = await deps.store.reactions.query([eq('experienceId', experienceId)]);
-    const votes = await deps.store.fairVotes.query([eq('experienceId', experienceId)]);
-    const replies = await deps.store.replies.find(
-      (row) => row.experienceId === experienceId && row.status === 'published',
-    );
-
-    const countOf = (type: ReactionType): number => reactions.filter((row) => row.reactionType === type).length;
-
-    await deps.store.counters.put({
-      id: experienceId,
-      experienceId,
-      beenThere: countOf('been_there'),
-      same: countOf('same'),
-      fairPoint: countOf('fair_point'),
-      disagree: countOf('disagree'),
-      fairYes: votes.filter((row) => row.isFair).length,
-      fairNo: votes.filter((row) => !row.isFair).length,
-      replyCount: replies.length,
-    });
+    await recomputeCounters(deps, experienceId);
     return ok(undefined);
   },
 });

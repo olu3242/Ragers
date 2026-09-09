@@ -99,6 +99,31 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'dead_letter.replay': { role: 'admin' },
   'analytics.read': { role: 'admin' },
   'health.read': { role: 'admin' },
+
+  // ── Experience Signal Engine ────────────────────────────────────────────
+  // Corroborating is a claim about your own experience, so the author of the
+  // experience is forbidden — they already made the claim by posting it.
+  'corroboration.create': { role: 'member', ownership: 'forbidden', statuses: ['published'] },
+  'corroboration.retract': { role: 'member', ownership: 'required' },
+  // Sharing is amplification, not a claim, so the author may share their own.
+  'share.create': { role: 'guest' },
+  'evidence.attach': { role: 'member', ownership: 'required' },
+  // Evidence originals are as sensitive as media originals: unreadable on every
+  // path, for every role. Assessments read the protected derivative.
+  'evidence.read_original': { role: 'admin', never: true },
+  'evidence.assess': { role: 'moderator' },
+  // Only someone who claims the experience may report its resolution; which
+  // actors qualify is resolved by the engine, not expressible as ownership here.
+  'resolution.report': { role: 'member' },
+  'cluster.read': { role: 'guest' },
+  'signal.read': { role: 'guest' },
+  'signal.read_internal': { role: 'moderator' },
+  'entity.claim': { role: 'member' },
+  // Organizations answer through their own records and can never write a claim.
+  'organization.respond': { role: 'member' },
+  'organization.manage_members': { role: 'member' },
+  'trust.read_internal': { role: 'moderator' },
+  'experience.confirm_metadata': { role: 'member', ownership: 'required' },
 };
 
 /** Statuses that only a moderator or admin may read. */

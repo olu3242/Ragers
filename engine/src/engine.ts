@@ -70,6 +70,10 @@ import {
 } from './engines/creator.engine.ts';
 import { registerGovernanceEngine } from './engines/governance.engine.ts';
 import { createAnalyticsIngestConsumer } from './engines/analytics.engine.ts';
+import {
+  createCorroborationCounterConsumer,
+  registerCorroborationEngine,
+} from './engines/corroboration.engine.ts';
 import { createReplyCascadeConsumer, registerConversationEngine } from './engines/conversation.engine.ts';
 import type { EngineStore } from './ports/store.ts';
 import type { HealthRegistry } from './runtime/health.ts';
@@ -176,6 +180,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerNotificationEngine(deps);
   registerCreatorEngine(deps);
   registerGovernanceEngine(deps);
+  registerCorroborationEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -200,6 +205,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createDeletionPropagationConsumer(deps));
   orchestrator.subscribe(createExportConsumer(deps));
   orchestrator.subscribe(createAnalyticsIngestConsumer(deps));
+  orchestrator.subscribe(createCorroborationCounterConsumer(deps));
 
   const health = createHealthRegistry(clock);
   health.register({

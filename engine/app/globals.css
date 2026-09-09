@@ -134,6 +134,29 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0 0 8px; }
 .reaction[aria-pressed='true'] { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
 .reaction-count { color: var(--text-faint); margin-left: 4px; }
 
+/* Claims. Visually weightier than the responses below them, because a claim is
+   a stronger statement than a reaction — and separated from the share count so
+   the two are never read as one figure. */
+.signals { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.signal {
+  appearance: none;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.signal:hover { border-color: var(--text-dim); }
+.signal-claim[aria-pressed='true'] { border-color: var(--rage); color: var(--rage); }
+.signal-share { background: transparent; font-weight: 400; color: var(--text-dim); }
+.signal-count { color: var(--text-faint); margin-left: 5px; font-variant-numeric: tabular-nums; }
+.signal-note { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--text-faint); }
+.signal-error { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--rage); }
+
 .fairness { margin-top: 12px; font-size: 13px; color: var(--text-dim); }
 .meter { height: 4px; background: var(--bg-hover); border-radius: 999px; overflow: hidden; margin-top: 6px; }
 .meter > span { display: block; height: 100%; background: var(--rave); }

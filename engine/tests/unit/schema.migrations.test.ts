@@ -1,15 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { BODY_MAX_LENGTH, REACTION_TYPES, REJECTED_REACTION_TYPES, VOICE_MAX_BYTES, VOICE_MAX_DURATION_MS, VOICE_MIN_DURATION_MS } from '../../src/domain/types.ts';
+import { isTimestampColumn } from '../../src/adapters/postgres/table.ts';
 import { createMemoryStore } from '../../src/adapters/memory/store.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = join(here, '..', '..', 'supabase', 'migrations');
 const core = readFileSync(join(migrations, '0001_engine_core.sql'), 'utf8');
 const rls = readFileSync(join(migrations, '0002_rls_policies.sql'), 'utf8');
+/** Tables and policies now span several migrations, so relation checks read them all. */
+const allMigrations = readdirSync(migrations)
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+  .map((name) => readFileSync(join(migrations, name), 'utf8'))
+  .join('\n');
 
 const tableNames = (sql: string): readonly string[] =>
   [...sql.matchAll(/^create table (\w+) \(/gm)].map((m) => m[1] as string);
@@ -39,8 +46,9 @@ const viewBody = (sql: string, view: string): string => {
 };
 
 test('every table has row level security enabled', () => {
-  const missing = tableNames(core).filter(
-    (table) => !rls.includes(`alter table ${table}`) || !new RegExp(`alter table ${table}\\s+enable row level security`).test(rls),
+  const missing = tableNames(allMigrations).filter(
+    (table) =>
+      !new RegExp(`alter table ${table}\\s+enable row level security`).test(allMigrations),
   );
   assert.deepEqual(missing, [], `tables without RLS: ${missing.join(', ')}`);
 });
@@ -156,12 +164,43 @@ test('every port table has a corresponding relation in the migration', () => {
     graphEdges: 'graph_edges',
     reputation: 'actor_reputation',
     notificationPreferences: 'notification_preferences',
+    // Experience Signal Engine relations whose SQL name is prefixed.
+    corroborations: 'experience_corroborations',
+    shares: 'experience_shares',
+    clusters: 'experience_clusters',
+    clusterMembers: 'experience_cluster_members',
   };
-  const relations = new Set(tableNames(core));
+  const relations = new Set(tableNames(allMigrations));
   const missing: string[] = [];
   for (const portName of Object.keys(store)) {
     const relation = overrides[portName] ?? snakeCase(portName);
     if (!relations.has(relation)) missing.push(`${portName} -> ${relation}`);
   }
   assert.deepEqual(missing, [], `ports without a table: ${missing.join(', ')}`);
+});
+
+test('the adapter recognises every timestamp column the migrations declare', () => {
+  // The Postgres adapter converts timestamps by naming convention rather than
+  // from a hand-maintained list, because that list was edited once per new
+  // column and the first omission wrote epoch milliseconds into a timestamptz.
+  // The convention only holds while the schema keeps to it, so assert that here.
+  const declared = [...stripComments(allMigrations).matchAll(/^\s+([a-z_]+)\s+timestamptz/gm)].map(
+    (match) => match[1] ?? '',
+  );
+  assert.ok(declared.length > 50, 'the migrations should declare many timestamp columns');
+  const unrecognised = [...new Set(declared)].filter((column) => !isTimestampColumn(column));
+  assert.deepEqual(
+    unrecognised,
+    [],
+    `timestamptz columns the adapter would not convert: ${unrecognised.join(', ')}`,
+  );
+});
+
+test('no non-timestamp column is named as though it were one', () => {
+  // The converse: a column named `<x>_at` that is not a timestamptz would be
+  // converted anyway, and silently corrupted.
+  const mistyped = [...stripComments(allMigrations).matchAll(/^\s+([a-z_]+_at)\s+([a-z]+)/gm)]
+    .filter((match) => match[2] !== 'timestamptz')
+    .map((match) => `${match[1]} ${match[2]}`);
+  assert.deepEqual(mistyped, [], `columns named _at but not timestamptz: ${mistyped.join(', ')}`);
 });

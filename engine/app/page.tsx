@@ -2,6 +2,7 @@ import { getEngine } from '../lib/engine-instance.ts';
 import { getRankedFeed } from '../src/engines/ranking.engine.ts';
 import { summariseFairness } from '../src/engines/reaction.engine.ts';
 import { ReactionRow } from '../components/ReactionRow.tsx';
+import { SignalRow } from '../components/SignalRow.tsx';
 import { VoicePlayer } from '../components/VoicePlayer.tsx';
 
 export const dynamic = 'force-dynamic';
@@ -27,8 +28,13 @@ const FeedPage = async () => {
       return {
         entry,
         mediaAssetId: experience?.mediaAssetId,
+        signals: {
+          // Two counts, never one: people who claim the experience, and times a
+          // link was passed on.
+          corroborations: (counters?.reRageCount ?? 0) + (counters?.reRaveCount ?? 0),
+          shares: counters?.shareCount ?? 0,
+        },
         counters: {
-          beenThere: counters?.beenThere ?? 0,
           same: counters?.same ?? 0,
           fairPoint: counters?.fairPoint ?? 0,
           disagree: counters?.disagree ?? 0,
@@ -55,7 +61,7 @@ const FeedPage = async () => {
           </a>
         </div>
       ) : (
-        cards.map(({ entry, counters, fairness, mediaAssetId }) => (
+        cards.map(({ entry, counters, signals, fairness, mediaAssetId }) => (
           <article className="card" key={entry.experienceId}>
             <div className="card-head">
               <span className={entry.kind === 'rage' ? 'badge badge-rage' : 'badge badge-rave'}>
@@ -73,6 +79,7 @@ const FeedPage = async () => {
             {entry.excerpt ? <p className="card-body">{entry.excerpt}</p> : null}
             {entry.hasVoice && mediaAssetId ? <VoicePlayer mediaAssetId={mediaAssetId} /> : null}
 
+            <SignalRow experienceId={entry.experienceId} kind={entry.kind} counts={signals} />
             <ReactionRow experienceId={entry.experienceId} counts={counters} />
 
             <div className="fairness">

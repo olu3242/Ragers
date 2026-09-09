@@ -11,6 +11,14 @@ import type {
 } from '../domain/types.ts';
 import type { WorkState } from '../runtime/work.ts';
 import type { Role } from '../runtime/authz.ts';
+import type { Corroboration, ExperienceShare } from '../domain/corroboration.ts';
+import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts';
+
+/** Persisted shapes for the ESE domain objects. */
+export type CorroborationRow = Corroboration;
+export type ShareRow = ExperienceShare;
+export type ResolutionReportRow = ResolutionReport;
+export type ResolutionEventRow = ResolutionEvent;
 
 /**
  * Declarative query criteria.
@@ -60,6 +68,19 @@ export interface Table<T extends { readonly id: string }> {
   put(row: T): Promise<void>;
   remove(id: string): Promise<void>;
   all(): Promise<readonly T[]>;
+
+  /**
+   * Compare-and-set: the port's only mutual-exclusion primitive.
+   *
+   * Writes `row` only when what is currently stored under its id satisfies
+   * `expected` — `'absent'` requires that no row exists at all — and returns
+   * whether the write happened. `put` is an upsert and so cannot tell the winner
+   * of a race from the losers; this can, which is what an invariant like "one
+   * corroboration per person per experience" needs when eight requests arrive at
+   * once. Callers must therefore key the row on its natural key, not on a fresh
+   * id per attempt, or there is nothing to collide on.
+   */
+  compareAndSet(row: T, expected: 'absent' | Criteria<T>): Promise<boolean>;
 
   /** Declarative, adapter-translatable filtering. Engines use these three. */
   query(criteria: Criteria<T>, options?: QueryOptions<T>): Promise<readonly T[]>;
@@ -150,6 +171,10 @@ export interface FairVote {
 export interface ExperienceCounters {
   readonly id: string;
   readonly experienceId: string;
+  /**
+   * Retired: "been there" meant "this happened to me too", which is now a
+   * corroboration. Retained for the migration window so existing rows read.
+   */
   readonly beenThere: number;
   readonly same: number;
   readonly fairPoint: number;
@@ -157,6 +182,12 @@ export interface ExperienceCounters {
   readonly fairYes: number;
   readonly fairNo: number;
   readonly replyCount: number;
+  /** Corroborations — claims, not reactions. */
+  readonly reRageCount?: number;
+  readonly reRaveCount?: number;
+  readonly corroboratorCount?: number;
+  /** Amplification. Never a claim. */
+  readonly shareCount?: number;
 }
 
 // ── P7 Conversation ───────────────────────────────────────────────────────
@@ -437,6 +468,201 @@ export interface MetricSnapshot {
   readonly computedAt: number;
 }
 
+
+// ── Experience Signal Engine ──────────────────────────────────────────────
+/**
+ * Taxonomy. Promoted from the validated string vocabulary so matching and
+ * clustering have joinable, aliasable records to work with.
+ */
+export interface Category {
+  readonly id: string;
+  readonly name: string;
+  readonly slug: string;
+}
+
+export interface IssueType {
+  readonly id: string;
+  readonly categoryId: string;
+  readonly name: string;
+  readonly slug: string;
+  readonly appliesTo?: ExperienceKind;
+}
+
+/** What an experience was *with*. Deliberately never a person. */
+export interface Entity {
+  readonly id: string;
+  readonly name: string;
+  readonly slug: string;
+  readonly kind: 'organization' | 'service' | 'product' | 'venue' | 'platform';
+  readonly claimedAt?: number;
+}
+
+export interface EntityAlias {
+  readonly id: string;
+  readonly entityId: string;
+  readonly alias: string;
+}
+
+/** Coarse by design: a precise location is an identifying detail. */
+export interface Location {
+  readonly id: string;
+  readonly label: string;
+  readonly region?: string;
+  readonly countryCode?: string;
+}
+
+/**
+ * Extraction and confirmation are separate columns, and publication reads the
+ * confirmed one. This is what stops an AI suggestion silently becoming the
+ * user's claim.
+ */
+export interface ExperienceMetadata {
+  readonly id: string;
+  readonly experienceId: string;
+  readonly extracted: Readonly<Record<string, unknown>>;
+  readonly confirmed: Readonly<Record<string, unknown>>;
+  readonly extractionSource: 'none' | 'text' | 'voice';
+  readonly confirmedAt?: number;
+  readonly confirmedBy?: string;
+}
+
+export interface ClusterRow {
+  readonly id: string;
+  readonly kind: ExperienceKind;
+  readonly entityId?: string;
+  readonly categoryId?: string;
+  readonly issueTypeId?: string;
+  readonly headline: string;
+  readonly totalExperiences: number;
+  readonly corroborations: number;
+  readonly uniqueExperiencers: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+export interface ClusterMember {
+  readonly id: string;
+  readonly clusterId: string;
+  readonly experienceId: string;
+  readonly relationship: string;
+  readonly score: number;
+  readonly factors: Readonly<Record<string, number>>;
+}
+
+export interface EvidenceRow {
+  readonly id: string;
+  readonly experienceId?: string;
+  readonly corroborationId?: string;
+  readonly submittedBy: string;
+  readonly kind: string;
+  /** Internal only, like original media. */
+  readonly originalKey: string;
+  readonly protectedKey?: string;
+  readonly protectionStatus: 'queued' | 'processing' | 'protected' | 'failed' | 'dead_letter';
+  readonly byteSize: number;
+  readonly mimeType: string;
+  readonly contentDigest?: string;
+  readonly createdAt: number;
+}
+
+/** An assessment is not a verdict: "consistent" is not "verified". */
+export interface EvidenceAssessment {
+  readonly id: string;
+  readonly evidenceId: string;
+  readonly outcome: 'unassessed' | 'consistent' | 'inconclusive' | 'contradicted';
+  readonly notes?: string;
+  readonly assessedBy?: string;
+  readonly createdAt: number;
+}
+
+export interface OrganizationProfile {
+  readonly id: string;
+  readonly entityId: string;
+  readonly displayName: string;
+  readonly claimedBy?: string;
+  readonly claimedAt?: number;
+  readonly status: 'unclaimed' | 'pending' | 'claimed' | 'suspended';
+}
+
+export interface OrganizationMembership {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly actorId: string;
+  readonly role: 'member' | 'admin';
+  readonly grantedBy?: string;
+  readonly grantedAt: number;
+  readonly revokedAt?: number;
+}
+
+export interface OrganizationResponse {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly experienceId?: string;
+  readonly clusterId?: string;
+  readonly authorId: string;
+  readonly kind: string;
+  readonly body: string;
+  readonly isPublic: boolean;
+  readonly correlationId: string;
+  readonly createdAt: number;
+}
+
+/** Internal only. No public trust score is exposed. */
+export interface TrustAssessmentRow {
+  readonly id: string;
+  readonly actorId: string;
+  readonly accountConfidence: number;
+  readonly contributionConfidence: number;
+  readonly evidenceConfidence: number;
+  readonly riskFlags: readonly string[];
+  readonly updatedAt: number;
+}
+
+export interface RiskEvent {
+  readonly id: string;
+  readonly actorId?: string;
+  readonly kind: string;
+  readonly severity: 'low' | 'medium' | 'high';
+  /** A summary, never the raw content that triggered it. */
+  readonly detail: Readonly<Record<string, unknown>>;
+  readonly correlationId?: string;
+  readonly createdAt: number;
+}
+
+export interface ModerationCase {
+  readonly id: string;
+  readonly targetType: TargetType;
+  readonly targetId: string;
+  readonly state: 'open' | 'actioned' | 'closed';
+  readonly openedBy?: string;
+  readonly openedAt: number;
+  readonly closedAt?: number;
+}
+
+export interface SignalSnapshotRow {
+  readonly id: string;
+  readonly clusterId?: string;
+  readonly experienceId?: string;
+  readonly windowSpan: string;
+  readonly rageCount: number;
+  readonly raveCount: number;
+  readonly reRageCount: number;
+  readonly reRaveCount: number;
+  readonly uniqueExperiencers: number;
+  readonly contextSupportedCount: number;
+  readonly voiceSupportedCount: number;
+  readonly evidenceSupportedCount: number;
+  readonly responseRate: number;
+  readonly resolutionRate: number;
+  readonly medianResolutionMs?: number;
+  readonly repeatIncidence: number;
+  readonly geographicConcentration: Readonly<Record<string, number>>;
+  readonly growthRate: number;
+  readonly signalAcceleration: number;
+  readonly reopenRate: number;
+  readonly computedAt: number;
+}
+
 /** The full persistence surface of the engine. */
 export interface EngineStore {
   readonly actors: Table<Actor>;
@@ -470,4 +696,27 @@ export interface EngineStore {
   readonly roleAssignments: Table<RoleAssignment>;
   readonly analyticsEvents: Table<AnalyticsEvent>;
   readonly metricSnapshots: Table<MetricSnapshot>;
+
+  // ── Experience Signal Engine ────────────────────────────────────────────
+  readonly categories: Table<Category>;
+  readonly issueTypes: Table<IssueType>;
+  readonly entities: Table<Entity>;
+  readonly entityAliases: Table<EntityAlias>;
+  readonly locations: Table<Location>;
+  readonly experienceMetadata: Table<ExperienceMetadata>;
+  readonly corroborations: Table<CorroborationRow>;
+  readonly shares: Table<ShareRow>;
+  readonly clusters: Table<ClusterRow>;
+  readonly clusterMembers: Table<ClusterMember>;
+  readonly evidence: Table<EvidenceRow>;
+  readonly evidenceAssessments: Table<EvidenceAssessment>;
+  readonly resolutionReports: Table<ResolutionReportRow>;
+  readonly resolutionEvents: Table<ResolutionEventRow>;
+  readonly organizationProfiles: Table<OrganizationProfile>;
+  readonly organizationMemberships: Table<OrganizationMembership>;
+  readonly organizationResponses: Table<OrganizationResponse>;
+  readonly trustAssessments: Table<TrustAssessmentRow>;
+  readonly riskEvents: Table<RiskEvent>;
+  readonly moderationCases: Table<ModerationCase>;
+  readonly signalSnapshots: Table<SignalSnapshotRow>;
 }

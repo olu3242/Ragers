@@ -25,26 +25,18 @@ export interface TableDescriptor<T extends { readonly id: string }> {
 
 const snake = (field: string): string => field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
-/** Columns stored as timestamptz but carried as epoch milliseconds in the domain. */
-const TIMESTAMP_COLUMNS = new Set([
-  'created_at',
-  'updated_at',
-  'published_at',
-  'deleted_at',
-  'last_active_at',
-  'issued_at',
-  'expires_at',
-  'revoked_at',
-  'occurred_at',
-  'computed_at',
-  'claimed_at',
-  'granted_at',
-  'completed_at',
-  'read_at',
-  'delivered_at',
-  'next_attempt_at',
-  'consumed_at',
-]);
+/**
+ * Columns stored as timestamptz but carried as epoch milliseconds in the domain.
+ *
+ * Recognised by convention rather than by a hand-maintained list: every
+ * timestamptz column in the migrations is named `<something>_at` (plus
+ * `job_history.at`), and a list had to be edited for each new one — which is
+ * exactly the kind of omission that turns into "date/time field value out of
+ * range" the first time a new column is written. `tests/unit/schema.migrations.test.ts`
+ * asserts the migrations keep to the convention, so the rule cannot silently
+ * drift away from the schema.
+ */
+export const isTimestampColumn = (column: string): boolean => column === 'at' || column.endsWith('_at');
 
 /** Columns declared `numeric` in SQL, which pg returns as strings. */
 const NUMERIC_COLUMNS = new Set([
@@ -65,13 +57,13 @@ const NUMERIC_COLUMNS = new Set([
 const toDbValue = (column: string, value: unknown): unknown => {
   if (value === undefined) return null;
   if (value === null) return null;
-  if (TIMESTAMP_COLUMNS.has(column) && typeof value === 'number') return new Date(value).toISOString();
+  if (isTimestampColumn(column) && typeof value === 'number') return new Date(value).toISOString();
   return value;
 };
 
 const fromDbValue = (column: string, value: unknown): unknown => {
   if (value === null) return undefined;
-  if (TIMESTAMP_COLUMNS.has(column) && value instanceof Date) return value.getTime();
+  if (isTimestampColumn(column) && value instanceof Date) return value.getTime();
   if (NUMERIC_COLUMNS.has(column) && typeof value === 'string') return Number(value);
   if (typeof value === 'bigint') return Number(value);
   return value;
@@ -169,6 +161,23 @@ export const createPostgresTable = <T extends { readonly id: string }>(
     }
   };
 
+  /** Domain row → (column, value) pairs, with the id column always present. */
+  const columnEntries = (row: T): [string, unknown][] => {
+    const entries: [string, unknown][] = [];
+    for (const [field, value] of Object.entries(row as Record<string, unknown>)) {
+      const column = columnFor(field);
+      // A derived id has no column of its own; skip it rather than inventing one.
+      if (!column) continue;
+      if (field === 'id' && descriptor.derivedId) continue;
+      if (entries.some(([existing]) => existing === column)) continue;
+      entries.push([column, toDbValue(column, value)]);
+    }
+    if (!entries.some(([column]) => column === descriptor.idColumn)) {
+      entries.push([descriptor.idColumn, row.id]);
+    }
+    return entries;
+  };
+
   return {
     get: async (id) => {
       const rows = await run(`select * from ${descriptor.relation} where ${descriptor.idColumn} = $1`, [id]);
@@ -176,19 +185,7 @@ export const createPostgresTable = <T extends { readonly id: string }>(
     },
 
     put: async (row) => {
-      const entries: [string, unknown][] = [];
-      for (const [field, value] of Object.entries(row as Record<string, unknown>)) {
-        const column = columnFor(field);
-        // A derived id has no column of its own; skip it rather than inventing one.
-        if (!column) continue;
-        if (field === 'id' && descriptor.derivedId) continue;
-        if (entries.some(([existing]) => existing === column)) continue;
-        entries.push([column, toDbValue(column, value)]);
-      }
-      if (!entries.some(([column]) => column === descriptor.idColumn)) {
-        entries.push([descriptor.idColumn, row.id]);
-      }
-
+      const entries = columnEntries(row);
       const columns = entries.map(([column]) => column);
       const params = entries.map(([, value]) => value);
       const placeholders = columns.map((_column, index) => `$${index + 1}`);
@@ -211,6 +208,62 @@ export const createPostgresTable = <T extends { readonly id: string }>(
 
     remove: async (id) => {
       await db.query(`delete from ${descriptor.relation} where ${descriptor.idColumn} = $1`, [id]);
+    },
+
+    /**
+     * Compare-and-set, resolved by the database rather than by a read followed by
+     * a write. `'absent'` becomes an insert that the primary key arbitrates, so
+     * exactly one concurrent caller is told it won; a criteria precondition
+     * becomes a conditional update, which writes nothing — and reports false —
+     * when the stored row has moved on or does not exist.
+     */
+    compareAndSet: async (row, expected) => {
+      const entries = columnEntries(row);
+      try {
+        if (expected === 'absent') {
+          const columns = entries.map(([column]) => column);
+          const params = entries.map(([, value]) => value);
+          const placeholders = columns.map((_column, index) => `$${index + 1}`);
+          const inserted = await db.query<Record<string, unknown>>(
+            `insert into ${descriptor.relation} (${columns.join(', ')}) values (${placeholders.join(', ')}) ` +
+              `on conflict (${descriptor.idColumn}) do nothing returning ${descriptor.idColumn}`,
+            params,
+          );
+          return inserted.length === 1;
+        }
+
+        // Only the columns that are actually assigned may occupy a placeholder:
+        // an unreferenced parameter leaves Postgres unable to infer its type.
+        const assignable = entries.filter(([column]) => column !== descriptor.idColumn);
+        const assignments = assignable.map(([column], index) => `${column} = $${index + 1}`);
+        const idParam = assignable.length + 1;
+        const { clause, params: guard } = compile(expected, idParam + 1);
+        // `compile` emits its own `where`; fold it into this one.
+        const guardClause = clause.replace(/^ where /, ' and ');
+
+        if (assignments.length === 0) {
+          // Only the key to write, so the precondition is the whole operation.
+          const { clause: soleClause, params: soleGuard } = compile(expected, 2);
+          const matched = await db.query(
+            `select 1 from ${descriptor.relation} where ${descriptor.idColumn} = $1` +
+              `${soleClause.replace(/^ where /, ' and ')} limit 1`,
+            [row.id, ...soleGuard],
+          );
+          return matched.length === 1;
+        }
+
+        const updated = await db.query<Record<string, unknown>>(
+          `update ${descriptor.relation} set ${assignments.join(', ')} ` +
+            `where ${descriptor.idColumn} = $${idParam}${guardClause} returning ${descriptor.idColumn}`,
+          [...assignable.map(([, value]) => value), row.id, ...guard],
+        );
+        return updated.length === 1;
+      } catch (cause) {
+        const engineError = toEngineError(cause);
+        // A unique violation here is the losing side of the race, not a fault.
+        if (engineError.code === 'unique_violation') return false;
+        throw Object.assign(new Error(engineError.message), { engineError });
+      }
     },
 
     all: async () => run(`select * from ${descriptor.relation} limit ${fullScanLimit}`, []),

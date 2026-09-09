@@ -21,13 +21,13 @@ const publishText = async (h: EngineHarness, actor: ActorContext, bodyText = 'A 
   return created.experienceId;
 };
 
-test('the four Ragers-native mechanics all work and toggle cleanly', async () => {
+test('the Ragers-native responses all work and toggle cleanly', async () => {
   const h = createEngineHarness();
   const author = await h.signUp('author@example.com', 'Author');
   const reader = await h.signUp('reader@example.com', 'Reader');
   const experienceId = await publishText(h, author.actor);
 
-  for (const reactionType of ['been_there', 'same', 'fair_point', 'disagree'] as const) {
+  for (const reactionType of ['same', 'fair_point', 'disagree'] as const) {
     const on = expect(
       await h.engine.bus.dispatch<unknown, { active: boolean }>({
         name: 'reaction.toggle',
@@ -42,16 +42,18 @@ test('the four Ragers-native mechanics all work and toggle cleanly', async () =>
   await h.settle();
 
   const counters = await h.engine.store.counters.get(experienceId);
-  assert.equal(counters?.beenThere, 1);
   assert.equal(counters?.same, 1);
   assert.equal(counters?.fairPoint, 1);
   assert.equal(counters?.disagree, 1);
+  // A response is not a claim: none of them touches a corroboration count.
+  assert.equal(counters?.reRageCount, 0);
+  assert.equal(counters?.corroboratorCount, 0);
 
   // Toggling off returns to the original state.
   const off = expect(
     await h.engine.bus.dispatch<unknown, { active: boolean }>({
       name: 'reaction.toggle',
-      input: { experienceId, reactionType: 'been_there' },
+      input: { experienceId, reactionType: 'same' },
       actor: reader.actor,
       idempotencyKey: h.nextKey(),
     }),
@@ -59,7 +61,31 @@ test('the four Ragers-native mechanics all work and toggle cleanly', async () =>
   );
   assert.equal(off.active, false);
   await h.settle();
-  assert.equal((await h.engine.store.counters.get(experienceId))?.beenThere, 0);
+  assert.equal((await h.engine.store.counters.get(experienceId))?.same, 0);
+});
+
+test('Been There is retired, and the refusal says what to use instead', async () => {
+  const h = createEngineHarness();
+  const author = await h.signUp('author@example.com');
+  const reader = await h.signUp('reader@example.com');
+  const experienceId = await publishText(h, author.actor);
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'reaction.toggle',
+    input: { experienceId, reactionType: 'been_there' },
+    actor: reader.actor,
+    idempotencyKey: h.nextKey(),
+  });
+
+  assert.equal(refused.ok, false);
+  assert.equal(refused.ok === false ? refused.error.code : '', 'reaction_retired');
+  assert.match(
+    refused.ok === false ? refused.error.message : '',
+    /Re-Rage/,
+    'a stale client should be told which mechanic replaced it',
+  );
+  // "This happened to me too" is one signal now, not two.
+  assert.equal(await h.engine.store.reactions.count(), 0);
 });
 
 test('generic social mechanics are refused by name', async () => {
@@ -201,7 +227,7 @@ test('counters converge after out-of-order and duplicated event delivery', async
   for (const actor of [a.actor, b.actor]) {
     await h.engine.bus.dispatch({
       name: 'reaction.toggle',
-      input: { experienceId, reactionType: 'been_there' },
+      input: { experienceId, reactionType: 'same' },
       actor,
       idempotencyKey: h.nextKey(),
     });
@@ -219,7 +245,7 @@ test('counters converge after out-of-order and duplicated event delivery', async
   await h.settle();
 
   const counters = await h.engine.store.counters.get(experienceId);
-  assert.equal(counters?.beenThere, 2);
+  assert.equal(counters?.same, 2);
   assert.equal(counters?.fairYes, 2);
   assert.deepEqual(summariseFairness(counters?.fairYes ?? 0, counters?.fairNo ?? 0), {
     fairYes: 2,

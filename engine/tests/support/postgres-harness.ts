@@ -35,13 +35,29 @@ export interface PostgresHarness {
   destroy(): Promise<void>;
 }
 
-const migrationSql = (): readonly string[] =>
+export const migrationNames = (): readonly string[] =>
   readdirSync(migrationsDir)
     .filter((name) => name.endsWith('.sql'))
-    .sort()
-    .map((name) => readFileSync(join(migrationsDir, name), 'utf8'));
+    .sort();
 
-export const createPostgresHarness = async (label: string): Promise<PostgresHarness> => {
+export const migrationBody = (name: string): string => readFileSync(join(migrationsDir, name), 'utf8');
+
+/**
+ * Migrations in order, optionally stopping after one of them. Stopping is what
+ * makes a data migration testable: its statements only do anything to rows that
+ * existed before it ran, so the rows have to be seeded at the version before it.
+ */
+const migrationSql = (upToInclusive?: string): readonly string[] => {
+  const names = migrationNames();
+  const cut = upToInclusive === undefined ? names.length : names.indexOf(upToInclusive) + 1;
+  if (cut === 0) throw new Error(`no such migration: ${upToInclusive ?? ''}`);
+  return names.slice(0, cut).map(migrationBody);
+};
+
+export const createPostgresHarness = async (
+  label: string,
+  options: { readonly upToInclusive?: string } = {},
+): Promise<PostgresHarness> => {
   const baseUrl = liveDatabaseUrl();
   if (!baseUrl) throw new Error('no live database configured');
 
@@ -67,7 +83,7 @@ export const createPostgresHarness = async (label: string): Promise<PostgresHarn
   const setup = new Client({ connectionString });
   await setup.connect();
   try {
-    for (const sql of migrationSql()) await setup.query(sql);
+    for (const sql of migrationSql(options.upToInclusive)) await setup.query(sql);
     // No grants here on purpose: 0002_rls_policies.sql now installs the full
     // privilege surface itself, so this harness exercises exactly what a
     // deployment gets — and what a pg_restore reproduces.

@@ -85,5 +85,42 @@ export const createPostgresStore = (db: Db): EngineStore => {
     auditEvents: table(descriptor({ relation: 'audit_events', idColumn: 'id' })),
     roleAssignments: table(descriptor({ relation: 'role_assignments', idColumn: 'id' })),
     analyticsEvents: table(descriptor({ relation: 'analytics_events', idColumn: 'id' })),
+
+    // ── Experience Signal Engine ──────────────────────────────────────────
+    categories: table(descriptor({ relation: 'categories', idColumn: 'id' })),
+    issueTypes: table(descriptor({ relation: 'issue_types', idColumn: 'id' })),
+    entities: table(descriptor({ relation: 'entities', idColumn: 'id' })),
+    entityAliases: table(descriptor({ relation: 'entity_aliases', idColumn: 'id' })),
+    locations: table(descriptor({ relation: 'locations', idColumn: 'id' })),
+    corroborations: table(descriptor({ relation: 'experience_corroborations', idColumn: 'id' })),
+    shares: table(descriptor({ relation: 'experience_shares', idColumn: 'id' })),
+    clusters: table(descriptor({ relation: 'experience_clusters', idColumn: 'id' })),
+    clusterMembers: table(descriptor({ relation: 'experience_cluster_members', idColumn: 'id' })),
+    evidence: table(descriptor({ relation: 'evidence', idColumn: 'id' })),
+    evidenceAssessments: table(descriptor({ relation: 'evidence_assessments', idColumn: 'id' })),
+    resolutionReports: table(descriptor({ relation: 'resolution_reports', idColumn: 'id' })),
+    resolutionEvents: table(descriptor({ relation: 'resolution_events', idColumn: 'id' })),
+    organizationProfiles: table(descriptor({ relation: 'organization_profiles', idColumn: 'id' })),
+    organizationMemberships: table(descriptor({ relation: 'organization_memberships', idColumn: 'id' })),
+    organizationResponses: table(descriptor({ relation: 'organization_responses', idColumn: 'id' })),
+    riskEvents: table(descriptor({ relation: 'risk_events', idColumn: 'id' })),
+    moderationCases: table(descriptor({ relation: 'moderation_cases', idColumn: 'id' })),
+    signalSnapshots: table(descriptor({ relation: 'signal_snapshots', idColumn: 'id' })),
+    // Keyed by the experience they describe.
+    experienceMetadata: table(
+      descriptor({
+        relation: 'experience_metadata',
+        idColumn: 'experience_id',
+        derivedId: (row) => String(row['experienceId'] ?? ''),
+      }),
+    ),
+    // Keyed by actor.
+    trustAssessments: table(
+      descriptor({
+        relation: 'trust_assessments',
+        idColumn: 'actor_id',
+        derivedId: (row) => String(row['actorId'] ?? ''),
+      }),
+    ),
   };
 };

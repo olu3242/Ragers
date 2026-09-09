@@ -177,7 +177,7 @@ test('a more-engaged experience outranks a less-engaged one of the same age', as
     expect(
       await h.engine.bus.dispatch({
         name: 'reaction.toggle',
-        input: { experienceId: popular, reactionType: 'been_there' },
+        input: { experienceId: popular, reactionType: 'same' },
         actor: reader.actor,
         idempotencyKey: h.nextKey(),
       }),

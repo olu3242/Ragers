@@ -18,8 +18,16 @@ export const GET = async (
   const counters = await engine.store.counters.get(id);
   return jsonOk({
     experience: entry,
-    engagement: {
-      beenThere: counters?.beenThere ?? 0,
+    // Claims and responses are reported separately, and shares separately again,
+    // so no client can add them up into a single "engagement" number.
+    signal: {
+      reRages: counters?.reRageCount ?? 0,
+      reRaves: counters?.reRaveCount ?? 0,
+      // People who say this happened to them, the author aside.
+      corroborators: counters?.corroboratorCount ?? 0,
+      shares: counters?.shareCount ?? 0,
+    },
+    responses: {
       same: counters?.same ?? 0,
       fairPoint: counters?.fairPoint ?? 0,
       disagree: counters?.disagree ?? 0,

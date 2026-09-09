@@ -40,6 +40,21 @@ export const createMemoryTable = <T extends { readonly id: string }>(): Table<T>
     },
     all: async () => [...rows.values()],
 
+    // Deliberately free of `await` between the read and the write: JavaScript
+    // runs this body to completion before another dispatch resumes, so the
+    // check-and-set is atomic here in the same way `insert ... on conflict do
+    // nothing` is atomic in Postgres.
+    compareAndSet: async (row, expected) => {
+      const current = rows.get(row.id);
+      if (expected === 'absent') {
+        if (current !== undefined) return false;
+      } else if (current === undefined || !matchesCriteria(current, expected)) {
+        return false;
+      }
+      rows.set(row.id, Object.freeze({ ...row }));
+      return true;
+    },
+
     query: async (criteria: Criteria<T>, options?: QueryOptions<T>) =>
       applyOptions([...rows.values()].filter((row) => matchesCriteria(row, criteria)), options),
     queryOne: async (criteria: Criteria<T>) =>

@@ -60,10 +60,19 @@ for (const file of engineSources) {
   }
 }
 
+/**
+ * Blank the comment portion of a line. Rules that look for code constructs have
+ * to ignore prose, or an ordinary English sentence ("terminal: any experience
+ * can be reopened") reads as a type annotation.
+ */
+const withoutComments = (line: string): string =>
+  line.replace(/\/\/.*$/, '').replace(/\/\*.*?(\*\/|$)/g, '').replace(/^\s*\*.*$/, '');
+
 // ── Rule: no unchecked `any` in the engine core ───────────────────────────
 for (const file of [...engineSources, ...hostSources]) {
   for (const [index, line] of readFileSync(file, 'utf8').split('\n').entries()) {
-    if (/:\s*any\b/.test(line) || /\bas any\b/.test(line)) {
+    const code = withoutComments(line);
+    if (/:\s*any\b/.test(code) || /\bas any\b/.test(code)) {
       report('no-any', file, index + 1, 'strict typing is the point of the strict config');
     }
   }

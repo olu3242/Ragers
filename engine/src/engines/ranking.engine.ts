@@ -64,8 +64,14 @@ export const computeRanking = async (deps: EngineDeps): Promise<readonly Ranking
 
   for (const entry of entries) {
     const counters = await deps.store.counters.get(entry.experienceId);
+    // Corroborations replace the retired been_there term. Shares are deliberately
+    // absent: amplification is not evidence that anything happened.
     const engagement =
-      (counters?.beenThere ?? 0) + (counters?.same ?? 0) + (counters?.fairPoint ?? 0) + (counters?.replyCount ?? 0);
+      (counters?.reRageCount ?? 0) +
+      (counters?.reRaveCount ?? 0) +
+      (counters?.same ?? 0) +
+      (counters?.fairPoint ?? 0) +
+      (counters?.replyCount ?? 0);
     const totalVotes = (counters?.fairYes ?? 0) + (counters?.fairNo ?? 0);
     const fairness = totalVotes === 0 ? 0 : (counters?.fairYes ?? 0) / totalVotes;
     const decay = recencyDecay(now - entry.publishedAt);

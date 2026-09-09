@@ -127,19 +127,25 @@ export const createPostgresOutbox = (db: Db, clock: Clock, ids: IdFactory): Outb
   append: async (events: readonly NewDomainEvent[], correlationId: string) => {
     const appended: OutboxRecord[] = [];
     for (const event of events) {
-      // The sequence is allocated from the existing rows, so it stays monotonic
-      // per aggregate even under concurrent appends (the unique index is the
-      // backstop that turns a race into a retryable conflict).
+      // The sequence comes from an explicit per-aggregate counter, incremented
+      // in the same statement that inserts the event. Reading `max(sequence)`
+      // instead would let two commands on one aggregate — two people
+      // corroborating the same experience at the same moment — allocate the same
+      // number and turn one of them into a spurious conflict.
       const rows = await db.query<OutboxRow>(
         // next_attempt_at is written from the injected clock, never left to the
         // database default: the engine owns time, and mixing the two makes
         // nothing ever look due under a controlled clock.
-        `insert into outbox (id, aggregate_type, aggregate_id, sequence, event_name, payload, correlation_id, causation_id, occurred_at, next_attempt_at)
-         values (
-           $1, $2, $3,
-           coalesce((select max(sequence) from outbox where aggregate_type = $2 and aggregate_id = $3), 0) + 1,
-           $4, $5::jsonb, $6, $7, $8, $8
+        `with allocated as (
+           insert into outbox_sequences as s (aggregate_type, aggregate_id, last_sequence, updated_at)
+           values ($2, $3, 1, $8)
+           on conflict (aggregate_type, aggregate_id)
+             do update set last_sequence = s.last_sequence + 1, updated_at = $8
+           returning last_sequence
          )
+         insert into outbox (id, aggregate_type, aggregate_id, sequence, event_name, payload, correlation_id, causation_id, occurred_at, next_attempt_at)
+         select $1, $2, $3, allocated.last_sequence, $4, $5::jsonb, $6, $7, $8, $8
+         from allocated
          returning *`,
         [
           ids.next('evt'),

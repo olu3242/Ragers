@@ -4,14 +4,12 @@ import { useState } from 'react';
 import { REACTION_TYPES, type ReactionType } from '../src/domain/types.ts';
 
 const LABELS: Readonly<Record<ReactionType, string>> = {
-  been_there: 'Been There',
   same: 'Same',
   fair_point: 'Fair Point',
   disagree: 'Disagree',
 };
 
 export interface ReactionCounts {
-  readonly beenThere: number;
   readonly same: number;
   readonly fairPoint: number;
   readonly disagree: number;
@@ -20,8 +18,6 @@ export interface ReactionCounts {
 
 const countFor = (counts: ReactionCounts, type: ReactionType): number => {
   switch (type) {
-    case 'been_there':
-      return counts.beenThere;
     case 'same':
       return counts.same;
     case 'fair_point':
@@ -31,7 +27,11 @@ const countFor = (counts: ReactionCounts, type: ReactionType): number => {
   }
 };
 
-/** The Ragers-native mechanics. There is deliberately no like or repost here. */
+/**
+ * Responses to a claim. Deliberately no like or repost — and deliberately no
+ * "me too" either: claiming the experience is corroboration, which is a separate
+ * control with a separate count, so the two can never be read as one number.
+ */
 export const ReactionRow = ({
   experienceId,
   counts,
@@ -57,8 +57,6 @@ export const ReactionRow = ({
       setTally((current) => {
         const delta = body.active ? 1 : -1;
         switch (type) {
-          case 'been_there':
-            return { ...current, beenThere: current.beenThere + delta };
           case 'same':
             return { ...current, same: current.same + delta };
           case 'fair_point':
@@ -83,7 +81,7 @@ export const ReactionRow = ({
           disabled={busy === type}
           onClick={() => void toggle(type)}
         >
-          {LABELS[type]}
+          {LABELS[type]}{' '}
           <span className="reaction-count">{countFor(tally, type)}</span>
         </button>
       ))}

@@ -56,11 +56,24 @@ export const CATEGORIES: readonly string[] = [
 ];
 
 /**
- * Ragers-native engagement mechanics. Generic Like / Upvote / Repost is
- * deliberately absent: it is not the engagement loop this product is built on.
+ * Ragers-native reactions: *responses* to a claim.
+ *
+ * Generic Like / Upvote / Repost is deliberately absent — it is not the
+ * engagement loop this product is built on. `been_there` is absent for a
+ * different reason: it meant "this happened to me too", which is a claim, not a
+ * response, and claims are corroborations now. Keeping both would give the
+ * product two "me too" signals with different weights in different tables,
+ * which is exactly the conflation the Experience Signal Engine exists to remove.
  */
-export type ReactionType = 'been_there' | 'same' | 'fair_point' | 'disagree';
-export const REACTION_TYPES: readonly ReactionType[] = ['been_there', 'same', 'fair_point', 'disagree'];
+export type ReactionType = 'same' | 'fair_point' | 'disagree';
+export const REACTION_TYPES: readonly ReactionType[] = ['same', 'fair_point', 'disagree'];
+
+/**
+ * Mechanics that were shipped and have since been replaced. Kept as data so the
+ * boundary can answer a stale client precisely — "use Re-Rage" — rather than
+ * with a generic validation failure.
+ */
+export const RETIRED_REACTION_TYPES: readonly string[] = ['been_there'];
 
 /** Explicitly rejected engagement mechanics, kept as data so the rule is testable. */
 export const REJECTED_REACTION_TYPES: readonly string[] = [

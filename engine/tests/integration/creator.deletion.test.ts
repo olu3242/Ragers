@@ -46,7 +46,7 @@ const buildFullExperience = async (h: EngineHarness, author: ActorContext, reade
   await h.settle();
 
   const engagement: readonly { name: string; input: Record<string, unknown> }[] = [
-    { name: 'reaction.toggle', input: { experienceId: created.experienceId, reactionType: 'been_there' } },
+    { name: 'reaction.toggle', input: { experienceId: created.experienceId, reactionType: 'same' } },
     { name: 'reaction.castFairVote', input: { experienceId: created.experienceId, isFair: true } },
     {
       name: 'conversation.createReply',

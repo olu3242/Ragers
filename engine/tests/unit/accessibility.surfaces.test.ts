@@ -19,6 +19,7 @@ const layout = read('app', 'layout.tsx');
 const composer = read('components', 'Composer.tsx');
 const recorder = read('components', 'VoiceRecorder.tsx');
 const reactions = read('components', 'ReactionRow.tsx');
+const signals = read('components', 'SignalRow.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -76,6 +77,14 @@ test('a visually hidden radio still receives a visible focus treatment', () => {
 test('toggle state is exposed to assistive technology, not only by colour', () => {
   assert.match(reactions, /aria-pressed=/, 'reaction buttons expose pressed state');
   assert.match(css, /\.reaction\[aria-pressed='true'\]/, 'and are styled from that state');
+  assert.match(signals, /aria-pressed=/, 'the claim button exposes pressed state');
+  assert.match(css, /\.signal-claim\[aria-pressed='true'\]/, 'and is styled from that state');
+});
+
+test('a refused claim is announced, not only shown', () => {
+  // "You already said this happened to you" is information a person needs, and
+  // a screen reader user would otherwise never learn the tap did nothing.
+  assert.match(signals, /role="alert"/, 'the claim refusal must be announced');
 });
 
 test('recorder status changes are announced', () => {
@@ -88,6 +97,7 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['Composer', composer],
     ['VoiceRecorder', recorder],
     ['ReactionRow', reactions],
+    ['SignalRow', signals],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -104,6 +114,7 @@ test('every button in the app surfaces declares an explicit type', () => {
     ['Composer', composer],
     ['VoiceRecorder', recorder],
     ['ReactionRow', reactions],
+    ['SignalRow', signals],
   ] as const) {
     const buttons = [...source.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1] ?? '');
     for (const attributes of buttons) {
@@ -116,7 +127,7 @@ test('all app surface files are accounted for by these assertions', () => {
   const components = readdirSync(join(root, 'components')).filter((file) => file.endsWith('.tsx'));
   assert.deepEqual(
     components.sort(),
-    ['Composer.tsx', 'ReactionRow.tsx', 'VoicePlayer.tsx', 'VoiceRecorder.tsx'],
+    ['Composer.tsx', 'ReactionRow.tsx', 'SignalRow.tsx', 'VoicePlayer.tsx', 'VoiceRecorder.tsx'],
     'a new component must be added to the accessibility gate',
   );
 });

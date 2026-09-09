@@ -97,7 +97,7 @@ test('body edits are bounded the same way as creation', () => {
 });
 
 test('engagement mechanics are Ragers-native; generic social mechanics are not accepted', () => {
-  assert.deepEqual([...REACTION_TYPES], ['been_there', 'same', 'fair_point', 'disagree']);
+  assert.deepEqual([...REACTION_TYPES], ['same', 'fair_point', 'disagree']);
   for (const rejected of REJECTED_REACTION_TYPES) {
     assert.equal(isReactionType(rejected), false, `${rejected} must not be a valid reaction type`);
   }

@@ -34,7 +34,7 @@ test('analytics rows carry a pseudonymous hash, never an actor id or content', a
   expect(
     await h.engine.bus.dispatch({
       name: 'reaction.toggle',
-      input: { experienceId, reactionType: 'been_there' },
+      input: { experienceId, reactionType: 'same' },
       actor: reader.actor,
       idempotencyKey: h.nextKey(),
     }),

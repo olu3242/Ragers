@@ -105,7 +105,7 @@ test('a reaction notifies the author exactly once, even under duplicate delivery
   expect(
     await h.engine.bus.dispatch({
       name: 'reaction.toggle',
-      input: { experienceId, reactionType: 'been_there' },
+      input: { experienceId, reactionType: 'same' },
       actor: reader.actor,
       idempotencyKey: h.nextKey(),
     }),
@@ -294,7 +294,7 @@ test('an anonymous author still receives notifications, and the reactor label is
   expect(
     await h.engine.bus.dispatch({
       name: 'reaction.toggle',
-      input: { experienceId: created.experienceId, reactionType: 'been_there' },
+      input: { experienceId: created.experienceId, reactionType: 'same' },
       actor: reader.actor,
       idempotencyKey: h.nextKey(),
     }),

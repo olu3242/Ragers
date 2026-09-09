@@ -253,6 +253,89 @@ describe('persistence parity', { skip: liveDatabaseAvailable() ? false : 'no liv
     });
   });
 
+  const corroboration = (id: string, experienceId: string, corroboratorId: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    experienceId,
+    corroboratorId,
+    type: 're_rage' as const,
+    relationship: 'same_experience' as const,
+    visibility: 'public' as const,
+    status: 'active' as const,
+    retractedAt: undefined,
+    correlationId: 'corr_cas',
+    createdAt: 1_700_000_000_000,
+    ...overrides,
+  });
+
+  test('compareAndSet admits exactly one of many simultaneous writers', async () => {
+    const results = await bothAdapters(async (store) => {
+      await store.actors.put(actor('actor_cas'));
+      await store.actors.put(actor('actor_cas2'));
+      await store.experiences.put(experience('exp_cas', 'actor_cas'));
+      const row = corroboration('exp_cas:actor_cas2', 'exp_cas', 'actor_cas2');
+
+      const attempts = await Promise.all(
+        Array.from({ length: 8 }, () => store.corroborations.compareAndSet(row, 'absent')),
+      );
+      return {
+        won: attempts.filter(Boolean).length,
+        rows: await store.corroborations.countWhere([eq('experienceId', 'exp_cas')]),
+      };
+    });
+
+    assert.deepEqual(results.memory, results.postgres, 'both adapters must arbitrate a race identically');
+    assert.deepEqual(results.postgres, { won: 1, rows: 1 });
+  });
+
+  test('compareAndSet with a precondition writes only while the stored row still matches', async () => {
+    const results = await bothAdapters(async (store) => {
+      await store.actors.put(actor('actor_pre'));
+      await store.actors.put(actor('actor_pre2'));
+      await store.experiences.put(experience('exp_pre', 'actor_pre'));
+      const id = 'exp_pre:actor_pre2';
+      await store.corroborations.put(
+        corroboration(id, 'exp_pre', 'actor_pre2', { status: 'retracted', retractedAt: 1_700_000_050_000 }),
+      );
+
+      // The precondition holds, so the re-claim lands — and clears the retraction.
+      const reclaimed = await store.corroborations.compareAndSet(
+        corroboration(id, 'exp_pre', 'actor_pre2'),
+        [eq('status', 'retracted')],
+      );
+      const after = await store.corroborations.get(id);
+      // The precondition no longer holds, so a second attempt is refused.
+      const again = await store.corroborations.compareAndSet(
+        corroboration(id, 'exp_pre', 'actor_pre2'),
+        [eq('status', 'retracted')],
+      );
+      // A precondition on a row that does not exist is a refusal, not an insert.
+      const absent = await store.corroborations.compareAndSet(
+        corroboration('exp_pre:nobody', 'exp_pre', 'actor_pre2'),
+        [eq('status', 'retracted')],
+      );
+
+      return {
+        reclaimed,
+        again,
+        absent,
+        status: after?.status,
+        retractedAt: after?.retractedAt,
+        rows: await store.corroborations.countWhere([eq('experienceId', 'exp_pre')]),
+      };
+    });
+
+    assert.deepEqual(results.memory, results.postgres, 'preconditions must mean the same thing on both adapters');
+    assert.deepEqual(results.postgres, {
+      reclaimed: true,
+      again: false,
+      absent: false,
+      status: 'active',
+      // The optional column is cleared, not left holding a stale date.
+      retractedAt: undefined,
+      rows: 1,
+    });
+  });
+
   test('a database constraint rejects what the domain also rejects', async () => {
     // Text mode requires a body — enforced in the domain and in the schema.
     await harness.store.actors.put(actor('actor_c'));

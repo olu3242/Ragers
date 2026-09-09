@@ -115,8 +115,91 @@ test('a full text post round-trips through the API and appears on the feed', asy
   await page.goto('/');
   await expect(page.getByText('Someone returned a lost wallet today.')).toBeVisible();
   await expect(page.getByText('Rave', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Been There/ })).toBeVisible();
+  // A Rave is corroborated with a Re-Rave, never with a generic "me too".
+  await expect(page.getByRole('button', { name: /Re-Rave/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Fair Point/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Been There/ })).toHaveCount(0);
+});
+
+test('a Re-Rage is a claim, and it is counted apart from a Share', async ({ page, request }) => {
+  // The author posts.
+  await request.post('/api/session', {
+    data: { mode: 'signup', email: `author-${Date.now()}@example.com`, displayName: 'Author' },
+  });
+  const created = await request.post('/api/experiences', {
+    data: {
+      kind: 'rage',
+      creationMode: 'text',
+      category: 'Shopping & service',
+      bodyText: 'The refund never arrived after three weeks.',
+      visibility: 'public',
+    },
+  });
+  const { experienceId } = (await created.json()) as { experienceId: string };
+  await waitForFeedEntry(request, experienceId);
+
+  // The author cannot corroborate their own experience: posting was the claim.
+  // The policy layer refuses it before the domain is reached, hence 403 and not
+  // a domain precondition failure.
+  const own = await request.post(`/api/experiences/${experienceId}/corroborations`, {
+    data: { type: 're_rage' },
+  });
+  expect(own.status()).toBe(403);
+
+  // Somebody else says it happened to them too.
+  await request.post('/api/session', {
+    data: { mode: 'signup', email: `claimant-${Date.now()}@example.com`, displayName: 'Claimant' },
+  });
+  const claim = await request.post(`/api/experiences/${experienceId}/corroborations`, {
+    data: { type: 're_rage' },
+  });
+  expect(claim.status()).toBe(200);
+  expect(((await claim.json()) as { corroborationCount: number }).corroborationCount).toBe(1);
+
+  // Saying it twice does not make it two people.
+  const repeat = await request.post(`/api/experiences/${experienceId}/corroborations`, {
+    data: { type: 're_rage' },
+  });
+  expect(repeat.status()).toBe(409);
+
+  // A rage takes a re_rage, never a re_rave. A fresh person, so it is the kind
+  // rule under test and not the one-claim-per-person rule above.
+  await request.post('/api/session', {
+    data: { mode: 'signup', email: `wrongkind-${Date.now()}@example.com`, displayName: 'Wrong Kind' },
+  });
+  const wrongKind = await request.post(`/api/experiences/${experienceId}/corroborations`, {
+    data: { type: 're_rave' },
+  });
+  expect(wrongKind.status()).toBe(422);
+
+  // Shares are unlimited and land in a different count entirely.
+  for (let index = 0; index < 3; index += 1) {
+    const shared = await request.post(`/api/experiences/${experienceId}/shares`, {
+      data: { destination: 'copy_link' },
+    });
+    expect(shared.status()).toBe(200);
+  }
+
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(`/api/experiences/${experienceId}`);
+        const body = (await response.json()) as { signal: { reRages: number; corroborators: number; shares: number } };
+        return `${body.signal.reRages}/${body.signal.corroborators}/${body.signal.shares}`;
+      },
+      { timeout: 15_000, intervals: [100, 200, 300, 500] },
+    )
+    // One person claimed it; the link was passed on three times. The two numbers
+    // are never the same number.
+    .toBe('1/1/3');
+
+  await page.goto('/');
+  // Scoped to this experience's card: other tests publish to the same feed.
+  const card = page.locator('article', { hasText: 'The refund never arrived after three weeks.' });
+  // The two counts are shown side by side and are visibly different numbers.
+  await expect(card.getByRole('button', { name: 'Re-Rage 1' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Share 3' })).toBeVisible();
+  await expect(card.getByText('Re-Rage means it happened to you too. Sharing does not.')).toBeVisible();
 });
 
 test('the API refuses writes from an unauthenticated caller', async ({ request }) => {
