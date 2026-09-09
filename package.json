@@ -2,19 +2,21 @@
   "name": "ragers-landing",
   "version": "1.0.0",
   "private": true,
-  "description": "Public marketing landing page for Ragers — the social mirror for everyday behavior.",
+  "description": "Ragers — the social mirror for everyday behavior, with executable experience integrity foundations.",
   "main": "index.html",
   "scripts": {
     "start": "npx http-server . -p 8080 -o",
     "dev": "npx live-server --port=8080",
-    "build": "echo \"Static site — no build step required. Deploy the folder as-is.\"",
-    "test": "node tests-smoke.js"
+    "build": "echo \"Static site plus dependency-free Node integrity engine.\"",
+    "test": "node tests-smoke.js && node tests-integrity.js",
+    "test:integrity": "node tests-integrity.js"
   },
   "keywords": [
     "ragers",
-    "landing-page",
-    "static-site",
-    "marketing"
+    "experience-network",
+    "rage",
+    "rave",
+    "integrity-engine"
   ],
   "author": "Zenith AI Automation Agency",
   "license": "UNLICENSED",
