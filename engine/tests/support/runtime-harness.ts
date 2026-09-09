@@ -15,8 +15,11 @@ import {
   createMemoryDeadLetterStore,
   createMemoryDeliveryLedger,
   createMemoryIdempotencyStore,
+  createMemoryJobHistory,
   createMemoryOutbox,
+  createMemoryWorkerRegistry,
 } from '../../src/adapters/memory/runtime-stores.ts';
+import type { JobHistory, WorkerRegistry } from '../../src/runtime/jobs.ts';
 
 export interface RuntimeHarness {
   readonly clock: FixedClock;
@@ -31,18 +34,42 @@ export interface RuntimeHarness {
   readonly retry: RetryPolicy;
   readonly bus: CommandBus;
   readonly orchestrator: Orchestrator;
+  readonly workers: WorkerRegistry;
+  readonly jobHistory: JobHistory;
 }
 
-export const createRuntimeHarness = (options: { retry?: RetryPolicyOptions } = {}): RuntimeHarness => {
-  const clock = fixedClock();
+/**
+ * State a second harness can share, so two "workers" can be pointed at one
+ * backlog — which is how restart and contention are exercised.
+ */
+export interface SharedRuntimeState {
+  readonly outbox: Outbox;
+  readonly deliveries: DeliveryLedger;
+  readonly deadLetters: DeadLetterStore;
+  readonly workers: WorkerRegistry;
+  readonly clock: FixedClock;
+}
+
+export const createRuntimeHarness = (
+  options: {
+    retry?: RetryPolicyOptions;
+    shared?: SharedRuntimeState;
+    workerId?: string;
+    maxConcurrent?: number;
+    leaseMs?: number;
+  } = {},
+): RuntimeHarness => {
+  const clock = options.shared?.clock ?? fixedClock();
   const ids = sequentialIdFactory();
   const logger = createMemoryLogger();
   const metrics = createMetrics();
   const authorizer = createAuthorizer();
   const idempotency = createMemoryIdempotencyStore(clock);
-  const outbox = createMemoryOutbox(clock, ids);
-  const deadLetters = createMemoryDeadLetterStore(clock, ids);
-  const deliveries = createMemoryDeliveryLedger();
+  const outbox = options.shared?.outbox ?? createMemoryOutbox(clock, ids);
+  const deadLetters = options.shared?.deadLetters ?? createMemoryDeadLetterStore(clock, ids);
+  const deliveries = options.shared?.deliveries ?? createMemoryDeliveryLedger();
+  const workers = options.shared?.workers ?? createMemoryWorkerRegistry();
+  const jobHistory = createMemoryJobHistory();
   const retry = createRetryPolicy(options.retry ?? { maxAttempts: 3, baseMs: 1_000, factor: 2 });
 
   const bus = createCommandBus({ authorizer, idempotency, outbox, clock, ids, logger, metrics });
@@ -55,6 +82,11 @@ export const createRuntimeHarness = (options: { retry?: RetryPolicyOptions } = {
     ids,
     logger,
     metrics,
+    workers,
+    history: jobHistory,
+    ...(options.workerId === undefined ? {} : { workerId: options.workerId }),
+    ...(options.maxConcurrent === undefined ? {} : { maxConcurrent: options.maxConcurrent }),
+    ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
   });
 
   return {
@@ -70,6 +102,8 @@ export const createRuntimeHarness = (options: { retry?: RetryPolicyOptions } = {
     retry,
     bus,
     orchestrator,
+    workers,
+    jobHistory,
   };
 };
 

@@ -38,21 +38,63 @@ recorded as external blockers in `docs/EVIDENCE.md` until an environment exists.
 The web tier and the delivery worker are the same code with different entry
 points, so a consumer cannot drift from the command that emits its event.
 
-**Run exactly one drain loop.** The web tier starts one in-process by default,
-which is correct for a single node. Once you run a separate worker, set
-`RAGERS_DISABLE_WORKER=1` on the web tier — otherwise both drain, which is
-harmless (consumers are idempotent) but doubles redundant work.
+**Running more than one drain loop is safe.** Since Phase 21 delivery is a
+durable leased job: a job is held by exactly one worker at a time, enforced by a
+single atomic statement, so two workers on one backlog cannot both run it. The
+web tier starts a loop in-process by default, which is right for a single node;
+once you run separate workers, set `RAGERS_DISABLE_WORKER=1` on the web tier so
+the request path is not also doing delivery work.
+
+**Worker liveness.** Workers register in `workers` and heartbeat on every drain.
+A worker that stops heartbeating for three intervals is marked `dead`, and the
+next drain reclaims its leases — jobs return to `queued` with their attempt count
+and checkpoint intact. This is why a crashed worker costs latency, not work.
+
+**Reading the execution record.** `job_history` is append-only and records every
+transition with the worker that made it. To diagnose a stuck pipeline, start
+there: `select * from job_history where delivery_id like '%<consumer>' order by at`.
 
 ## 2. Local development
 
 ```bash
 cd engine
 npm install
-npm test          # 200+ assertions, no external dependencies
-npm run typecheck # strict, zero errors expected
-npm run dev       # http://localhost:3001
-npm run certify   # runs every gate and rewrites docs/EVIDENCE.md
+npm run lint       # architecture, hygiene and content-separation rules
+npm run typecheck  # strict, zero errors expected
+npm test           # unit + integration, no external dependencies
+npm run dev        # http://localhost:3001
+npm run certify    # every gate, then rewrite docs/EVIDENCE.md
 ```
+
+The live suites need a database. Any Postgres 16 will do:
+
+```bash
+export RAGERS_TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:5432/postgres'
+psql "$RAGERS_TEST_DATABASE_URL" -c "
+  do \$\$ begin
+    if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+    if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+    if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+  end \$\$;"
+npm run test:live  # parity, RLS certification, durability, backup/restore
+```
+
+Each live suite creates and drops its own database, so they do not interfere
+with each other or with your development data.
+
+## 2a. Continuous integration
+
+`.github/workflows/certification.yml` runs on every push. The jobs are
+`static` (validation, typecheck, public-surface checks), `offline-tests`,
+`database` (migrations, drift detection, schema assertions, all live suites
+against a real Postgres service), `browser` (production build plus Playwright),
+`security` (dependency audit, committed-secret checks, and a check that no
+service-role credential is referenced from client code), and finally `certify`,
+which runs every gate and publishes the evidence table to the run summary.
+
+The build fails on a test or build regression, on schema drift, on a
+`RAGERS_ENGINE_E2E_NO_GO` certification status, or on any static-validation
+finding. The evidence bundle is uploaded as an artifact on every run.
 
 The default adapters are in-memory: state lives in the process and is lost on
 restart. That is deliberate for development and for the test suite. It also
@@ -71,6 +113,8 @@ in-memory adapters, two nodes cannot see each other's data.
 | `RAGERS_DISABLE_WORKER` | when running a separate worker | Set to `1` on the web tier. |
 | `RAGERS_MEDIA_BUCKET` | production | Object storage bucket for media. |
 | `RAGERS_CHROMIUM` | optional | Chromium path for the browser E2E gate. |
+| `RAGERS_TEST_DATABASE_URL` | CI and local testing | Database the live suites create their scratch databases from. |
+| `RAGERS_PG_BIN` | optional | Path to Postgres 16 client binaries, for the backup/restore drill. |
 
 Only `NEXT_PUBLIC_`-prefixed variables reach the browser. No key above carries
 that prefix, and none should.

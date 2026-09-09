@@ -40,9 +40,12 @@ npm test             # public-surface smoke checks
 # The engine
 cd engine
 npm install
-npm test             # 212 assertions, no external dependencies
+npm run lint         # architecture, hygiene and content-separation rules
 npm run typecheck    # strict TypeScript, zero errors
+npm test             # 229 assertions, no external dependencies
+npm run test:live    # 54 assertions against a real Postgres (see docs/OPERATIONS.md §2)
 npm run dev          # http://localhost:3001
+npm run worker       # the delivery worker, for a separate process
 npm run test:e2e     # browser E2E against a production build
 npm run certify      # every gate, then rewrite docs/EVIDENCE.md
 ```
@@ -51,11 +54,11 @@ npm run certify      # every gate, then rewrite docs/EVIDENCE.md
 
 `RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS`
 
-13 certification gates pass: schema/migrations (static), unit, integration, authorization, retry/dead-letter, concurrency, voice, moderation failure-path, privacy/search leakage, accessibility, strict typecheck, production build, and browser E2E.
+20 certification gates pass, including everything that needs a real database: migrations applied to live Postgres, adapter parity between the in-memory and Postgres stores, RLS policies executed as real `anon`/`authenticated` roles, durable orchestration with worker-restart recovery, and a backup/restore drill.
 
-5 gates are blocked, each by a dependency that is not provisioned rather than by a defect: applying migrations to a live database, executing the RLS policies against that database, deploying to a target environment, and the backup/restore and rollback drills. They are named individually in [`docs/EVIDENCE.md`](docs/EVIDENCE.md), and the procedures for the last three are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+2 gates remain blocked, both on the same missing thing — a deployment target. Deploying to an environment and the rollback drill cannot be performed without somewhere to deploy. They are named in [`docs/EVIDENCE.md`](docs/EVIDENCE.md) and the procedures are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) §5.
 
-The default persistence adapters are in-memory. A deployment swaps them for the Postgres/Supabase adapters at the composition root; no engine module changes, because they only ever see the ports.
+Persistence is durable when a database is supplied and in-process otherwise; the engines never see the difference, because they only hold the ports. Every push runs the full gate set in CI.
 
 ## Product constraint
 

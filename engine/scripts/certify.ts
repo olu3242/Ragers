@@ -25,7 +25,14 @@ const results: GateResult[] = [];
 for (const gate of GATES) {
   if (only.length > 0 && !only.includes(gate.id)) continue;
 
-  if (!gate.command) {
+  // A gate whose dependency is absent is blocked, never silently skipped and
+  // never counted as a pass.
+  const missingEnv =
+    gate.requiresEnv !== undefined &&
+    (process.env[gate.requiresEnv] ?? process.env['DATABASE_URL']) === undefined;
+  const blockedBy = gate.blockedBy ?? (missingEnv ? gate.blockedWithoutEnv : undefined);
+
+  if (!gate.command || blockedBy !== undefined) {
     results.push({
       id: gate.id,
       name: gate.name,
@@ -33,7 +40,7 @@ for (const gate of GATES) {
       status: 'blocked',
       durationMs: 0,
       detail: 'blocked by an external dependency',
-      ...(gate.blockedBy === undefined ? {} : { blockedBy: gate.blockedBy }),
+      ...(blockedBy === undefined ? {} : { blockedBy }),
     });
     process.stdout.write(`⛔ ${gate.name} — blocked\n`);
     continue;

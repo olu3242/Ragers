@@ -730,6 +730,75 @@ accessibility, build, deployment, backup/restore, and rollback.
 | `RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS` | All gates runnable in this environment are green; the remainder are blocked only by unprovisioned external dependencies, each named explicitly. |
 | `RAGERS_ENGINE_E2E_NO_GO` | Any runnable gate is red, or a fail-closed privacy/safety invariant is unproven. |
 
+
+---
+
+## 5. Phases 21–30 — production hardening
+
+Phases 1–20 establish the product. Phases 21–30 make it operable by more than
+one process, in more than one environment, with providers that can fail. They
+are delivered in three batches:
+
+| Batch | Contents | Status |
+|---|---|---|
+| A | CI enforcement, live Postgres persistence, live RLS certification, backup/restore, **P21 Distributed Orchestration** | Delivered |
+| B | Real provider adapters and failover, private object storage, **P22–P24** | Pending |
+| C | Flags, experimentation, anti-abuse, governance, release control, continuous assurance, **P25–P30** | Pending |
+
+---
+
+### Phase 21 — Distributed Orchestration Engine
+
+- **Objective:** Turn delivery from an in-process callback into a durable, leased
+  job, so a process dying is a recoverable event rather than lost work.
+- **Dependencies:** P4 (runtime), and durable persistence (Batch A).
+- **Existing capability:** The P4 orchestrator delivered events per
+  (event, consumer) with retry and dead-lettering, but entirely in memory: a
+  restart lost the delivery ledger, and two processes would both run every job.
+- **Gaps closed:** durable job state, leasing, worker identity and heartbeats,
+  lease expiry and reclaim, concurrency limits, checkpoints, execution history,
+  causation ids, and single-writer guarantees across workers.
+- **Schema/data:** `workers` (id, hostname, started_at, last_heartbeat_at, state);
+  `event_deliveries` extended with `state job_state`, `lease_owner`,
+  `leased_until`, `checkpoint jsonb`, `causation_id`, plus a
+  `lease_matches_state` constraint so a held job must name its holder;
+  `job_history` (append-only); `outbox.causation_id`.
+- **Domain model / state machine:**
+  `queued → leased → running → (completed | failed | waiting)`,
+  `failed → (retrying → queued | dead_letter)`, `waiting → queued`,
+  and `leased → queued` when a lease expires without the worker acting.
+  `completed` and `dead_letter` are terminal.
+- **Commands / services:** `DeliveryLedger.claim` (the atomic lease),
+  `reclaimExpired`, `countHeldBy`; `WorkerRegistry.register/heartbeat/reapStale/drain`;
+  `Orchestrator.announce/drain/drainAll`.
+- **Domain events:** none of its own; it emits metrics and history entries
+  (`job.contended`, `job.reclaimed`) rather than domain events.
+- **Async jobs:** the drain loop itself, plus lease reclamation and worker reaping
+  on every pass.
+- **UI surfaces:** worker and queue state feed the P18 admin console and the
+  health endpoint; no consumer surface.
+- **Authorization:** `workers` and `job_history` are worker-owned. RLS is enabled
+  with admin-read policies only, and no client role holds insert/update/delete —
+  the execution record cannot be rewritten by a client.
+- **Failure/retry/recovery:** the lease *is* the recovery mechanism. A worker that
+  dies mid-job leaves a lease that lapses; the next drain returns the job to
+  `queued` with its attempt count and checkpoint intact, and another worker
+  resumes it. Delivery is sticky: a late failure report from a contending worker
+  cannot make an already-delivered event look pending again.
+- **Observability:** per-job history with worker attribution, drain reports
+  carrying `reclaimed` and `contended` counts, worker heartbeat state, and outbox
+  depth on the health endpoint.
+- **Tests:** job-state transition table; lease exclusivity; expiry and reclaim
+  preserving attempt count and checkpoint; terminal jobs never re-claimed;
+  checkpoint resumption; concurrency limit; poison-message isolation; two
+  workers on one backlog.
+- **E2E acceptance:** against a real Postgres, the voice pipeline survives an
+  API restart, a worker restart, a duplicate command, a duplicate event, a
+  provider timeout and a database error — producing exactly one experience, one
+  media asset and one feed entry.
+- **Certification evidence:** `jobs.orchestration.test.ts` (12) and
+  `tests/live/orchestration.durability.test.ts` (11) green.
+
 ---
 
 ## 4. Implementation order

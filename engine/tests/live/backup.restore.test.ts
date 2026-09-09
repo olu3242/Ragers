@@ -141,10 +141,16 @@ describe('backup and restore drill', { skip: liveDatabaseAvailable() ? false : '
         'a restore that loses RLS is a privacy incident, not a configuration detail',
       );
 
-      const policies = await restored.query<{ count: string }>(
+      // Compared against the source rather than a hardcoded number: the property
+      // is that the restore preserves every policy, not that there are N of them.
+      const restoredPolicies = await restored.query<{ count: string }>(
         `select count(*)::text as count from pg_policies where schemaname = 'public'`,
       );
-      assert.equal(policies.rows[0]?.count, '46', 'every policy is restored');
+      const sourcePolicies = await h.query<{ count: string }>(
+        `select count(*)::text as count from pg_policies where schemaname = 'public'`,
+      );
+      assert.equal(restoredPolicies.rows[0]?.count, sourcePolicies[0]?.count, 'every policy is restored');
+      assert.ok(Number(sourcePolicies[0]?.count ?? 0) >= 46, 'and the source genuinely has policies');
     } finally {
       await restored.end();
     }

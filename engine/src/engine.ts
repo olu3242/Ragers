@@ -12,13 +12,25 @@ import {
   createMemoryDeadLetterStore,
   createMemoryDeliveryLedger,
   createMemoryIdempotencyStore,
+  createMemoryJobHistory,
   createMemoryOutbox,
+  createMemoryWorkerRegistry,
 } from './adapters/memory/runtime-stores.ts';
 import {
   createFakeObjectStore,
   createFakePiiDetector,
   createFakeTranscriptionProvider,
 } from './adapters/fakes.ts';
+import { createPostgresStore } from './adapters/postgres/store.ts';
+import {
+  createPostgresDeadLetterStore,
+  createPostgresDeliveryLedger,
+  createPostgresIdempotencyStore,
+  createPostgresJobHistory,
+  createPostgresOutbox,
+  createPostgresWorkerRegistry,
+} from './adapters/postgres/runtime-stores.ts';
+import type { Db } from './adapters/postgres/client.ts';
 import { defaultConfig, type EngineConfig, type EngineDeps, type EngineProviders } from './engines/deps.ts';
 import { registerIdentityEngine } from './engines/identity.engine.ts';
 import { registerExperienceEngine } from './engines/experience.engine.ts';
@@ -61,6 +73,8 @@ import { createAnalyticsIngestConsumer } from './engines/analytics.engine.ts';
 import { createReplyCascadeConsumer, registerConversationEngine } from './engines/conversation.engine.ts';
 import type { EngineStore } from './ports/store.ts';
 import type { HealthRegistry } from './runtime/health.ts';
+import type { JobHistory, WorkerRegistry } from './runtime/jobs.ts';
+import type { DeliveryLedger } from './runtime/orchestrator.ts';
 
 export interface EngineOptions {
   readonly store?: EngineStore;
@@ -70,10 +84,23 @@ export interface EngineOptions {
   readonly providers?: Partial<EngineProviders>;
   readonly config?: Partial<EngineConfig>;
   readonly retry?: { maxAttempts?: number; baseMs?: number; factor?: number; maxMs?: number };
+  /** Identity of this worker, so two processes can be distinguished. */
+  readonly workerId?: string;
+  readonly leaseMs?: number;
+  readonly maxConcurrent?: number;
+  /**
+   * When supplied, every store — domain and runtime — is backed by Postgres.
+   * This is the difference between a preview process and a deployment: without
+   * it, state lives in the process and a restart starts from nothing.
+   */
+  readonly db?: Db;
 }
 
 export interface Engine extends EngineDeps {
   readonly health: HealthRegistry;
+  readonly workers: WorkerRegistry;
+  readonly jobHistory: JobHistory;
+  readonly deliveries: DeliveryLedger;
 }
 
 /**
@@ -85,14 +112,19 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   const ids = options.ids ?? uuidIdFactory;
   const logger = options.logger ?? createConsoleLogger({ service: 'ragers-engine' });
   const metrics = createMetrics();
-  const store = options.store ?? createMemoryStore();
+  const store = options.store ?? (options.db ? createPostgresStore(options.db) : createMemoryStore());
   const authorizer = createAuthorizer();
   const retry = createRetryPolicy(options.retry ?? { maxAttempts: 3, baseMs: 1_000, factor: 2 });
 
-  const idempotency = createMemoryIdempotencyStore(clock);
-  const outbox = createMemoryOutbox(clock, ids);
-  const deadLetters = createMemoryDeadLetterStore(clock, ids);
-  const deliveries = createMemoryDeliveryLedger();
+  // Durable when a database is supplied, in-process otherwise. The engines never
+  // see the difference: they only ever hold the ports.
+  const db = options.db;
+  const idempotency = db ? createPostgresIdempotencyStore(db) : createMemoryIdempotencyStore(clock);
+  const outbox = db ? createPostgresOutbox(db, clock, ids) : createMemoryOutbox(clock, ids);
+  const deadLetters = db ? createPostgresDeadLetterStore(db, clock, ids) : createMemoryDeadLetterStore(clock, ids);
+  const deliveries = db ? createPostgresDeliveryLedger(db, ids) : createMemoryDeliveryLedger();
+  const workers = db ? createPostgresWorkerRegistry(db) : createMemoryWorkerRegistry();
+  const jobHistory = db ? createPostgresJobHistory(db, ids) : createMemoryJobHistory();
 
   const bus = createCommandBus({ authorizer, idempotency, outbox, clock, ids, logger, metrics });
   const orchestrator = createOrchestrator({
@@ -104,6 +136,11 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     ids,
     logger,
     metrics,
+    workers,
+    history: jobHistory,
+    ...(options.workerId === undefined ? {} : { workerId: options.workerId }),
+    ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
+    ...(options.maxConcurrent === undefined ? {} : { maxConcurrent: options.maxConcurrent }),
   });
 
   const providers: EngineProviders = {
@@ -173,6 +210,22 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
       return { state: 'healthy' };
     },
   });
+  if (db) {
+    health.register({
+      name: 'database',
+      check: async () => {
+        try {
+          await db.query('select 1');
+          return { state: 'healthy' };
+        } catch (cause) {
+          return {
+            state: 'unhealthy',
+            detail: cause instanceof Error ? cause.message : 'database unreachable',
+          };
+        }
+      },
+    });
+  }
   health.register({
     name: 'dead_letters',
     check: async () => {
@@ -181,5 +234,5 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     },
   });
 
-  return { ...deps, health };
+  return { ...deps, health, workers, jobHistory, deliveries };
 };

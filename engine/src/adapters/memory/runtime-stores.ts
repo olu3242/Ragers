@@ -16,6 +16,13 @@ import type {
   DeadLetterRecord,
   DeadLetterStore,
 } from '../../runtime/deadletter.ts';
+import { isHeldJob } from '../../runtime/jobs.ts';
+import type {
+  JobHistory,
+  JobHistoryEntry,
+  WorkerRecord,
+  WorkerRegistry,
+} from '../../runtime/jobs.ts';
 import type { DeliveryLedger, DeliveryRecord } from '../../runtime/orchestrator.ts';
 
 export const createMemoryIdempotencyStore = (clock: Clock): IdempotencyStore => {
@@ -69,6 +76,7 @@ export const createMemoryOutbox = (clock: Clock, ids: IdFactory): Outbox => {
           eventName: event.eventName,
           payload: event.payload,
           correlationId,
+          ...(event.causationId === undefined ? {} : { causationId: event.causationId }),
           occurredAt: now,
           state: 'queued',
           attemptCount: 0,
@@ -112,6 +120,9 @@ export const createMemoryOutbox = (clock: Clock, ids: IdFactory): Outbox => {
       if (index < 0) return;
       const record = records[index];
       if (!record) return;
+      // Delivery is sticky: a late failure report from a contending worker must
+      // not make an already-delivered event look pending again.
+      if (record.state === 'ready') return;
       records[index] = {
         ...record,
         state: 'failed',
@@ -164,6 +175,7 @@ export const createMemoryDeadLetterStore = (clock: Clock, ids: IdFactory): DeadL
 export const createMemoryDeliveryLedger = (): DeliveryLedger => {
   const records = new Map<string, DeliveryRecord>();
   const keyOf = (outboxId: string, consumer: string): string => `${outboxId}::${consumer}`;
+
   return {
     get: async (outboxId, consumer) => records.get(keyOf(outboxId, consumer)),
     put: async (record) => {
@@ -172,5 +184,112 @@ export const createMemoryDeliveryLedger = (): DeliveryLedger => {
     forOutbox: async (outboxId) =>
       [...records.values()].filter((record) => record.outboxId === outboxId),
     all: async () => [...records.values()],
+
+    claim: async (outboxId, consumer, workerId, leasedUntil, now) => {
+      const key = keyOf(outboxId, consumer);
+      const existing = records.get(key);
+
+      // A live lease held by another worker blocks the claim. This is the
+      // single-writer guarantee the whole distributed model rests on.
+      if (
+        existing &&
+        isHeldJob(existing.state) &&
+        existing.leaseOwner !== undefined &&
+        existing.leaseOwner !== workerId &&
+        (existing.leasedUntil ?? 0) > now
+      ) {
+        return undefined;
+      }
+      if (existing && (existing.state === 'completed' || existing.state === 'dead_letter')) return undefined;
+
+      const claimed: DeliveryRecord = {
+        outboxId,
+        consumer,
+        state: 'leased',
+        attemptCount: (existing?.attemptCount ?? 0) + 1,
+        nextAttemptAt: existing?.nextAttemptAt ?? now,
+        ...(existing?.lastError === undefined ? {} : { lastError: existing.lastError }),
+        ...(existing?.checkpoint === undefined ? {} : { checkpoint: existing.checkpoint }),
+        leaseOwner: workerId,
+        leasedUntil,
+      };
+      records.set(key, claimed);
+      return claimed;
+    },
+
+    reclaimExpired: async (now) => {
+      const reclaimed: DeliveryRecord[] = [];
+      for (const [key, record] of records) {
+        if (!isHeldJob(record.state)) continue;
+        if ((record.leasedUntil ?? 0) > now) continue;
+        // The holder is gone or stalled; return the job to the queue with its
+        // attempt count and checkpoint intact so progress is not lost.
+        const requeued: DeliveryRecord = {
+          outboxId: record.outboxId,
+          consumer: record.consumer,
+          state: 'queued',
+          attemptCount: record.attemptCount,
+          nextAttemptAt: now,
+          ...(record.lastError === undefined ? {} : { lastError: record.lastError }),
+          ...(record.checkpoint === undefined ? {} : { checkpoint: record.checkpoint }),
+        };
+        records.set(key, requeued);
+        reclaimed.push(requeued);
+      }
+      return reclaimed;
+    },
+
+    countHeldBy: async (workerId) =>
+      [...records.values()].filter((record) => isHeldJob(record.state) && record.leaseOwner === workerId).length,
+  };
+};
+
+export const createMemoryWorkerRegistry = (): WorkerRegistry => {
+  const workers = new Map<string, WorkerRecord>();
+  return {
+    register: async ({ id, hostname, now }) => {
+      const existing = workers.get(id);
+      workers.set(id, {
+        id,
+        hostname,
+        // A restarted worker keeps its identity but gets a new start time, which
+        // is how an operator tells a restart from a long-running process.
+        startedAt: now,
+        lastHeartbeatAt: now,
+        state: 'alive',
+        ...(existing === undefined ? {} : {}),
+      });
+    },
+    heartbeat: async (workerId, now) => {
+      const existing = workers.get(workerId);
+      if (!existing) return;
+      workers.set(workerId, { ...existing, lastHeartbeatAt: now, state: existing.state === 'dead' ? 'alive' : existing.state });
+    },
+    reapStale: async (olderThan) => {
+      const reaped: string[] = [];
+      for (const [id, worker] of workers) {
+        if (worker.state === 'dead') continue;
+        if (worker.lastHeartbeatAt >= olderThan) continue;
+        workers.set(id, { ...worker, state: 'dead' });
+        reaped.push(id);
+      }
+      return reaped;
+    },
+    drain: async (workerId) => {
+      const existing = workers.get(workerId);
+      if (existing) workers.set(workerId, { ...existing, state: 'draining' });
+    },
+    get: async (workerId) => workers.get(workerId),
+    list: async () => [...workers.values()],
+  };
+};
+
+export const createMemoryJobHistory = (): JobHistory => {
+  const entries: JobHistoryEntry[] = [];
+  return {
+    append: async (entry) => {
+      entries.push(entry);
+    },
+    forDelivery: async (deliveryId) => entries.filter((entry) => entry.deliveryId === deliveryId),
   };
 };

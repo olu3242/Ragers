@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Ragers Engine — canonical Rage/Rave/Experience runtime. Internal; not a public surface.",
+  "description": "Ragers Engine \u2014 canonical Rage/Rave/Experience runtime. Internal; not a public surface.",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
-    "test": "node --test \"tests/**/*.test.ts\"",
+    "test": "node --test \"tests/unit/**/*.test.ts\" \"tests/integration/**/*.test.ts\"",
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
     "test:integration": "node --test \"tests/integration/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
@@ -17,7 +17,11 @@
     "build": "next build",
     "start": "next start -p 3001",
     "worker": "node scripts/worker.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "lint": "node scripts/lint.ts",
+    "migrate": "node scripts/migrate.ts",
+    "test:live": "node --test \"tests/live/**/*.test.ts\"",
+    "test:all": "npm run test && npm run test:live"
   },
   "license": "UNLICENSED",
   "devDependencies": {
@@ -33,5 +37,8 @@
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "overrides": {
+    "postcss": "^8.5.23"
   }
 }

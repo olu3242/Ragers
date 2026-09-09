@@ -12,7 +12,10 @@ export interface DomainEventEnvelope {
   readonly sequence: number;
   readonly eventName: string;
   readonly payload: Readonly<Record<string, unknown>>;
+  /** Groups every event caused by one command. */
   readonly correlationId: string;
+  /** The event that caused this one, so a chain can be walked backwards. */
+  readonly causationId?: string;
   readonly occurredAt: number;
 }
 
@@ -29,6 +32,8 @@ export interface NewDomainEvent {
   readonly aggregateId: string;
   readonly eventName: string;
   readonly payload: Readonly<Record<string, unknown>>;
+  /** Set when this event is emitted while handling another one. */
+  readonly causationId?: string;
 }
 
 export interface Outbox {

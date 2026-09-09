@@ -18,10 +18,18 @@ export interface GateDefinition {
   readonly name: string;
   /** Which required gate from docs/ROADMAP.md §P20 this satisfies. */
   readonly requirement: string;
-  /** Absent for a blocked gate. */
+  /** Absent for a gate that is blocked unconditionally. */
   readonly command?: readonly string[];
-  /** Present only for a blocked gate: what is missing, specifically. */
+  /** Present for a gate that is blocked unconditionally: what is missing. */
   readonly blockedBy?: string;
+  /**
+   * Environment variable this gate needs. When it is unset the gate reports
+   * `blocked` rather than `failed` — an absent dependency is not a defect, but
+   * it is also not a pass.
+   */
+  readonly requiresEnv?: string;
+  /** Why the gate cannot run when `requiresEnv` is unset. */
+  readonly blockedWithoutEnv?: string;
 }
 
 export interface GateResult {
@@ -36,6 +44,12 @@ export interface GateResult {
 
 /** The required gate list, in the order docs/ROADMAP.md §P20 states them. */
 export const GATES: readonly GateDefinition[] = [
+  {
+    id: 'static_validation',
+    name: 'Static validation (architecture, hygiene, content separation)',
+    requirement: 'security',
+    command: ['npm', 'run', 'lint'],
+  },
   {
     id: 'schema_migrations',
     name: 'Schema & migrations (static)',
@@ -142,36 +156,65 @@ export const GATES: readonly GateDefinition[] = [
     command: ['npx', 'playwright', 'test'],
   },
   {
+    id: 'security',
+    name: 'Dependency audit',
+    requirement: 'security',
+    command: ['npm', 'audit', '--audit-level=high'],
+  },
+  {
     id: 'live_migrations',
     name: 'Migrations applied to a live database',
     requirement: 'schema/migrations',
-    blockedBy:
-      'No Postgres/Supabase project is provisioned for this session, so the migrations in supabase/migrations are verified statically but never applied.',
+    command: ['npm', 'run', 'migrate'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. Set RAGERS_TEST_DATABASE_URL (or DATABASE_URL) to apply and verify the migrations.',
+  },
+  {
+    id: 'persistence_parity',
+    name: 'Adapter parity (in-memory vs Postgres)',
+    requirement: 'integration',
+    command: ['node', '--test', 'tests/live/persistence.parity.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured, so the Postgres adapter cannot be compared to the in-memory one.',
   },
   {
     id: 'rls_enforcement',
     name: 'RLS enforcement against a live database',
     requirement: 'authorization',
-    blockedBy:
-      'RLS policies can only be executed against a live Postgres instance. The application policy layer they mirror is covered by the authorization gate.',
+    command: ['node', '--test', 'tests/live/rls.certification.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured, so the policies cannot be executed as real client roles.',
+  },
+  {
+    id: 'durable_orchestration',
+    name: 'Durable orchestration and restart recovery',
+    requirement: 'retry/dead-letter',
+    command: ['node', '--test', 'tests/live/orchestration.durability.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured, so worker restart and lease recovery cannot be exercised.',
+  },
+  {
+    id: 'backup_restore',
+    name: 'Backup and restore drill',
+    requirement: 'backup/restore',
+    command: ['node', '--test', 'tests/live/backup.restore.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv: 'No database is configured. The procedure is documented in docs/OPERATIONS.md §6.',
   },
   {
     id: 'deployment',
     name: 'Deployment to a target environment',
     requirement: 'deployment',
-    blockedBy: 'No deployment target (Vercel/Railway project) is configured for this session.',
-  },
-  {
-    id: 'backup_restore',
-    name: 'Backup & restore drill',
-    requirement: 'backup/restore',
-    blockedBy: 'Requires a live database to back up and restore. Procedure is documented in docs/OPERATIONS.md.',
+    blockedBy:
+      'No deployment target (Vercel/Railway project, or hosting credentials) is configured, so no environment can be deployed to and verified.',
   },
   {
     id: 'rollback',
     name: 'Rollback drill',
     requirement: 'rollback',
-    blockedBy: 'Requires a deployed environment to roll back. Procedure is documented in docs/OPERATIONS.md.',
+    blockedBy:
+      'Requires a deployed environment to roll back. The additive-migration rule rollback depends on is enforced by the static-validation gate, and the migration runner refuses drift, but the drill itself needs a deployment. Procedure in docs/OPERATIONS.md §5.',
   },
 ];
 
