@@ -3,21 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "description": "Ragers — the social mirror for everyday behavior, with executable experience integrity foundations.",
-  "main": "index.html",
+  "main": "server.js",
   "scripts": {
-    "start": "npx http-server . -p 8080 -o",
-    "dev": "npx live-server --port=8080",
-    "build": "echo \"Static site plus dependency-free Node integrity engine.\"",
-    "test": "node tests-smoke.js && node tests-integrity.js",
-    "test:integrity": "node tests-integrity.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "echo \"Dependency-free Node runtime plus static Ragers app.\"",
+    "test": "node tests-smoke.js && node tests-integrity.js && node tests-runtime.js",
+    "test:integrity": "node tests-integrity.js",
+    "test:runtime": "node tests-runtime.js"
   },
-  "keywords": [
-    "ragers",
-    "experience-network",
-    "rage",
-    "rave",
-    "integrity-engine"
-  ],
+  "keywords": ["ragers", "experience-network", "rage", "rave", "integrity-engine"],
   "author": "Zenith AI Automation Agency",
   "license": "UNLICENSED",
   "devDependencies": {
