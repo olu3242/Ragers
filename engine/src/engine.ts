@@ -38,6 +38,8 @@ import {
   createFeedPurgeConsumer,
   createFeedSuppressionConsumer,
 } from './engines/feed.engine.ts';
+import { createCounterProjectionConsumer, registerReactionEngine } from './engines/reaction.engine.ts';
+import { createReplyCascadeConsumer, registerConversationEngine } from './engines/conversation.engine.ts';
 import type { EngineStore } from './ports/store.ts';
 import type { HealthRegistry } from './runtime/health.ts';
 
@@ -112,6 +114,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerExperienceEngine(deps);
   registerVoiceEngine(deps);
   registerSafetyEngine(deps);
+  registerReactionEngine(deps);
+  registerConversationEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -123,6 +127,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createFeedProjectionConsumer(deps));
   orchestrator.subscribe(createFeedSuppressionConsumer(deps));
   orchestrator.subscribe(createFeedPurgeConsumer(deps));
+  orchestrator.subscribe(createCounterProjectionConsumer(deps));
+  orchestrator.subscribe(createReplyCascadeConsumer(deps));
 
   const health = createHealthRegistry(clock);
   health.register({
