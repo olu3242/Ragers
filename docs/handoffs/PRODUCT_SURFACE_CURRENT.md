@@ -141,14 +141,44 @@ merges; it is not a product-surface call.
 **Implemented:** `app/operate/page.tsx`, `components/ModerationQueue.tsx`. Each row shows *why* it is queued. "No action needed" is offered as a first-class outcome — a queue that only offers removal biases toward it. Reason text is required into the audit trail.
 **Backend dependency:** none. The commands existed and were certified; only the HTTP surface was missing.
 
-**Surface:** Governed proposals
-**Phase:** product surface slice 1
-**Persona:** Intelligence / governed agent surface
-**Engines consumed:** E3 Declaration (normalization)
-**Endpoints/events consumed:** `GET /api/experiences/[id]/normalization`
-**States represented:** proposed (unapplied), with confidence and the person's own words as evidence
-**Implemented:** `app/operate/proposals/page.tsx`. Shows the only machine-generated proposals the platform actually produces: extracted structure nobody has confirmed. **No approve control**, deliberately — the person whose experience it is confirms their own structure, and an operator approving on their behalf is the substitution the design forbids (rule 9).
-**Backend dependency:** **E12 Intelligence does not exist.** There is no recommendation engine, no proposal ledger, no approve/reject/escalate command, and no agent framework. Recommendation cards, escalation paths and governed agent actions cannot be built without those contracts, and are not stubbed.
+**Surface:** Governed proposals — two kinds, on one page, never one list
+**Phase:** product surface slice 1 (unconfirmed structure) · slice 3 (recommendations)
+**Persona:** Intelligence / governed review surface
+**Engines consumed:** E3 Declaration (normalization) · E12 Intelligence (governed proposals)
+**Endpoints/events consumed:** `GET /api/experiences/[id]/normalization` · `GET /api/proposals` · `POST /api/proposals/[id]/decision`
+**States represented:** proposed · escalated · approved-and-carried-out · approved-and-refused · rejected · expired
+**Implemented:** `app/operate/proposals/page.tsx`, `components/RecommendationCard.tsx`, `lib/proposals.ts`.
+
+Two sections, deliberately not merged, because only one of them is a reviewer's to
+decide:
+
+- **Recommendations for you to decide** (E12) — approve / reject / escalate over
+  `intelligence_proposals`. Each card names the *action* and the engine that would
+  carry it out, so approval authorises a specific command rather than a sentiment.
+  Rejecting requires a reason (the domain refuses one without). Evidence is a link
+  to a durable row, never a paraphrase.
+- **Structure only its author can confirm** (E3) — extracted structure nobody has
+  confirmed. **No approve control at all**, deliberately: the person whose
+  experience it is confirms their own, and an operator doing it on their behalf is
+  the substitution the design forbids (rule 9). The E2E assertion for that is
+  scoped to this section rather than the page, because a page-wide "no approve
+  button" rule would be asserting the wrong rule in the wrong place.
+
+**The distinction the surface exists to hold:** a decision is not an effect.
+Approving dispatches the target engine's own command, which can refuse — so the card
+reports the decision and the outcome separately, shows the engine's refusal verbatim,
+and never says an action happened when it did not. `describeEffect` is a pure
+function in `lib/proposals.ts` precisely so that property is unit-testable; the
+browser test proves it end to end by approving a removal of the reviewer's *own*
+account, which `moderation.action` forbids.
+
+The card deliberately does **not** refresh after a decision: a decided
+recommendation leaves the open queue, so a refresh would take the card away at the
+moment it carries the one thing the reviewer needs to read.
+
+**Backend dependency:** none remaining for this surface. Autonomous agents (E12
+phase 45+) are still absent and deliberately not built — the governed proposal is
+the floor.
 
 ---
 
@@ -169,8 +199,8 @@ what the running system provides, and does not define a contract.
 | E8 Signals | signal snapshots | consumed |
 | E9 Business Response | organization profiles/memberships/responses | consumed |
 | E10 Outcomes | resolution reports + events | consumed |
-| E11 Reputation | `actor_reputation` | **no surface yet** |
-| E12 Intelligence | — | **does not exist** |
+| E11 Reputation | `actor_reputation`, `responsiveness_snapshots` | consumed — `ContributionView`, `ResponsivenessPanel` |
+| E12 Intelligence | `intelligence_proposals` | consumed — governed recommendation cards |
 
 ---
 
@@ -182,10 +212,9 @@ Capture → Rage/Rave → validation state → publication → Relate/Validate/R
 
 Covered end to end except:
 
-- **Relate** — there is no "relate" mechanic distinct from corroboration and the
-  `same` reaction. Recorded as a dependency; not invented.
-- **Reputation** (E11) — computed and stored, with no viewer surface.
-- **Intelligence recommendations** (E12) — no contract.
+- ~~**Relate**~~ **Closed** — `experience_relations`, canonicalised pair, zero trust weight.
+- ~~**Reputation** (E11)~~ **Closed** — `ContributionView` and `ResponsivenessPanel`.
+- ~~**Intelligence recommendations** (E12)~~ **Closed** — governed recommendation cards over `intelligence_proposals`, with the decision and its effect reported separately.
 
 ---
 
@@ -193,13 +222,13 @@ Covered end to end except:
 
 1. Five authoritative contract documents absent (§0). Blocking for contract-conformance.
 2. Divergent `engine/` implementation on PR #6, colliding on path (§0). Needs an owner decision.
-3. **E12 Intelligence** — no engine, no proposal ledger, no approve/reject/escalate commands, no agent framework.
+3. ~~**E12 Intelligence**~~ **Closed** — engine, proposal ledger and approve/reject/escalate commands exist and now have a surface. The agent framework remains deliberately absent.
 4. ~~**E11 Reputation** — no read contract shaped for a viewer surface.~~ **Closed** — `contributionViewOf`, `publicResponsivenessFor`.
 5. ~~**Consumer dispute**~~ **Closed** — `experience_disputes` is its own object on a third axis; `dispute.open` accepts consumer and organization origins.
 6. ~~**SLA measures**~~ **Closed as responsiveness**, deliberately not as an SLA: acknowledgement, first-response and resolution medians with a sample floor. No overdue indicator, because no agreement exists to be overdue against.
 7. ~~**Relate**~~ **Closed** — `experience_relations`, canonicalised pair, zero trust weight.
 8. **Deployment target** — still absent; deployment and rollback gates remain blocked.
-9. **E12 recommendation cards** — the proposal contract now exists (`/api/proposals`, `/api/proposals/[id]/decision`), but `/operate/proposals` still only renders normalization suggestions. Approve/reject/escalate UX over `intelligence_proposals` is the next product surface.
+9. ~~**E12 recommendation cards**~~ **Closed** — `components/RecommendationCard.tsx` over `/api/proposals` and `/api/proposals/[id]/decision`, in its own section of `/operate/proposals`.
 10. **`engine/` path collision with PR #6** — unresolved; see `docs/architecture/ENGINE_RUNTIME_CONFLICT.md`.
 
 ---
@@ -207,24 +236,28 @@ Covered end to end except:
 ## 5. Browser evidence
 
 ```
-17 browser tests passed across 3 isolated servers
-  golden-path (11) · experience-signal-engine (2) · personas (4)
+23 browser tests passed across 4 isolated servers
+  golden-path (11) · experience-signal-engine (2) · personas (6) · relate-reputation (4)
 ```
 
 `e2e/personas.spec.ts` covers: a consumer offered no operator or organization
 surface *and refused when navigating there anyway* (403 from both APIs);
 organization staff seeing their cases, responding, and a described fix reading as
 **Resolution proposed** rather than resolved until the Rager accepts it; an
-operator seeing why an item is queued and deciding no action is needed; proposals
-visibly unapplied with no approve control.
+operator seeing why an item is queued and deciding no action is needed; unconfirmed
+structure visibly unapplied with no approve control in its section; a reviewer
+approving a recommendation and seeing the governed engine *carry it out*, then
+approving one the same engine **refuses** and seeing the refusal verbatim with the
+account still unremoved; and a rejection refused until a reason is given.
 
 ## 6. Other tests
 
 ```
-381 offline (unit + integration) · 72 live against Postgres 16
-static validation: PASS (121 source files, 6 migrations)
+440 offline (unit 279 + integration 161) · live suites against Postgres 16 in CI
+static validation: PASS (142 source files, 7 migrations)
 typecheck: clean · production build: clean
 ```
 
+**SHA (slice 3):** this commit
 **SHA (slice 2):** `2c56a7b`
-**SHA (slice 1):** `1d34b09` (parent of this slice's commit)
+**SHA (slice 1):** `1d34b09`

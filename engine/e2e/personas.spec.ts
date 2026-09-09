@@ -242,15 +242,144 @@ test('proposals are visibly proposals, with no approve control', async ({ page }
 
   await page.goto('/operate/proposals');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Proposals');
+
+  // Scoped to the section it is about. Governed recommendations live on the same
+  // page and *are* a reviewer's to decide, so a page-wide "no approve button"
+  // assertion would be asserting the wrong rule in the wrong place.
+  const unconfirmed = page.getByRole('region', { name: 'Structure only its author can confirm' });
   await expect(
-    page.getByText(
+    unconfirmed.getByText(
       'Nothing here has been applied. Until the person confirms it, matching treats each field as unknown — never as the proposed value.',
     ),
   ).toBeVisible();
-  await expect(page.getByText('Awaiting confirmation from the person who posted it.').first()).toBeVisible();
+  await expect(
+    unconfirmed.getByText('Awaiting confirmation from the person who posted it.').first(),
+  ).toBeVisible();
 
-  // A governed proposal offers no approve button to anyone but its owner.
+  // Structure read out of somebody's own account is theirs to confirm: an
+  // operator gets no control here to do it on their behalf.
   for (const forbidden of ['Approve', 'Apply', 'Accept', 'Confirm']) {
-    await expect(page.getByRole('button', { name: forbidden })).toHaveCount(0);
+    await expect(unconfirmed.getByRole('button', { name: forbidden })).toHaveCount(0);
   }
+});
+
+test('a reviewer decides a recommendation, and a refused approval never reads as done', async ({ page }) => {
+  const request: Req = page.request;
+  expect((await request.post('/api/test/seed', { data: {} })).ok()).toBeTruthy();
+
+  // Somebody else's account, so removing it is a legitimate moderator action.
+  await signUp(request, `${RAGER}.e`);
+  const theirs = await publish(request, `Northwind Air never processed my refund (${stamp}-e).`);
+
+  await signUp(request, `${OPERATOR}.e`);
+  expect((await request.post('/api/test/seed', { data: { grantModerator: true } })).ok()).toBeTruthy();
+  // The reviewer's own account. `moderation.action` forbids acting on your own
+  // content, so approving a recommendation about this one must be refused
+  // downstream — which is the case the surface has to report honestly.
+  const mine = await publish(request, `Northwind Air rebooked me onto a worse flight (${stamp}-e2).`);
+
+  const propose = async (subjectId: string, summary: string): Promise<void> => {
+    const created = await request.post('/api/proposals', {
+      data: {
+        proposalType: 'remove_content',
+        sourceEngine: 'E4',
+        targetEngine: 'E9',
+        subjectId,
+        summary,
+        rationale: 'Filed for review by a reviewer; the account is the only basis.',
+        confidence: 0.9,
+        evidenceRefs: [{ kind: 'experience', id: subjectId }],
+        proposedCommand: 'safety.applyModerationAction',
+        proposedInput: {
+          targetType: 'experience',
+          targetId: subjectId,
+          action: 'remove',
+          reason: 'reviewed under the community principles',
+        },
+      },
+    });
+    expect(created.status(), summary).toBe(201);
+  };
+
+  await propose(theirs, `Remove the account about the refund (${stamp}-e)`);
+  await propose(mine, `Remove the account about the rebooking (${stamp}-e2)`);
+
+  await page.goto('/operate/proposals');
+  const recommendations = page.getByRole('region', { name: 'Recommendations for you to decide' });
+
+  // The action is named, so approval authorises a specific thing.
+  const theirCard = recommendations
+    .locator('.recommendation')
+    .filter({ hasText: `Remove the account about the refund (${stamp}-e)` });
+  await expect(theirCard.getByText('safety.applyModerationAction').first()).toBeVisible();
+  await expect(theirCard.getByText('Awaiting a decision. Nothing has been applied.')).toBeVisible();
+
+  // Approving runs the governed engine's own command.
+  await theirCard.getByRole('radio', { name: 'Approve' }).check();
+  await theirCard.getByRole('button', { name: 'Approve' }).click();
+  await expect(theirCard.getByText('Approved, and safety carried it out.')).toBeVisible();
+
+  // The same approval on the reviewer's own account is refused by that engine,
+  // and the card says so instead of claiming the removal happened.
+  const myCard = recommendations
+    .locator('.recommendation')
+    .filter({ hasText: `Remove the account about the rebooking (${stamp}-e2)` });
+  await myCard.getByRole('radio', { name: 'Approve' }).check();
+  await myCard.getByRole('button', { name: 'Approve' }).click();
+  await expect(myCard.getByText(/Approved, but safety refused it/)).toBeVisible();
+  await expect(myCard.getByText(/Nothing was applied/)).toBeVisible();
+
+  // And it is still there, unremoved. Read through the projection the reader
+  // surfaces use: a removal suppresses the entry, so this staying available is the
+  // invariant — polled because projection is asynchronous, not because it is flaky.
+  await expect
+    .poll(async () => (await request.get(`/api/experiences/${mine}`)).status(), {
+      timeout: 20_000,
+      intervals: [100, 200, 300, 500],
+    })
+    .toBe(200);
+});
+
+test('rejecting a recommendation requires a reason', async ({ page }) => {
+  const request: Req = page.request;
+  expect((await request.post('/api/test/seed', { data: {} })).ok()).toBeTruthy();
+  await signUp(request, `${RAGER}.f`);
+  const subject = await publish(request, `Northwind Air lost my bag again (${stamp}-f).`);
+
+  await signUp(request, `${OPERATOR}.f`);
+  expect((await request.post('/api/test/seed', { data: { grantModerator: true } })).ok()).toBeTruthy();
+  const created = await request.post('/api/proposals', {
+    data: {
+      proposalType: 'remove_content',
+      sourceEngine: 'E4',
+      targetEngine: 'E9',
+      subjectId: subject,
+      summary: `Remove the account about the bag (${stamp}-f)`,
+      rationale: 'Filed for review; the account is the only basis.',
+      confidence: 0.4,
+      evidenceRefs: [{ kind: 'experience', id: subject }],
+      proposedCommand: 'safety.applyModerationAction',
+      proposedInput: {
+        targetType: 'experience',
+        targetId: subject,
+        action: 'remove',
+        reason: 'reviewed under the community principles',
+      },
+    },
+  });
+  expect(created.status()).toBe(201);
+
+  await page.goto('/operate/proposals');
+  const card = page
+    .locator('.recommendation')
+    .filter({ hasText: `Remove the account about the bag (${stamp}-f)` });
+
+  // An unexplained rejection teaches the proposing engine nothing and leaves the
+  // subject with no account of what happened, so the control refuses to submit.
+  await card.getByRole('radio', { name: 'Reject' }).check();
+  await expect(card.getByRole('button', { name: 'Reject' })).toBeDisabled();
+
+  await card.getByRole('textbox').fill('The account describes a delay, not something to remove.');
+  await card.getByRole('button', { name: 'Reject' }).click();
+  await expect(card.getByText('Rejected. Nothing was applied.')).toBeVisible();
 });

@@ -412,8 +412,10 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 .composer-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 /* ── Proposals ───────────────────────────────────────────────────────────
-   A proposal is visibly not a decision: dashed, quiet, and with no approve
-   control, because the person whose experience it is confirms their own. */
+   Two kinds, and they must not look alike. A governed recommendation is solid
+   and carries controls, because a reviewer decides it. Unconfirmed structure is
+   dashed and quiet with no approve control at all, because the person whose
+   experience it is confirms their own. */
 .proposal-rule {
   border-left: 2px dashed var(--border-strong);
   padding-left: 12px;
@@ -431,6 +433,64 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 .proposal-confidence { color: var(--text-faint); font-size: 12px; }
 .proposal-evidence { color: var(--text-dim); font-style: italic; }
 .proposal-owner { margin: 0; font-size: 12px; color: var(--text-faint); }
+
+.recommendations-section, .unconfirmed-section { margin-bottom: 28px; }
+.recommendations { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.recommendation {
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--bg-raised);
+}
+.recommendation-type {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.recommendation-summary { margin: 0 0 12px; font-size: 15px; color: var(--text); }
+.recommendation-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.recommendation-meta dt { color: var(--text-dim); }
+.recommendation-meta dd { margin: 0; color: var(--text); }
+.recommendation-rationale { margin: 0 0 12px; font-size: 13px; color: var(--text-dim); }
+.recommendation-evidence-label { margin: 0 0 4px; font-size: 12px; color: var(--text-dim); }
+.recommendation-evidence {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+/* The effect reads as its own statement, never as decoration on the status. */
+.recommendation-effect {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-strong);
+  font-size: 13px;
+  color: var(--text);
+}
+.recommendation-decision { display: grid; gap: 6px; margin-top: 12px; }
+.recommendation-decision fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: baseline;
+}
+.recommendation-decision legend { padding: 0; font-size: 13px; color: var(--text-dim); }
+.recommendation-decision label { font-size: 13px; }
+.recommendation-hint { margin: 0; font-size: 12px; color: var(--text-faint); }
+.recommendation-error { margin: 6px 0 0; color: var(--rage); font-size: 12px; }
 
 /* ── Relate ──────────────────────────────────────────────────────────────
    Visually quieter than the claim controls, because relating is a weaker

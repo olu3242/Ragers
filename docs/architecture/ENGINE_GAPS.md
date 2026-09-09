@@ -12,6 +12,7 @@ evidence.
 | Responsiveness read | E11 | `src/engines/responsiveness.engine.ts`, `responsiveness_snapshots` | `contracts.engine` (2) · `contracts.live` (1) |
 | Reputation read | E11 | `contributionViewOf` in `src/engines/reputation.engine.ts` | `contracts.engine` (1) |
 | Governed proposal lifecycle | E12 | `src/domain/proposal.ts`, `src/engines/proposal.engine.ts`, `intelligence_proposals` | `dispute.relate.proposal` (7) · `contracts.engine` (5) · `persona.authorization` (1) |
+| Governed recommendation surface | E12 | `components/RecommendationCard.tsx`, `lib/proposals.ts`, `app/operate/proposals/page.tsx` | `proposal.review` (10) · `accessibility.surfaces` (1) · `personas` browser (2) |
 
 ## Open
 

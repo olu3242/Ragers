@@ -30,6 +30,7 @@ const relate = read('components', 'RelateControl.tsx');
 const disputeControl = read('components', 'DisputeControl.tsx');
 const contribution = read('components', 'ContributionView.tsx');
 const responsiveness = read('components', 'ResponsivenessPanel.tsx');
+const recommendation = read('components', 'RecommendationCard.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -131,6 +132,7 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['DisputeControl', disputeControl],
     ['ContributionView', contribution],
     ['ResponsivenessPanel', responsiveness],
+    ['RecommendationCard', recommendation],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -153,6 +155,7 @@ test('every button in the app surfaces declares an explicit type', () => {
     ['OrganizationCaseInbox', inbox],
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
+    ['RecommendationCard', recommendation],
   ] as const) {
     const buttons = [...source.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1] ?? '');
     for (const attributes of buttons) {
@@ -175,6 +178,7 @@ test('all app surface files are accounted for by these assertions', () => {
       'OutcomeBadge.tsx',
       'PersonaNav.tsx',
       'ReactionRow.tsx',
+      'RecommendationCard.tsx',
       'RelateControl.tsx',
       'ResolutionRow.tsx',
       'ResponsivenessPanel.tsx',
@@ -193,6 +197,7 @@ test('every operator and organization control that mutates has a label', () => {
     ['OrganizationCaseInbox', inbox],
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
+    ['RecommendationCard', recommendation],
   ] as const) {
     // A bare input or select with no label is unusable with a screen reader, and
     // these are the surfaces where a mislabelled control has consequences.
@@ -217,6 +222,7 @@ test('operator and organization errors are announced, not only shown', () => {
     ['OrganizationCaseInbox', inbox],
     ['RelateControl', relate],
     ['DisputeControl', disputeControl],
+    ['RecommendationCard', recommendation],
   ] as const) {
     assert.match(source, /role="alert"/, `${name} must announce a refusal`);
   }
@@ -240,6 +246,18 @@ test('a dispute says it is not a finding about who is right', () => {
   assert.match(disputeControl, /not a\s+finding about which is right/);
   // And that neither side decides it.
   assert.match(disputeControl, /Neither side can decide it/);
+});
+
+test('a recommendation says in words what happened, and announces the change', () => {
+  // The decision radios are one named group, so a reviewer using a keyboard moves
+  // between approve / reject / escalate rather than tabbing past three unrelated
+  // controls — and the group is what carries the question.
+  assert.match(recommendation, /<fieldset>/);
+  assert.match(recommendation, /<legend>Your decision<\/legend>/);
+  assert.match(recommendation, /name={`decision-\$\{recommendation\.proposalId\}`}/);
+  // The effect changes after an action taken elsewhere on the card, so it is
+  // announced rather than only redrawn.
+  assert.match(recommendation, /className="recommendation-effect"\s*\n?\s*role="status"/);
 });
 
 test('the reputation reads carry no composite score', () => {
