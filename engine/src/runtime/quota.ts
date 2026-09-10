@@ -7,7 +7,7 @@ import {
   throttleMessage,
   type QuotaWindow,
 } from '../domain/quota.ts';
-import type { ActorContext } from './authz.ts';
+import { isServiceActor, type ActorContext } from './authz.ts';
 import type { Clock } from './clock.ts';
 import type { QuotaGuard } from './bus.ts';
 import type { Table } from '../ports/store.ts';
@@ -78,6 +78,14 @@ export const createQuotaGuard = (deps: QuotaGuardDeps): QuotaGuard => ({
     // Not counted: reporting harm, operator actions, and leaving. See
     // `UNTHROTTLED_COMMANDS` for why each one.
     if (quotaClass === undefined) return undefined;
+    // The engine acting on its own behalf is not a caller. A consumer dispatching a
+    // command is work the system chose to do, so throttling it would drop internal work
+    // rather than slow anybody down — and there is no account to count against: the
+    // service identity has no `actors` row, so writing a window for it is refused by the
+    // foreign key. That refusal is how this exclusion came to be missing rather than
+    // present: the charge threw, the bus allowed the request through as an unavailable
+    // quota, and the only visible trace was a database error log.
+    if (isServiceActor(actor)) return undefined;
     // A guest has no identity to count against. Guests reach only `identity.register`
     // and `identity.authenticate`, which the API layer must throttle by address — a
     // per-actor window cannot express "this caller", only "this account".

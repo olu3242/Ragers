@@ -2,6 +2,7 @@ import { ok } from '../runtime/result.ts';
 import { isAtLeastBand } from '../domain/severity.ts';
 import { daysOf } from '../domain/aging.ts';
 import { eq } from '../ports/store.ts';
+import { SERVICE_ACTOR_ID } from '../runtime/authz.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { HandoffRow } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
@@ -196,7 +197,7 @@ export const createHandoffConsumer = (deps: EngineDeps): Consumer => ({
     // A proposal must be created by somebody. The handoff runs as the engine's own
     // service actor rather than borrowing a person's identity, so an audit trail never
     // attributes a machine's suggestion to a human who did not make it.
-    await handOff(deps, experienceId, { actorId: 'engine', role: 'moderator' });
+    await handOff(deps, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
     return ok(undefined);
   },
 });

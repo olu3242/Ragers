@@ -158,6 +158,35 @@ export interface ActorContext {
 
 export const GUEST: ActorContext = { actorId: 'guest', role: 'guest', authenticated: false };
 
+/**
+ * The engine's own service identity.
+ *
+ * A consumer that has to dispatch a command needs somebody to dispatch as, and borrowing
+ * a person's identity would attribute a machine's suggestion to a human who did not make
+ * it. So the engine acts as itself. Named here rather than spelled as a literal at each
+ * dispatch site, because anything that has to treat an internal caller differently needs
+ * to agree on what one is.
+ *
+ * **It is not an account.** There is no row for it in `actors`, nobody can authenticate
+ * as it, and it holds no session. So nothing keyed to a real account may be written for
+ * it — and the database says so: every table with `actor_id references actors (id)`
+ * refuses the write. That refusal is how the quota guard's missing exclusion was found,
+ * which is the argument for keeping those foreign keys rather than relaxing them.
+ *
+ * `authenticated: true` is still correct for it: the flag means "this is not an
+ * unidentified caller", and the policy matrix has to evaluate an internal dispatch as a
+ * named principal or the command would be refused as a guest.
+ */
+export const SERVICE_ACTOR_ID = 'engine';
+
+/**
+ * Whether this is the engine acting on its own behalf rather than a person acting.
+ *
+ * A predicate rather than a comparison at each call site, so the set of internal
+ * identities can grow without every caller having to learn about it.
+ */
+export const isServiceActor = (actor: ActorContext): boolean => actor.actorId === SERVICE_ACTOR_ID;
+
 export type PolicyDecision =
   | { readonly allowed: true }
   | { readonly allowed: false; readonly code: string; readonly reason: string };

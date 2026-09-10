@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createEngineHarness } from '../support/engine-harness.ts';
 import { expect } from '../../src/runtime/result.ts';
 import { QUOTA_LIMITS, quotaWindowKey } from '../../src/domain/quota.ts';
+import { createQuotaGuard } from '../../src/runtime/quota.ts';
+import { SERVICE_ACTOR_ID } from '../../src/runtime/authz.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
 
 /**
@@ -222,4 +224,30 @@ test('a guest is not counted, because a per-actor window cannot express "this ca
     assert.equal(result.ok, true, `registration ${index} is not throttled by actor`);
   }
   assert.equal(await h.engine.store.quotaWindows.count(), 0, 'and nothing was counted against `guest`');
+});
+
+test('the engine acting on its own behalf is not charged, and no window is written for it', async () => {
+  // A consumer that dispatches a command is the system doing work it chose to do.
+  // Throttling that would drop internal work rather than slow a caller down — and there
+  // is no account to count against: the service identity has no `actors` row, so a
+  // window for it is refused by a foreign key. Before this exclusion the charge *threw*,
+  // the bus allowed the request through as an unavailable quota, and the only trace was
+  // a database error log.
+  const h = createEngineHarness();
+  const guard = createQuotaGuard({ windows: h.engine.store.quotaWindows, clock: h.clock });
+  const service = { actorId: SERVICE_ACTOR_ID, role: 'moderator' as const, authenticated: true };
+
+  for (let index = 0; index < QUOTA_LIMITS.interaction.limit + 4; index += 1) {
+    assert.equal(
+      await guard.charge('proposal.create', service),
+      undefined,
+      `internal dispatch ${index} is not throttled`,
+    );
+  }
+  assert.equal(await h.engine.store.quotaWindows.count(), 0, 'and no window row exists for it');
+  assert.equal(
+    await h.engine.store.quotaWindows.get(quotaWindowKey(SERVICE_ACTOR_ID, 'interaction')),
+    undefined,
+    'not under its interaction key either',
+  );
 });

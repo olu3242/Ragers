@@ -16,7 +16,8 @@ import { evaluateEscalations, openEscalations } from '../../src/engines/escalati
 import { handOff } from '../../src/engines/handoff.engine.ts';
 import { priorityKey, recomputePriority } from '../../src/engines/priority.engine.ts';
 import { runAgent } from '../../src/engines/agent.engine.ts';
-import type { ActorContext } from '../../src/runtime/authz.ts';
+import { createQuotaGuard } from '../../src/runtime/quota.ts';
+import { SERVICE_ACTOR_ID, type ActorContext } from '../../src/runtime/authz.ts';
 import type { AuthResult } from '../../src/engines/identity.engine.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
 
@@ -386,7 +387,9 @@ describe(
     test('a handoff is claimed once under concurrency, so a reviewer sees one proposal', async () => {
       const actor = await signUp('live-jo@example.com');
       const experienceId = await publish(actor, 'The emergency exit was blocked again this week');
-      await h.query(`update actors set role = 'moderator' where id = $1`, ['engine']).catch(() => undefined);
+      await h
+        .query(`update actors set role = 'moderator' where id = $1`, [SERVICE_ACTOR_ID])
+        .catch(() => undefined);
       await assertDim(actor, experienceId, { dimension: 'safety_involved', flag: true });
 
       // The consumer has already handed this off during settle(). Six concurrent
@@ -394,7 +397,7 @@ describe(
       // (trigger_id, subject_id) can arbitrate that.
       await Promise.all(
         Array.from({ length: 6 }, async () =>
-          handOff(engine, experienceId, { actorId: 'engine', role: 'moderator' }),
+          handOff(engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' }),
         ),
       );
 
@@ -413,6 +416,43 @@ describe(
         [experienceId],
       );
       assert.equal(proposals[0]?.count, String(rows.length), 'one proposal per condition, not per sweep');
+    });
+
+    test('the engine charges itself no quota, because the service identity is not an account', async () => {
+      // The regression this exists for: the handoff consumer dispatches as the engine's
+      // own identity, the guard charged it like a caller, and `quota_windows.actor_id`
+      // references `actors` — which has no row for it. So every internal dispatch threw
+      // inside the charge, the bus allowed the request through as an unavailable quota,
+      // and the only trace was `violates foreign key constraint
+      // "quota_windows_actor_id_fkey"` in the database log. Nothing failed, which is why
+      // it survived a green in-memory suite: memory has no foreign keys to violate.
+      const constraint = await h.query<{ definition: string }>(
+        `select pg_get_constraintdef(oid) as definition from pg_constraint
+         where conname = 'quota_windows_actor_id_fkey'`,
+      );
+      assert.match(
+        constraint[0]?.definition ?? '',
+        /FOREIGN KEY \(actor_id\) REFERENCES actors\(id\)/,
+        'a quota window belongs to a real account, and the database is what says so',
+      );
+
+      // Charged directly rather than through a command, so the assertion is about the
+      // guard and not about whichever consumer happens to dispatch today.
+      const guard = createQuotaGuard({ windows: h.store.quotaWindows, clock });
+      const service = { actorId: SERVICE_ACTOR_ID, role: 'moderator' as const, authenticated: true };
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        assert.equal(
+          await guard.charge('proposal.create', service),
+          undefined,
+          `internal dispatch ${attempt} is neither throttled nor thrown at`,
+        );
+      }
+
+      const windows = await h.query<{ count: string }>(
+        `select count(*)::text as count from quota_windows where actor_id = $1`,
+        [SERVICE_ACTOR_ID],
+      );
+      assert.equal(windows[0]?.count, '0', 'and no window row was attempted for it');
     });
 
     test('a proposal written through the engine survives Postgres — the jsonb array regression', async () => {

@@ -21,8 +21,9 @@ import {
   recomputePriority,
 } from '../../src/engines/priority.engine.ts';
 import { eq } from '../../src/ports/store.ts';
-import type { ActorContext } from '../../src/runtime/authz.ts';
+import { SERVICE_ACTOR_ID, type ActorContext } from '../../src/runtime/authz.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
+import type { QuotaWindow } from '../../src/domain/quota.ts';
 import type { QueueItem } from '../../src/ports/store.ts';
 
 /**
@@ -405,9 +406,20 @@ test('a handoff proposes over governed state and writes nothing an engine owns',
   assert.ok(opened.length > 0, 'a critical unresolved experience is handed off');
 
   const before = await h.engine.store.experiences.get(experienceId);
-  await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
   const after = await h.engine.store.experiences.get(experienceId);
   assert.deepEqual(after, before, 'the experience row is untouched');
+
+  // And the internal dispatch was not charged a quota. The handoff consumer dispatches
+  // `proposal.create` as the engine's own identity, which has no `actors` row — so a
+  // window written for it is refused by a foreign key, the charge throws, and the bus
+  // reports an unavailable quota while the request goes through. Asserting the absence of
+  // the row on the real path, rather than only at the guard, is what makes that
+  // regression visible here instead of in a database log.
+  const serviceWindows = await h.engine.store.quotaWindows.query([
+    eq<QuotaWindow>('actorId', SERVICE_ACTOR_ID),
+  ]);
+  assert.deepEqual(serviceWindows, [], 'the engine charges itself nothing');
 
   // The handoff produced a real proposal, and the proposal carries evidence a reviewer
   // can open — the E12 contract refuses one that does not.
@@ -433,8 +445,8 @@ test('handing off the same condition twice produces one proposal', async () => {
   // Once by the consumer, then twice more by an explicit sweep.
   const fromConsumer = await handoffsFor(h.engine, experienceId);
   assert.ok(fromConsumer.length > 0);
-  const sweepOne = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
-  const sweepTwo = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  const sweepOne = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
+  const sweepTwo = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
   assert.deepEqual(sweepOne, [], 'an hourly sweep does not hand a reviewer the same thing again');
   assert.deepEqual(sweepTwo, []);
 
@@ -451,7 +463,7 @@ test('an unassessed experience is never handed off, however long it sits', async
   const experienceId = await publish(h, actor, 'The shop was closed at the advertised time');
 
   h.clock.advance(200 * DAY);
-  const opened = await handOff(h.engine, experienceId, { actorId: 'engine', role: 'moderator' });
+  const opened = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
   // Nothing was asserted, so there is no governed state to hand over. Proposing on the
   // default band would be proposing on an absence of information.
   assert.deepEqual(opened, []);
