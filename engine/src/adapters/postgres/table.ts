@@ -132,6 +132,11 @@ const JSON_COLUMNS = new Set([
   'proposed_input',
   // ── Phases 31–35 ────────────────────────────────────────────────────────
   'values',
+  // ── Phase 59 ────────────────────────────────────────────────────────────
+  // A plan step's command input. Declared jsonb, so it is serialised here rather
+  // than left to pg — which would turn an array-valued input into a Postgres array
+  // literal, the defect the whole convention exists to prevent.
+  'input',
 ]);
 
 export const isJsonColumn = (column: string): boolean => JSON_COLUMNS.has(column);

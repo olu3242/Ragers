@@ -107,7 +107,11 @@ export const recoveryOf = (input: DecayInput, windowMs: number): RecoveryDirecti
     contributionsAt: input.contributionsAt.filter((moment) => moment <= asOf),
     now: asOf,
   }).weight;
-  if (then === 0) return now > 0 ? 'recovering' : 'steady';
+  // Nothing had happened yet a window ago, so there is nothing to have recovered
+  // from. A brand-new pattern is emerging, which is the lifecycle's word for it —
+  // calling it "recovering" would have every new pattern claim a history it does not
+  // have, and would draw a `pattern_recovered` conclusion about its first week.
+  if (then === 0) return 'steady';
   const change = (now - then) / then;
   if (Math.abs(change) <= RECOVERY_BAND) return 'steady';
   return change > 0 ? 'recovering' : 'fading';

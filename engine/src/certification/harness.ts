@@ -60,8 +60,33 @@ export type ExperienceOsStatus =
   | 'RAGERS_EXPERIENCE_OS_READY_WITH_BLOCKERS'
   | 'RAGERS_EXPERIENCE_OS_NOT_READY';
 
+/**
+ * The Experience Loop band (Phases 51–60) — Phase 60's own status.
+ *
+ * A fifth status, on the same principle as the four before it: it answers a question none
+ * of them do. This one is *what may the system remember, connect and conclude the second
+ * time?* — that a relationship is between experiences and never between people, that a
+ * memory is of an experience rather than of a person, that a history is not a ranking, that
+ * a signal can stop being current without any row being erased, that reputation is neither
+ * popularity nor one opaque number, and that a plan of several governed steps cannot launder
+ * privilege past the policy matrix.
+ *
+ * There is no `CODE_READY_DATA_BLOCKED` here. Every phase in this band is provable with the
+ * deterministic path and six seeded people, so a data gap would be a gap in the test rather
+ * than in the world.
+ */
+export type ExperienceLoopStatus =
+  | 'PHASES_51_60_READY'
+  | 'PHASES_51_60_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_51_60_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
-export type GateScope = 'engine' | 'experience_signal_engine' | 'governance_action' | 'experience_os';
+export type GateScope =
+  | 'engine'
+  | 'experience_signal_engine'
+  | 'governance_action'
+  | 'experience_os'
+  | 'experience_loop';
 
 export interface GateDefinition {
   readonly id: string;
@@ -492,6 +517,49 @@ export const GATES: readonly GateDefinition[] = [
     command: ['node', '--test', 'tests/integration/convergence.circular.test.ts'],
   },
   {
+    id: 'phases_51_55',
+    name: 'P51–55: a connection is not weight, a memory names nobody, a signal can end',
+    scope: 'experience_loop',
+    requirement: 'phases/51-55',
+    command: ['node', '--test', 'tests/unit/relationship.memory.history.test.ts', 'tests/unit/lifecycle.decay.test.ts'],
+  },
+  {
+    id: 'phases_56_59',
+    name: 'P56–59: reputation replays, a conclusion is checkable, a plan cannot launder privilege',
+    scope: 'experience_loop',
+    requirement: 'phases/56-59',
+    command: [
+      'node',
+      '--test',
+      'tests/unit/evolution.conclusion.plan.test.ts',
+      'tests/integration/loop.intelligence.test.ts',
+    ],
+  },
+  {
+    id: 'phases_51_60_bus',
+    name: 'P51–60 end to end through the bus',
+    scope: 'experience_loop',
+    requirement: 'phases/51-60',
+    command: ['node', '--test', 'tests/integration/experience.loop.test.ts'],
+  },
+  {
+    id: 'loop_certification',
+    name: 'The experience loop closes, for a Rage and again for a Rave',
+    scope: 'experience_loop',
+    requirement: 'loop/certification',
+    command: ['node', '--test', 'tests/integration/loop.certification.test.ts'],
+  },
+  {
+    id: 'phases_51_60_live',
+    name: 'P51–60 against a live database: the reads see real rows, and the plan constraints hold',
+    scope: 'experience_loop',
+    requirement: 'phases/51-60/live',
+    command: ['node', '--test', 'tests/live/experience.loop.live.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. The recommendation ledger arbitrates concurrent sweeps at its primary key and the action-plan constraints refuse a plan claiming completion it did not earn — neither is certifiable without one.',
+  },
+  {
     id: 'command_boundaries',
     name: 'Command boundaries: bad input is refused, never reported as a defect',
     scope: 'experience_os',
@@ -584,11 +652,20 @@ export const decideExperienceOsStatus = (
   return 'RAGERS_EXPERIENCE_OS_READY';
 };
 
+export const decideExperienceLoopStatus = (results: readonly GateResult[]): ExperienceLoopStatus => {
+  const own = results.filter((result) => result.scope === 'experience_loop');
+  if (own.length === 0) return 'PHASES_51_60_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_51_60_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'PHASES_51_60_READY_WITH_EXTERNAL_BLOCKERS';
+  return 'PHASES_51_60_READY';
+};
+
 export interface CertificationReport {
   readonly status: CertificationStatus;
   readonly experienceSignalEngineStatus: ExperienceSignalEngineStatus;
   readonly governanceActionStatus: GovernanceActionStatus;
   readonly experienceOsStatus: ExperienceOsStatus;
+  readonly experienceLoopStatus: ExperienceLoopStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -603,6 +680,7 @@ export const buildReport = (
   experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
   governanceActionStatus: decideGovernanceActionStatus(results),
   experienceOsStatus: decideExperienceOsStatus(results, options.benchmarkDataBlocked ?? false),
+  experienceLoopStatus: decideExperienceLoopStatus(results),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -634,8 +712,10 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 41–50 status: \`${report.experienceOsStatus}\``);
   lines.push('');
+  lines.push(`## Phases 51–60 status: \`${report.experienceLoopStatus}\``);
+  lines.push('');
   lines.push(
-    'Four statuses, because they answer different questions. The engine status is about ' +
+    'Five statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
@@ -645,7 +725,12 @@ export const renderLedger = (report: CertificationReport): string => {
       'The Phases 41–50 status is about whether AI stays downstream of governance: an agent ' +
       'whose only output is a proposal, a person who decides, a target engine that can still ' +
       'refuse, a measure that says so when the data is absent, and payment that reaches ' +
-      'nothing deciding an outcome.',
+      'nothing deciding an outcome. The Phases 51–60 status is about what the system may ' +
+      'remember, connect and conclude the second time: a relationship between experiences and ' +
+      'never between people, a memory of an experience rather than of a person, a history that ' +
+      'is not a ranking, a signal that can stop being current without any row being erased, ' +
+      'reputation that is neither popularity nor one opaque number, and a plan of several ' +
+      'governed steps that cannot launder privilege past the policy matrix.',
   );
   lines.push('');
   lines.push(

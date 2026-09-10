@@ -36,6 +36,17 @@ evidence.
 | Entitlement guard by discovery | — | `INTEGRITY_SCAN_ROOTS` + `COMMERCIAL_SURFACES` in `src/domain/entitlement.ts` | `entitlement.integration` (4) — all three failure modes verified by introducing each |
 | Dead subscription: `ReportResolved` | E4/E9 | emitted per resolved report in `safety.engine.ts` | `convergence.circular` · enumeration now reports zero dead subscriptions |
 | 1–50 convergence | — | `docs/architecture/CONVERGENCE_1_50.md`, `tests/integration/convergence.circular.test.ts` | `convergence.circular` (3) — one lap for Rage and one for Rave |
+| Experience relationship graph (P51) | E6 | `src/domain/relationship.ts`, `src/engines/relationship.engine.ts` — a read over `experience_relations` and `cluster_members`, no new table | `relationship.memory.history` (7) · `experience.loop` (3) · `experience.loop.live` (1) |
+| Rager context memory (P52) | E1 | `src/domain/memory.ts`, `src/engines/memory.engine.ts` — derived on read, no actor id and no free text | `relationship.memory.history` (6) · `experience.loop` (2) |
+| Organization pattern history (P53) | E11 | `src/domain/history.ts`, `src/engines/history.engine.ts` — the P38 floors and a differencing guard over *time* | `relationship.memory.history` (8) · `experience.loop` (2) |
+| Signal lifecycle (P54) | E8 | `src/domain/signal-lifecycle.ts` — five states, derived, no command sets one | `lifecycle.decay` (11) · `experience.loop` (2) · `loop.certification` (2) |
+| Signal decay & recovery (P55) | E8 | `src/domain/decay.ts`, `src/engines/lifecycle.engine.ts` — 90-day half-life, order-independent, no row changed | `lifecycle.decay` (9) · `experience.loop` (1) |
+| Reputation evolution (P56) | E11 | `src/domain/evolution.ts`, `src/engines/evolution.engine.ts` — a series per named component, no composite | `evolution.conclusion.plan` (7) · `loop.intelligence` (2) |
+| Cross-experience intelligence (P57) | E12 | `src/domain/conclusion.ts`, `src/engines/conclusion.engine.ts` — evidence-backed, refuses an expired signal | `evolution.conclusion.plan` (8) · `loop.intelligence` (2) |
+| Proactive recommendations (P58) | E12 | the `recommendations` ledger, keyed on the conclusion | `loop.intelligence` (3) · `experience.loop.live` (1) |
+| Governed action plans (P59) | E12 | `src/domain/plan.ts`, `src/engines/plan.engine.ts`, `action_plans`, `action_plan_steps` | `evolution.conclusion.plan` (10) · `loop.intelligence` (7) · `experience.loop.live` (2) |
+| Experience loop certification (P60) | — | 5 band gates + the fifth status | `loop.certification` (3) — one lap for Rage and one for Rave |
+| Public read of a removed experience through `relatedTo` | E6 | status re-checked on read in `relation.engine.ts` and `relationship.engine.ts` | `experience.loop` (1) — asserted by removing one and re-reading |
 | Command boundary refusals | all | shape guard in `src/runtime/bus.ts`; `checkNote` in `src/domain/types.ts`; per-field guards in the seven modules that lacked them | `command.boundaries` (11) · `command.boundaries.live` (6) — nine defects, each verified red before the fix |
 
 ## Open
@@ -50,6 +61,7 @@ evidence.
 | Autonomous agents | E12 | ABSENT by choice | The framework exists (P45) and agents may read, propose and escalate. `AgentAction` has no write verb, so autonomy in the sense of *acting* is not expressible; nothing here is a gap to close. |
 | Real model provider | E12 | BLOCKED | Needs credentials. The port and the deterministic fallback are certified; live-provider behaviour is not, and `live: false` is what says so. |
 | Benchmark sample volume | E11 | DATA-BLOCKED | The code is certified. Twenty distinct contributors per comparison set do not exist in any environment the harness runs in, which is the engine being correct rather than failing. |
+| Cross-organization comparison | E11 | DATA-BLOCKED | P53 gives one organization its own history over time, deliberately. Ranking organizations against each other is P47's question and stays where it is. |
 | Rate limits on request-shaped commands | E17/E12 | ABSENT | Surfaced by the boundary sweep rather than caused by it: `creator.requestExport` accepted 21 successive requests, since nothing dedupes or throttles one. Not an input-validation defect — the input was valid every time — so it is recorded here rather than fixed under a boundary slice. `export_requests` has no partial unique index, so memory and Postgres agree. |
 | Reply moderation | E4 | ABSENT | `safety.applyModerationAction` on a reply target loads an *experience* and so can never act. The boundary fix stops a report against a nonexistent reply being written and queued; actioning a real reply remains unimplemented, and is a feature rather than a gap in the refusal contract. |
 | SLA thresholds | E11 | ABSENT by choice | No service-level agreement exists. Responsiveness is measured; nothing is called an SLA and no overdue indicator is shown, because there is nothing to be overdue against. |

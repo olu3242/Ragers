@@ -780,6 +780,58 @@ export interface EscalationRow {
  * `intelligence_proposals`, under the contract that refuses one without traceable
  * evidence.
  */
+/**
+ * Phase 58 — the fact that a conclusion was already recommended.
+ *
+ * Keyed on what the conclusion is *about* rather than on when it was drawn, so a sweep
+ * over unchanged state collides with itself instead of producing a second copy. The
+ * recommendation itself is the proposal; this is the ledger that stops duplicates.
+ */
+export interface RecommendationRow {
+  /** `kind|subject|sorted experience ids`. Deterministic, and the collision point. */
+  readonly id: string;
+  readonly kind: string;
+  readonly subjectId: string;
+  readonly acrossExperienceIds: readonly string[];
+  readonly distinctPeople: number;
+  readonly lifecycleState: string;
+  /** Absent when the proposal was refused: noticed, and produced nothing actionable. */
+  readonly proposalId?: string;
+  readonly createdAt: number;
+}
+
+/**
+ * Phase 59 — a plan of governed steps, approved once.
+ *
+ * There is no field here naming an E1–E11 row the plan changed, because a step's effect
+ * belongs to the engine that owns it. What is recorded is whether each dispatch happened.
+ */
+export interface ActionPlanRow {
+  readonly id: string;
+  readonly proposalId: string;
+  readonly subjectId: string;
+  /** The reviewer. A plan is attributed to a person, never to the engine. */
+  readonly approvedBy: string;
+  readonly status: 'pending' | 'completed' | 'partially_completed' | 'failed';
+  readonly stepCount: number;
+  readonly dispatchedCount: number;
+  readonly createdAt: number;
+  readonly executedAt?: number;
+}
+
+export interface ActionPlanStepRow {
+  readonly id: string;
+  readonly planId: string;
+  readonly stepOrder: number;
+  readonly command: string;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly targetEngine: string;
+  readonly dispatched: boolean;
+  /** The owning engine's own refusal, verbatim. */
+  readonly dispatchError?: string;
+  readonly executedAt?: number;
+}
+
 export interface HandoffRow {
   readonly id: string;
   readonly triggerId: string;
@@ -958,4 +1010,9 @@ export interface EngineStore {
   readonly entitlements: Table<EntitlementRow>;
   readonly subscriptions: Table<SubscriptionRow>;
   readonly deliveries: Table<DeliveryRow>;
+
+  // ── Phases 58–59 ─────────────────────────────────────────────────────────
+  readonly recommendations: Table<RecommendationRow>;
+  readonly actionPlans: Table<ActionPlanRow>;
+  readonly actionPlanSteps: Table<ActionPlanStepRow>;
 }

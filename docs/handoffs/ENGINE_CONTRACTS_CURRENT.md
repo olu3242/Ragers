@@ -227,3 +227,50 @@ sweep's own assertion is on `command.threw` staying at zero.
 checked by `checkNote` in `src/domain/types.ts` — text, trimmed, at most
 `REVIEW_NOTE_MAX_LENGTH` (2,000) characters — and each caller turns the outcome
 into its own message, because *why* a note is required differs in each of the three.
+
+---
+
+## The experience loop — what phases 51–60 add, and what they refuse
+
+**All of 51–56 are reads.** No table, no command, nothing that acts. Every input
+already exists and is already append-only, so a second store of the same facts
+would be a second version of the truth — and the copy is the one that goes stale.
+Only 58 and 59 have tables, because a deduplication ledger and a record of
+governed action have to be durable to be worth anything.
+
+### What a consumer may rely on
+
+| Read | Answers | Never |
+|---|---|---|
+| `connectionsOf` · `relationshipGraphFor` | which experiences this one is connected to, and why | a connection between *people*; a degree that counts routes rather than pairs; any trust weight |
+| `memoryFor` | what happened to this experience, in order | an actor identifier, or anything a person wrote |
+| `patternHistoryFor` | how one organization's volume, response and resolution have moved | a comparison against another organization |
+| `clusterLifecycleFor` | whether a signal is current, and what it weighs now | a state anybody can set; a row erased by decay |
+| `reputationEvolutionFor` | how each named component of a standing is changing | one number; any engagement input |
+| `conclusionsFor` · `responseConclusionsFor` | what can be concluded across experiences | a conclusion with no openable basis, or one drawn over an expired signal |
+| `recommendationsFor` | which conclusions have been recommended | the same finding twice |
+| `planWithSteps` · `plansFor` | which governed steps ran, and what refused the rest | a plan reported complete because it was approved |
+
+### Three refusals worth knowing about
+
+**A connection is one edge with many reasons.** A pair somebody asserted *and*
+that shares a cluster is one connection listing both reasons. Counting it twice
+would inflate a degree, and a degree is the one number a reader takes as "how big
+is this".
+
+**A memory carries no person and no prose.** Only the role that acted, plus
+counts and enum values. `FORBIDDEN_MEMORY_KEYS` sweeps every serialised memory,
+which is what makes it safe to hand to a copilot: it was never given anything to
+quote.
+
+**A plan's authorization is evaluated per step, at execution time.** Each step is
+dispatched on the bus *as the reviewer*, so a step that person may not perform is
+refused with their name on the refusal. Approving a plan is not approving its
+effects, and `partially_completed` is a normal outcome rather than an error.
+
+### Statuses
+
+Five now. The fifth, `PHASES_51_60_READY`, answers *what may the system remember,
+connect and conclude the second time?* — and is reported separately for the same
+reason as the other four: folding it in would let a broken loop read as somebody
+else's problem.

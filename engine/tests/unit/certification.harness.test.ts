@@ -6,6 +6,7 @@ import {
   decideExperienceSignalEngineStatus,
   decideGovernanceActionStatus,
   decideExperienceOsStatus,
+  decideExperienceLoopStatus,
   GATES,
   renderLedger,
   type GateResult,
@@ -289,4 +290,34 @@ test('data-blocked is a distinct status from ready and from not-ready', () => {
     'RAGERS_EXPERIENCE_OS_NOT_READY',
   );
   assert.equal(decideExperienceOsStatus([], true), 'RAGERS_EXPERIENCE_OS_NOT_READY');
+});
+
+test('the experience loop has its own status, and it is not folded into the OS one', () => {
+  // A fifth status for the reason there is a fourth: it answers a question none of the
+  // others do. Folding 51–60 into the Experience OS status would mean a broken loop
+  // could read as an AI-governance problem, or hide behind `CODE_READY_DATA_BLOCKED`.
+  const loopGates = GATES.filter((gate) => gate.scope === 'experience_loop');
+  assert.ok(loopGates.length >= 5, `the band has its own gates, found ${loopGates.length}`);
+
+  const passed = loopGates.map(
+    (gate): GateResult => ({
+      id: gate.id,
+      name: gate.name,
+      scope: 'experience_loop',
+      requirement: gate.requirement,
+      status: 'passed',
+      durationMs: 1,
+      detail: 'clean',
+    }),
+  );
+  assert.equal(decideExperienceLoopStatus(passed), 'PHASES_51_60_READY');
+
+  const oneBlocked = [...passed.slice(1), { ...(passed[0] as GateResult), status: 'blocked' as const }];
+  assert.equal(decideExperienceLoopStatus(oneBlocked), 'PHASES_51_60_READY_WITH_EXTERNAL_BLOCKERS');
+
+  const oneFailed = [...passed.slice(1), { ...(passed[0] as GateResult), status: 'failed' as const }];
+  assert.equal(decideExperienceLoopStatus(oneFailed), 'PHASES_51_60_NOT_READY');
+
+  // And no gates at all is not ready, rather than vacuously ready.
+  assert.equal(decideExperienceLoopStatus([]), 'PHASES_51_60_NOT_READY');
 });

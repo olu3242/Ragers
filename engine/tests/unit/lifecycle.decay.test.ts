@@ -202,3 +202,11 @@ test('a pattern with nothing in it is steady rather than fading', () => {
 test('nothing prunes a decayed contribution', () => {
   assert.equal(pruneDecayedContributions(), undefined);
 });
+
+test('a brand-new pattern is not recovering — it has nothing to recover from', () => {
+  // Everything inside the window and nothing before it. Reading this as recovery would
+  // have every new pattern claim a history, and would draw a `pattern_recovered`
+  // conclusion about its own first week.
+  const brandNew = [NOW - 3 * DAY, NOW - 2 * DAY, NOW - 1 * DAY];
+  assert.equal(recoveryOf({ contributionsAt: brandNew, now: NOW }, 30 * DAY), 'steady');
+});

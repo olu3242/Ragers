@@ -121,13 +121,15 @@ process.stdout.write(`\nCertification status: ${report.status}\n`);
 process.stdout.write(`Experience Signal Engine status: ${report.experienceSignalEngineStatus}\n`);
 process.stdout.write(`Phases 31–40 status: ${report.governanceActionStatus}\n`);
 process.stdout.write(`Phases 41–50 status: ${report.experienceOsStatus}\n`);
+process.stdout.write(`Phases 51–60 status: ${report.experienceLoopStatus}\n`);
 // Either certification failing is a failure: a green platform with a broken
 // corroboration contract is not a shippable product.
 process.exit(
   report.status === 'RAGERS_ENGINE_E2E_NO_GO' ||
     report.experienceSignalEngineStatus === 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY' ||
     report.governanceActionStatus === 'PHASES_31_40_NOT_READY' ||
-    report.experienceOsStatus === 'RAGERS_EXPERIENCE_OS_NOT_READY'
+    report.experienceOsStatus === 'RAGERS_EXPERIENCE_OS_NOT_READY' ||
+    report.experienceLoopStatus === 'PHASES_51_60_NOT_READY'
     ? 1
     : 0,
 );
