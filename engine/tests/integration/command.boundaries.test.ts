@@ -24,8 +24,21 @@ import type { EngineError } from '../../src/runtime/errors.ts';
  * input must not be reported as an internal defect**, and it must change nothing.
  */
 
-/** The failure classes a caller may legitimately receive. */
-const CALLER_FAILURE_KINDS = new Set(['validation', 'unauthorized', 'not_found', 'conflict', 'precondition']);
+/**
+ * The failure classes a caller may legitimately receive.
+ *
+ * `rate_limited` is here because Phase 61 gave it a producer. It is a refusal aimed at
+ * the caller — retryable, a 429, with a stated retry-after — and reporting it as an
+ * internal defect would be the same category error this file exists to prevent.
+ */
+const CALLER_FAILURE_KINDS = new Set([
+  'validation',
+  'unauthorized',
+  'not_found',
+  'conflict',
+  'precondition',
+  'rate_limited',
+]);
 
 /** Payloads a hostile or confused caller might plausibly send. */
 const MALFORMED_INPUTS: readonly { readonly label: string; readonly input: unknown }[] = [
@@ -137,8 +150,18 @@ const probe = async (
   return `${command} + ${label} → ${describe(result.error)}`;
 };
 
+/**
+ * Unthrottled, deliberately.
+ *
+ * These sweeps send every command eleven payloads as three actors — thousands of
+ * requests, which legitimately exceeds every Phase 61 quota. Throttling them would
+ * mean a suite testing boundary refusals got refused for a different reason, so the
+ * throttle is off here and tested where it belongs, in `quota.governance`.
+ */
+const sweepHarness = () => createEngineHarness({ throttle: false });
+
 test('no command reports malformed caller input as an internal defect', async () => {
-  const h = createEngineHarness();
+  const h = sweepHarness();
   const { actor: member } = await h.signUp('member@example.com', 'Member');
   const commands = h.engine.bus.registeredCommands();
   assert.ok(commands.length >= 49, `expected the full command surface, found ${commands.length}`);
@@ -161,7 +184,7 @@ test('no command reports malformed caller input as an internal defect', async ()
 });
 
 test('no command reports malformed input from a guest as an internal defect', async () => {
-  const h = createEngineHarness();
+  const h = sweepHarness();
   const guest: ActorContext = { actorId: 'guest', role: 'guest', authenticated: false };
   const offenders: string[] = [];
   for (const command of h.engine.bus.registeredCommands()) {
@@ -176,7 +199,7 @@ test('no command reports malformed input from a guest as an internal defect', as
 test('no command reports malformed input from a moderator as an internal defect', async () => {
   // A privileged actor reaches handlers a member cannot, so the sweep has to run as one too —
   // otherwise the moderation, governance and proposal commands are never actually entered.
-  const h = createEngineHarness();
+  const h = sweepHarness();
   const admin = await h.promote((await h.signUp('admin@example.com')).auth.actorId, 'admin');
   const offenders: string[] = [];
   for (const command of h.engine.bus.registeredCommands()) {
@@ -204,7 +227,7 @@ interface SeededWorld {
 }
 
 const seedWorld = async (): Promise<SeededWorld> => {
-  const h = createEngineHarness();
+  const h = sweepHarness();
   await h.engine.store.entities.put({ id: 'ent_1', name: 'Northwind Air', slug: 'northwind-air', kind: 'organization' });
   await h.engine.store.entityAliases.put({ id: 'ali_e1', entityId: 'ent_1', alias: 'Northwind Air' });
   // A second, unclaimed entity, so `organization.claim` is reachable rather than
@@ -723,7 +746,7 @@ test('a malformed envelope is refused rather than taking the process down', asyn
   // that turns a throw into an error result. An envelope with no actor therefore used
   // to raise past `dispatch` entirely, which in a worker draining commands is not a
   // failed command but a dead worker.
-  const h = createEngineHarness();
+  const h = sweepHarness();
   const cases: readonly { readonly label: string; readonly envelope: unknown }[] = [
     { label: 'no actor', envelope: { name: 'experience.create', input: {}, idempotencyKey: 'k1' } },
     { label: 'null actor', envelope: { name: 'experience.create', input: {}, actor: null, idempotencyKey: 'k2' } },
@@ -803,7 +826,7 @@ test('a refused command leaves its idempotency key unused', async () => {
   // malformed can fix it and retry under the same key. Reserving first would have made
   // one typo permanently poison that key, and the recorded rejection would replay
   // forever.
-  const h = createEngineHarness();
+  const h = sweepHarness();
   const { actor } = await h.signUp('retry@example.com');
   const key = 'the-same-key';
 

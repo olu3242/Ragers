@@ -1457,3 +1457,255 @@ the system knows, and nothing that acts. Checkpoint commit.
 
 **Batch B** — 56, 57, 58, 59, 60. Evolution, conclusions, recommendations, plans, and
 the band's certification. One full certification run at the end, not per phase.
+
+---
+
+## 9. Phases 61–70 — operational integrity
+
+**Prerequisite:** phases 1–60 certified, and the certification evidence hardening
+that followed them.
+
+### What this band is for
+
+Phases 1–60 made the system *correct*: it holds its distinctions, it refuses what
+it should refuse, and it can now say which subtest failed when a gate goes red.
+None of that is the same as being *safe to operate*, and the difference is what
+this band closes.
+
+The theme is not a feature list. It is the set of things that must be true before
+a deployment target is worth having — which is precisely what the six external
+tracks are waiting on. Deploying a system that cannot rate-limit a single actor,
+cannot moderate a reply, and audits four engines out of twelve would be shipping
+the correctness of 1–60 into an environment that cannot hold it.
+
+Four of the ten phases exist because something in the codebase *declares* a
+capability nothing provides. Those are not speculative: each was found by reading
+the code rather than by imagining what an operator might want, and each is named
+with its evidence in the gate table below.
+
+The band's own constraints:
+
+- **A quota is not a moderation decision.** Being throttled is not being judged.
+  A rate limit says *not so fast*, never *not allowed* and never *you are
+  suspect* — and it must never reach a trust score, a severity band or a queue.
+- **Detection is a signal for review, never an action.** Coordinated corroboration
+  is a reason to look, and looking is a person's job. Nothing in this band
+  removes, suppresses, downranks or discounts anything on its own.
+- **Erasure means erased, including the derived.** A deletion that leaves a stored
+  reference behind is not a deletion, and "it is only in an internal table" is the
+  argument that makes it a breach later.
+- **Retention is a ceiling, not a habit.** Originals and transcripts live for a
+  stated period because they must, not until somebody remembers to prune them.
+- **Degraded is a state the system knows it is in.** Failing closed is already the
+  rule for media; this band makes it a *reported* state rather than a set of
+  independent refusals nobody can see the shape of.
+- **An audit trail with gaps is a narrative.** Either every governed action is
+  attributable or the trail cannot be relied on for the one case it exists for.
+
+Everything the earlier bands hold stays held. Nothing here gains a write path to
+an E1–E11 table that a command does not already own, and no phase in this band may
+introduce a score, a ranking or an automatic sanction.
+
+### 9.1 The 61–70 gate — dependencies verified against what exists
+
+| Phase | Needs | Status in the frozen foundation | True gap |
+|---|---|---|---|
+| 61 Request governance | an error kind, an HTTP mapping, a place to count | **the taxonomy already has it and nothing produces it.** `rate_limited` is in `ErrorKind`, is in `RETRYABLE`, and `lib/api.ts` maps it to 429 — and a grep across `src/`, `app/` and `lib/` finds no producer anywhere. A declared capability with no implementation, exactly like the `ReportResolved` dead subscription convergence found | **the counting, and the policy.** No table, column or in-memory window exists to count against; there is no throttle storage in any of the thirteen migrations |
+| 62 Coordinated inauthenticity | corroborations with actors and timestamps, trust assessments, a review queue | all ✓ — and `uniqueExperiencers` already counts people rather than rows, which is the primitive this needs | **the detection, as a queue item.** Nothing looks at *how* a set of corroborations arrived. The floor policy protects against small samples, not against a coordinated large one |
+| 63 Reply moderation | a reply aggregate, the moderation queue, an action command | replies ✓ (E6), queue ✓, command ✓ | **the action actually working.** `safety.applyModerationAction` resolves a reply target and then calls `loadExperience(targetId)`, so a reply can be reported and queued and never actioned. Recorded as ABSENT in `ENGINE_GAPS.md`; this is where it closes |
+| 64 Erasure completeness | the deletion request, the terminal state, the consumers | deletion ✓ and **ten consumers already react to `ExperienceDeleted`** — feed, search, subject, signal, matching, conversation, analytics, responsiveness, creator | **the rows phases 51–60 added.** `recommendations.across_experience_ids` is a stored `text[]` of experience ids with no foreign key and no `ExperienceDeleted` consumer, so an operator surface keeps citing an experience its author deleted. The graph and the memory are derived on read and re-check status, so they self-heal; this one does not |
+| 65 Retention | originals, transcripts, evidence, and their protected derivatives | the columns ✓, and `original_key` unreadable on every path ✓ | **any expiry at all.** Nothing states how long an original lives, and nothing removes one. Unreadable is not the same as absent |
+| 66 Operator incident surfaces | dead letters, leases, worker heartbeats, job history | all ✓ as tables, with replay ✓ (P18) | **a surface.** An operator reads them with SQL today. The tables are the hard part and they exist; what is missing is the page and the reads behind it |
+| 67 Degraded mode | fail-closed media ✓, retry ✓, dead-letter ✓, health ✓ | each dependency refuses correctly on its own | **the whole-system view.** There is no state that says *the system is degraded and here is what is refused*, so three independent correct refusals look like three unrelated bugs |
+| 68 Audit completeness | an audit table, a writer, an actor context | `audit_events` ✓ with append-only enforcement ✓ | **coverage.** Four engines call `writeAudit` out of twelve. Whether the other eight *should* is the phase's actual question — an audit of everything is noise, and the answer has to be a stated rule rather than a sweep |
+| 69 Tenant isolation | RLS on every table ✓ (77 of 77), a hostile-tenant test ✓ for deliveries | proven for the tables the earlier bands added | **the three tables phases 58–59 added**, and a sweep that is structural rather than a list — the same reasoning that replaced the Phase 48 filename list with discovery |
+| 70 Certification | the harness, five statuses, per-gate evidence | ✓, and a failing gate now names its subtest | the band's own gates, once 61–69 exist |
+
+Three things this changes about the band as first sketched:
+
+1. **Phase 61 is closing a dead branch, not adding a feature.** `rate_limited`
+   already exists in three places and is produced by nothing. That is the same
+   defect shape as the dead `ReportResolved` subscription, and it means the
+   surrounding contract — retryable, 429 — is already decided.
+2. **Phase 64 has exactly one real target.** Ten consumers already handle
+   `ExperienceDeleted` correctly and the 51–60 reads self-heal because they derive
+   from published rows. The single stored reference is the recommendation ledger,
+   which I added in 58 without a deletion consumer. Finding one target rather than
+   a class is the useful outcome of the analysis.
+3. **Phase 68's question is which actions deserve an audit, not how to write one.**
+   Auditing all forty-seven commands would bury the four that matter. The phase
+   delivers a stated rule and the coverage that follows from it.
+
+### Phase 61 — Request Governance & Quotas
+
+- **Owner** runtime, with E4 Trust in support
+- **Objective:** produce `rate_limited` — per actor, per command, over a window —
+  so the error kind, its retryability and its 429 stop being a contract nothing
+  honours.
+- **Design constraint:** **a quota is not a judgement.** No throttle event reaches
+  a trust assessment, a severity band, a priority or a queue. Being fast is not
+  being suspect.
+- **Design constraint:** counted at the bus, ahead of the handler and after
+  idempotency, so a replay is not charged twice for one intent.
+- **Design constraint:** the limit is per *command class*, not global. A read is
+  not a corroboration and a corroboration is not an upload.
+- **Failure tests:** a burst is refused with `rate_limited` and nothing else; the
+  refusal is retryable and writes no row; a replayed idempotency key is charged
+  once; an actor at the limit for one command may still use another; nothing in the
+  integrity layer can read a throttle count (the Phase 48 discovery guard, extended).
+
+### Phase 62 — Coordinated Inauthenticity Resistance
+
+- **Owner** E4 Trust · **support** E6 Community
+- **Objective:** notice when a set of corroborations arrived in a way that does not
+  look like people independently recognising their own experience.
+- **Design constraint:** **detection opens a review and nothing else.** It writes a
+  queue item. It does not remove, suppress, downrank, discount or annotate a claim,
+  and there is no column in which it could.
+- **Design constraint:** it never adjusts a count. `uniqueExperiencers` keeps
+  counting people; a suspicion is not a subtraction.
+- **Design constraint:** internal vocabulary only. Nothing about this reaches a
+  public surface, per `CLAUDE.md`.
+- **Failure tests:** a coordinated set opens exactly one queue item; the
+  corroboration count is unchanged; a genuine burst of independent corroborations
+  after a news event is not flagged (the false-positive case, asserted); the
+  detection is idempotent under a repeated sweep.
+
+### Phase 63 — Reply Moderation
+
+- **Owner** E4 Trust · acts on an E6 object
+- **Objective:** make a reported reply actionable. Today the report is written, the
+  queue item is created, and the action cannot resolve its target.
+- **Design constraint:** a reply is moderated as a reply. Its terminal states are
+  the reply's own; nothing here touches the parent experience.
+- **Design constraint:** the same reason-required, enum-checked boundary the
+  experience path now has — this is not a second, looser moderation path.
+- **Failure tests:** a reported reply can be removed and restored; the parent
+  experience is untouched; a queue item for a reply that no longer exists is
+  refused rather than left unclearable; an action with no reason is refused.
+
+### Phase 64 — Erasure Completeness
+
+- **Owner** E1 Experience · **support** E4, E12
+- **Objective:** a deletion removes every stored reference, including the ones
+  phases 51–60 added.
+- **Design constraint:** **derived reads must not be papered over.** The graph and
+  the memory already self-heal by re-checking status; the fix belongs where a row
+  is *stored*, not in a filter added to each reader.
+- **Design constraint:** the audit trail of the deletion survives the deletion.
+  Erasing the record that an erasure happened is not erasure, it is amnesia.
+- **Failure tests:** a deleted experience appears in no recommendation, no graph,
+  no memory and no history point; the deletion's own audit event remains; a
+  recommendation whose every experience is deleted is itself gone rather than empty;
+  replaying the deletion event is idempotent.
+
+### Phase 65 — Retention & Data Minimisation
+
+- **Owner** E2 Capture · **support** E4
+- **Objective:** state how long an original, a transcript and an evidence artefact
+  live, and remove them when that expires.
+- **Design constraint:** **a stated ceiling, per class of artefact**, not one
+  global sweep. An original and its protected derivative are not the same risk and
+  do not get the same clock.
+- **Design constraint:** expiry removes the artefact, never the fact. The
+  experience, the corroboration and the counts stay; what goes is the bytes.
+- **Design constraint:** blocked honestly where object storage is. The policy and
+  the ledger of what *would* be removed are certifiable now; the deletion of remote
+  bytes is not, and must report `OBJECT_STORAGE_BLOCKED` rather than pretend.
+- **Failure tests:** an expired original is unreadable and its row says why; the
+  experience survives its original's expiry; a protected derivative outlives the
+  original it came from; nothing expires while a dispute or a moderation review is
+  open on it.
+
+### Phase 66 — Operator Incident Surfaces
+
+- **Owner** E4 Trust · **support** the shared spine (P21)
+- **Objective:** the reads and the page an operator needs during an incident — dead
+  letters, stuck leases, worker health, job history — instead of SQL.
+- **Design constraint:** reads and existing commands only. Replay already exists
+  and is governed; this surfaces it rather than adding a second path.
+- **Design constraint:** no new privilege. Everything here is already reachable by
+  a moderator or an admin through the policy matrix, or it does not appear.
+- **Failure tests:** a consumer is offered no operator surface and is refused when
+  navigating there anyway (the existing persona pattern); a dead letter can be
+  replayed exactly once from the surface; the page shows nothing a member may not see.
+
+### Phase 67 — Degraded Mode & Backpressure
+
+- **Owner** the shared spine (P21)
+- **Objective:** one reported state saying which dependencies are unavailable and
+  what is consequently refused.
+- **Design constraint:** **derived from health, never asserted.** No command sets
+  degraded mode. It is what the health registry already knows, read in one place.
+- **Design constraint:** it changes no refusal. Every fail-closed path already
+  refuses correctly; this makes the *shape* visible so three correct refusals stop
+  looking like three bugs.
+- **Failure tests:** with the database unavailable the state says so and the
+  refusals are unchanged; recovery clears it without a command; the state is
+  readable by an operator and by nobody else.
+
+### Phase 68 — Audit Completeness
+
+- **Owner** E4 Trust · **all engines**
+- **Objective:** a stated rule for which actions are audited, and the coverage that
+  follows.
+- **Design constraint:** **a rule, not a sweep.** Auditing all forty-seven commands
+  would bury the ones that matter. The rule this phase must defend: an action is
+  audited when it is taken *by one person about another*, or when it changes what
+  somebody else may do.
+- **Design constraint:** enforced by discovery, like the Phase 48 entitlement
+  guard, so a command added later is covered without anybody remembering.
+- **Failure tests:** every command matching the rule writes an audit event; a
+  command that does not match writes none; a new command matching the rule and
+  missing its audit fails the guard; the trail stays append-only.
+
+### Phase 69 — Tenant Isolation Sweep
+
+- **Owner** E9 Business Response
+- **Objective:** extend the hostile-tenant certification to every table, including
+  `recommendations`, `action_plans` and `action_plan_steps`.
+- **Design constraint:** structural, not a list. The sweep enumerates tables from
+  the schema and holds each to a stated rule, so a table added later is covered.
+- **Failure tests:** a hostile tenant reads none of another's rows on any table; a
+  table added without RLS fails the sweep; an operator-only table is unreachable by
+  an organization member.
+
+### Phase 70 — Operational Integrity Certification
+
+- **Owner** E4 Trust · **all engines**
+- **Objective:** certify that the system is safe to operate, as distinct from
+  correct.
+- **Required scenario, run twice — once for a Rage and once for a Rave.** A burst
+  is throttled without being judged; a coordinated set opens a review without
+  changing a count; a reported reply is actioned; an author deletes and nothing
+  anywhere still names it; an artefact expires and the account survives; a
+  dependency drops and the degraded state says what is refused; every governed
+  action in the lap is attributable.
+- **Required failure tests, all of them:** throttle-is-not-judgement ·
+  detection-is-not-action · false-positive coordination · reply action on a missing
+  target · erasure leaves no stored reference · audit-rule coverage by discovery ·
+  hostile tenant across every table · degraded mode changes no refusal ·
+  concurrency and idempotency across every new command.
+- **Decision values:** `PHASES_61_70_READY`,
+  `PHASES_61_70_READY_WITH_EXTERNAL_BLOCKERS`, or `PHASES_61_70_NOT_READY`.
+- **Standing rule:** retention's remote-byte deletion is expected to report
+  `OBJECT_STORAGE_BLOCKED`. That is the honest value, and a `READY` that quietly
+  skipped it would be the first time this ledger claimed something it had not done.
+
+### 9.2 Order
+
+```
+61 quotas ─┬─ 62 coordination ─┬─ 66 operator surfaces ─┐
+           ├─ 63 reply moderation ─┤                    ├─ 70 certification
+           ├─ 64 erasure ──────────┼─ 68 audit rule ────┤
+           └─ 65 retention ────────┴─ 67 degraded ──────┘
+                                     69 tenant sweep ───┘
+```
+
+**Batch A** — 61, 62, 63, 64. The four that close a declared-but-absent capability
+or a real hole: quotas, coordination review, reply moderation, erasure. Checkpoint
+commit.
+
+**Batch B** — 65, 66, 67, 68, 69, 70. Retention, the operator surfaces, degraded
+mode, the audit rule, the tenant sweep, and the band's certification. One full
+certification run at the end.

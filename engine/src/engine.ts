@@ -1,4 +1,5 @@
 import { createCommandBus, type Transactional } from './runtime/bus.ts';
+import { createQuotaGuard } from './runtime/quota.ts';
 import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
 import { createMetrics } from './runtime/metrics.ts';
@@ -113,6 +114,15 @@ export interface EngineOptions {
   readonly providers?: Partial<EngineProviders>;
   readonly config?: Partial<EngineConfig>;
   readonly retry?: { maxAttempts?: number; baseMs?: number; factor?: number; maxMs?: number };
+  /**
+   * Phase 61 throttling. On by default.
+   *
+   * Turned off only by suites that dispatch at a volume no person produces — the
+   * command-boundary sweep sends every command eleven malformed payloads as three
+   * actors, which is thousands of requests and legitimately exceeds every quota. A
+   * suite testing refusals should be refused for the reason it is testing.
+   */
+  readonly throttle?: boolean;
   /** Identity of this worker, so two processes can be distinguished. */
   readonly workerId?: string;
   readonly leaseMs?: number;
@@ -161,6 +171,12 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     ? (work) => db.transaction(async () => work())
     : undefined;
 
+  // Phase 61. Wired here rather than defaulted inside the bus, because a bus that
+  // constructed its own throttle would make every unit test subject to one — and
+  // because the store it counts in is the composition root's business, not the bus's.
+  const quota =
+    options.throttle === false ? undefined : createQuotaGuard({ windows: store.quotaWindows, clock });
+
   const bus = createCommandBus({
     authorizer,
     idempotency,
@@ -169,6 +185,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     ids,
     logger,
     metrics,
+    ...(quota === undefined ? {} : { quota }),
     ...(transaction === undefined ? {} : { transaction }),
   });
   const orchestrator = createOrchestrator({

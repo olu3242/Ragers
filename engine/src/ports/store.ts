@@ -10,6 +10,7 @@ import type {
   Visibility,
 } from '../domain/types.ts';
 import type { WorkState } from '../runtime/work.ts';
+import type { QuotaWindow } from '../domain/quota.ts';
 import type { Role } from '../runtime/authz.ts';
 import type { Corroboration, ExperienceShare } from '../domain/corroboration.ts';
 import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts';
@@ -832,6 +833,14 @@ export interface ActionPlanStepRow {
   readonly executedAt?: number;
 }
 
+/**
+ * Phase 61 — one throttle window per (actor, class).
+ *
+ * Note what is absent: no reason, no severity, no suspicion, no score. A quota is not a
+ * judgement, and a row that could carry one would eventually be read as one.
+ */
+export type QuotaWindowRow = QuotaWindow;
+
 export interface HandoffRow {
   readonly id: string;
   readonly triggerId: string;
@@ -1015,4 +1024,7 @@ export interface EngineStore {
   readonly recommendations: Table<RecommendationRow>;
   readonly actionPlans: Table<ActionPlanRow>;
   readonly actionPlanSteps: Table<ActionPlanStepRow>;
+
+  // ── Phase 61 ─────────────────────────────────────────────────────────────
+  readonly quotaWindows: Table<QuotaWindowRow>;
 }

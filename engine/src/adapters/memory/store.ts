@@ -72,4 +72,5 @@ export const createMemoryStore = (): EngineStore => ({
   recommendations: createMemoryTable(),
   actionPlans: createMemoryTable(),
   actionPlanSteps: createMemoryTable(),
+  quotaWindows: createMemoryTable(),
 });

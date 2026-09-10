@@ -57,6 +57,21 @@ export type Transactional = <T>(
 
 export const passThroughTransaction: Transactional = (work) => work();
 
+/**
+ * Phase 61 — the throttle, as a port.
+ *
+ * A port rather than a store dependency because the bus must not know what a quota is
+ * counted in. `charge` returns a refusal or nothing; whether that involved a row, a
+ * window or a fixed policy is the adapter's business.
+ *
+ * Returning `EngineError | undefined` rather than a boolean on purpose: the refusal
+ * carries the retry-after, and a boolean would leave the bus inventing a message for a
+ * decision it did not make.
+ */
+export interface QuotaGuard {
+  charge(command: string, actor: ActorContext): Promise<EngineError | undefined>;
+}
+
 export interface CommandBusDeps {
   readonly authorizer: Authorizer;
   readonly idempotency: IdempotencyStore;
@@ -67,6 +82,11 @@ export interface CommandBusDeps {
   readonly metrics: Metrics;
   /** Defaults to a pass-through, which is correct only for in-memory runs. */
   readonly transaction?: Transactional;
+  /**
+   * Absent means unthrottled, which is what every test that does not care about
+   * quotas wants — and what the composition root overrides in a real engine.
+   */
+  readonly quota?: QuotaGuard;
 }
 
 export interface CommandBus {
@@ -127,7 +147,7 @@ const envelopeFault = (envelope: {
 
 /**
  * The single write path. Order is fixed and not negotiable:
- *   idempotency → resolve → authorize → domain transition → persist+outbox → complete.
+ *   idempotency → quota → resolve → authorize → domain transition → persist+outbox → complete.
  * Handlers are held privately, so no caller can skip the authorize step by
  * invoking a handler directly.
  */
@@ -181,6 +201,10 @@ export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
       );
     }
 
+    // 1b. Quota. After the reservation so a replay of one intent is charged once,
+    // and before resolve, authorize and any write so a throttled request costs
+    // nothing but the check. A throttle is retryable, so `finishErr` releases the
+    // key rather than recording the refusal — the caller is meant to come back.
     const finishErr = async (error: EngineError): Promise<Result<TOutput, EngineError>> => {
       // Rejections are recorded so a replay is stable, except transient ones,
       // which must remain retryable under the same key.
@@ -190,6 +214,24 @@ export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
       logger.warn('command.failed', { code: error.code, kind: error.kind });
       return err(error);
     };
+
+    if (deps.quota !== undefined) {
+      // Guarded, because this runs before the `try` below and a throwing throttle store
+      // would otherwise escape `dispatch` entirely — taking the worker down over a
+      // counter. An unavailable quota allows the request: a throttle is a convenience,
+      // and authorization is what protects the system.
+      let throttled: EngineError | undefined;
+      try {
+        throttled = await deps.quota.charge(envelope.name, envelope.actor);
+      } catch (cause) {
+        deps.metrics.increment('quota.unavailable', { command: envelope.name });
+        logger.warn('quota.unavailable', { cause: cause instanceof Error ? cause.message : String(cause) });
+      }
+      if (throttled !== undefined) {
+        deps.metrics.increment('command.throttled', { command: envelope.name });
+        return await finishErr(throttled);
+      }
+    }
 
     try {
       // 2. Resolve the target resource.
