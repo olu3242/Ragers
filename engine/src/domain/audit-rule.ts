@@ -74,13 +74,24 @@ export type AuditExemption =
   /** The action's own table is the attributable record; an audit row would duplicate it. */
   | 'own_table_is_the_record'
   /** Reading, or marking something read. No effect on anybody. */
-  | 'read_only';
+  | 'read_only'
+  /**
+   * Auditing it would *create* the disclosure the action's own privacy rule forbids.
+   *
+   * A different kind of exemption from the three above, and the reason it needs its own
+   * value: those say an audit row would be *redundant*, and this says it would be
+   * *harmful*. The audit trail is staff-readable by design, so writing "actor X watched
+   * experience Y" into it builds exactly the record of who-watches-what that Phase 78
+   * exists to prevent — an operator could then answer a question the author cannot.
+   */
+  | 'auditing_would_disclose';
 
 export const AUDIT_EXEMPTIONS: readonly AuditExemption[] = [
   'own_action_own_content',
   'internal_recomputation',
   'own_table_is_the_record',
   'read_only',
+  'auditing_would_disclose',
 ];
 
 /**
@@ -179,6 +190,15 @@ export const UNAUDITED_COMMANDS: Readonly<Record<string, AuditExemption>> = {
 
   // Reading, or marking your own notification read.
   'notification.markRead': 'read_only',
+
+  // Phase 78 — and this is the one exemption whose reason is a privacy rule rather than
+  // redundancy. A watch is already attributable from its own row, so `own_table_is_the_record`
+  // would be true; but the stronger fact is that an audit row would be *harmful*. The trail
+  // is staff-readable, so "actor X watched experience Y" in it would let an operator answer
+  // "who is watching my experience" — a question the author themselves is refused, and the
+  // question the whole phase exists to make unanswerable.
+  'watch.start': 'auditing_would_disclose',
+  'watch.stop': 'auditing_would_disclose',
 };
 
 /**

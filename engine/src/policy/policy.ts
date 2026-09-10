@@ -79,6 +79,10 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'moderation.read_queue': { role: 'moderator' },
 
   // ── Social graph & notifications ────────────────────────────────────
+  // Watching a thing needs an account and nothing more. Anybody who can read something can
+  // watch it, and the watch row belongs to the watcher — so there is no ownership clause on
+  // the *target*, only the implicit one on the row, which RLS holds.
+  'watch.manage': { role: 'member' },
   'graph.follow': { role: 'member' },
   'graph.block': { role: 'member' },
   'graph.mute': { role: 'member' },

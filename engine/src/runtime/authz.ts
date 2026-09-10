@@ -95,6 +95,7 @@ export type PolicyAction =
   | 'moderation.action'
   | 'moderation.read_queue'
   // graph / notifications
+  | 'watch.manage'
   | 'graph.follow'
   | 'graph.block'
   | 'graph.mute'

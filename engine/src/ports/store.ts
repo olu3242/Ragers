@@ -862,6 +862,26 @@ export interface ActionPlanStepRow {
 export type QuotaWindowRow = QuotaWindow;
 
 /**
+ * Phase 78 — watching a thing.
+ *
+ * A person and a thing, where the thing is an experience or a subject. Not a `graph_edge`:
+ * a follow between people raises a mutual-visibility question that a watch does not, and
+ * sharing the table would mean sharing the answer.
+ *
+ * The privacy rule runs the opposite way to every other one here — the *thing* is public and
+ * the *watcher* is not — so there is no `watchersOf` read anywhere, only a count.
+ */
+export type WatchTarget = 'experience' | 'subject';
+
+export interface WatchRow {
+  readonly id: string;
+  readonly actorId: string;
+  readonly targetType: WatchTarget;
+  readonly targetId: string;
+  readonly createdAt: number;
+}
+
+/**
  * Phase 65 — one row per artefact per sweep, including the artefacts nothing happened to.
  *
  * "We looked and it was held" is the answer to the only question anybody asks about a
@@ -1070,4 +1090,7 @@ export interface EngineStore {
 
   // ── Phase 65 ─────────────────────────────────────────────────────────────
   readonly retentionSweeps: Table<RetentionSweepRow>;
+
+  // ── Phase 78 ─────────────────────────────────────────────────────────────
+  readonly watches: Table<WatchRow>;
 }

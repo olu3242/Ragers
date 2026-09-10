@@ -2,6 +2,7 @@ import { createCommandBus, type Transactional } from './runtime/bus.ts';
 import { createQuotaGuard } from './runtime/quota.ts';
 import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
+import { createWatchErasureConsumer, registerWatchEngine } from './engines/watch.engine.ts';
 import { createMetrics } from './runtime/metrics.ts';
 import { createRetryPolicy } from './runtime/retry.ts';
 import { systemClock, type Clock } from './runtime/clock.ts';
@@ -244,6 +245,9 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerReactionEngine(deps);
   registerConversationEngine(deps);
   registerGraphEngine(deps);
+  // Phase 78 — watching a thing. Separate from the social graph on purpose: a follow between
+  // people raises a mutual-visibility question a watch does not.
+  registerWatchEngine(deps);
   registerNotificationEngine(deps);
   registerCreatorEngine(deps);
   registerGovernanceEngine(deps);
@@ -307,6 +311,9 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // Phase 49: outbound delivery is a consumer over the same outbox, so a webhook inherits
   // the leased-job runtime's retries and dead-letter queue rather than getting its own.
   orchestrator.subscribe(createDeliveryConsumer(deps));
+  // Phase 78: a deleted experience takes its watches with it. There is no foreign key to
+  // cascade — `target_id` points at one of two tables — so this is a consumer.
+  orchestrator.subscribe(createWatchErasureConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));
 

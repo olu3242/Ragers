@@ -123,6 +123,7 @@ export const createPostgresStore = (db: Db): EngineStore => {
     actionPlanSteps: table(descriptor({ relation: 'action_plan_steps', idColumn: 'id' })),
     quotaWindows: table(descriptor({ relation: 'quota_windows', idColumn: 'id' })),
     retentionSweeps: table(descriptor({ relation: 'retention_sweeps', idColumn: 'id' })),
+    watches: table(descriptor({ relation: 'experience_watches', idColumn: 'id' })),
     // Keyed by the organization it describes: one plan per organization.
     entitlements: table(
       descriptor({

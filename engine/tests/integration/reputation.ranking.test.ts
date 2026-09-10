@@ -189,26 +189,65 @@ test('a more-engaged experience outranks a less-engaged one of the same age', as
 
   const feed = await getRankedFeed(h.engine);
   assert.equal(feed.order, 'ranked');
-  assert.equal(feed.entries[0]?.experienceId, popular, 'engagement lifts the more-recognised experience');
+  // Phase 73: engagement is the *last* factor, so it decides only among candidates already
+  // equal on context, corroboration, recency and fairness — which these two are. It lifts
+  // this one as a tiebreak, not as a weighted term, and that is the whole difference between
+  // this ordering and an engagement ranking.
+  assert.equal(feed.entries[0]?.experienceId, popular, 'engagement breaks a tie between equals');
   assert.equal(feed.entries[1]?.experienceId, quiet);
 });
 
-test('the feed falls back to chronological order when ranking has not run', async () => {
+test('the ordering no longer depends on a ranking job having run', async () => {
+  // **This test changed with Phase 73, and the change is the point.**
+  //
+  // It used to clear `ranking_inputs` to simulate the ranking job never having run, and
+  // assert the feed fell back to chronological. That contract existed because ordering read
+  // `rank_score`, a stored number — so before the job ran, every entry was 0 and the feed
+  // had no order at all.
+  //
+  // Ordering is now computed from the rows on each read, so there is no cold-start window
+  // and no stale-score window either. Clearing `ranking_inputs` changes nothing, which is
+  // strictly better than falling back: the feed is ordered correctly *immediately* rather
+  // than being ordered plainly until a consumer catches up.
   const h = createEngineHarness();
   const author = await h.signUp('author@example.com');
   const first = await publish(h, author.actor, 'rage', 'Earlier.');
   h.clock.advance(60_000);
   const second = await publish(h, author.actor, 'rave', 'Later.');
 
-  // Clear ranking inputs to simulate ranking never having run.
   for (const row of await h.engine.store.rankingInputs.all()) {
     await h.engine.store.rankingInputs.remove(row.id);
   }
 
   const feed = await getRankedFeed(h.engine);
-  assert.equal(feed.order, 'chronological', 'the feed always renders');
-  assert.equal(feed.entries[0]?.experienceId, second, 'newest first');
-  assert.equal(feed.entries[1]?.experienceId, first);
+  assert.equal(feed.order, 'ranked', 'ordering does not wait for a job');
+  assert.equal(feed.entries.length, 2, 'and both experiences are present');
+  // Both are equal on context, corroboration, recency bucket and fairness (both withheld),
+  // and equal on engagement — so they fall to the stable id tiebreak. Asserting the *set*
+  // rather than the order, because asserting an id order would be asserting the tiebreak.
+  assert.deepEqual(
+    [...feed.entries.map((entry) => entry.experienceId)].sort(),
+    [first, second].sort(),
+  );
+});
+
+test('the chronological fallback still exists, for when nothing is discoverable', async () => {
+  // The original rule stands: a feed that does not render is worse than one ordered plainly.
+  // What changed is when the fallback is reached — no longer "the job has not run" but
+  // "every candidate failed the read-time status check", which is the case that can still
+  // leave an ordering empty while entries exist.
+  const h = createEngineHarness();
+  const author = await h.signUp('fallback@example.com');
+  const only = await publish(h, author.actor, 'rage', 'Published then hidden.');
+
+  // The projection still lists it; the row no longer qualifies. Exactly the window the
+  // read-time re-check exists for.
+  const experience = await h.engine.store.experiences.get(only);
+  assert.ok(experience);
+  await h.engine.store.experiences.put({ ...experience, status: 'hidden' });
+
+  const feed = await getRankedFeed(h.engine);
+  assert.equal(feed.order, 'chronological', 'the feed still renders');
 });
 
 test('removed content is unrankable', async () => {

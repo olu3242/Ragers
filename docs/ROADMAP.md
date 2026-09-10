@@ -1738,3 +1738,292 @@ capabilities and the work found five more, each by executing rather than reading
 The pattern across all five: every one was found by running something against
 Postgres or by a discovery guard enumerating the real system. None would have been
 found by review.
+
+## 10. Phases 71–80 — discovery and network effects
+
+**Prerequisite:** phases 1–70 certified, with the PR description reconciled against
+`docs/EVIDENCE.md`.
+
+### What this band is for
+
+Everything before this made the system correct, honest and safe to operate. None of
+it made it *useful at scale*. A hundred experiences are browsable; a hundred thousand
+are not, and the difference is discovery.
+
+The whole risk of this band is contained in one sentence: **the standard solution to
+discovery is engagement ranking, and engagement ranking is the thing this product
+exists not to be.** Reddit and X rank by what provokes response. On a platform where
+the content is *what happened to people*, that means ranking distress by how much
+distress it causes — and the accounts that rank highest are the ones written most
+provocatively, not the ones describing the worst thing.
+
+So the band's test is not "can we build discovery". It is: **can Ragers become more
+useful as the network grows without its ranking becoming a popularity contest?**
+
+### 10.1 What the audit found — the composite that survived
+
+Every other band in this codebase refused a composite score. Priority (41–43) is a
+*band* over named inputs with `explainOrder` naming the deciding dimension.
+Reputation (56) returns `undefined` from `evolutionCompositeScore()` so the absence is
+assertable. Trust is internal and never rendered as a number.
+
+**Ranking is the one place a composite survived**, because it was built in Phase 16
+before those rules existed. `src/engines/ranking.engine.ts`:
+
+```
+computeScore = (engagement * 0.5 + fairness * 0.3 + balance) * recencyDecay
+```
+
+Three things are wrong with it, and each is a violation of a rule this codebase
+states elsewhere:
+
+1. **`engagementScore` adds corroborations to reactions and replies.**
+   `reRageCount + reRaveCount + same + fairPoint + replyCount` — a claim that
+   something happened to somebody, summed with a tap and a comment. That is
+   `corroboration != popularity` and `engagement != truth` broken in one expression,
+   in the one place the result decides what people see. Shares were correctly excluded;
+   corroborations were not, and they are the more serious conflation.
+
+2. **`fairnessScore` uses `?? 0` for an unvoted experience.** `totalVotes === 0 ? 0`
+   means a brand-new account nobody has voted on contributes exactly what a
+   unanimously-unfair one does, at a 0.3 weight. This is the same defect class already
+   found twice — the `?? 0` publishing "0% reported resolved", and
+   `INSUFFICIENT_DATA != zero`. Unknown is not zero, and here it is being read as
+   "the community judged this unfair".
+
+3. **`finalScore` is one opaque number.** Nothing renders the factors, so no reader —
+   operator or author — can be told why one account is above another. The weights
+   `0.5` and `0.3` are stated nowhere but in the arithmetic.
+
+Phase 73 is therefore not "add ranking". It is **replacing the composite with the
+explainable form the rest of the codebase already uses**, and that is the substance of
+the band.
+
+A second, smaller finding: `searchExperiences` reads `search_documents` and does not
+re-check status. The purge consumer covers all four removal events, so the index is
+correct *eventually* — and Phase 51 already learned this lesson once with `relatedTo`,
+where a projection built at assertion time outlived the thing it described. The read
+re-checks now.
+
+### 10.2 The band's constraints
+
+- **Discovery must not become a generic social feed.** What is surfaced is *what
+  happened*, organised by what it was about — not by what performed.
+- **Ranking must be explainable or it does not ship.** Every ordering states the
+  factor that decided it. There is no number without its factors.
+- **Trust may constrain amplification; it may never rank.** Trust can stop something
+  being amplified. It cannot make something rank higher, because a "more trusted
+  person's experience ranks above yours" is a caste system with a scoring function.
+- **A relevance profile is built from what somebody declared or did deliberately.**
+  Follows, chosen categories, explicit locality. Not inferred sensitivity, not dwell
+  time, not anything a person would be surprised to learn was recorded.
+- **Nothing removed, hidden, under review, private or unpublished may appear** — in
+  discovery, search, related reads, ranking, watch lists or a notification payload.
+  Checked at read time, not trusted to a consumer having drained.
+- **Emerging is not verified.** A pattern detected early is labelled as early.
+- **A watcher is never public.** Counts may be; identities never.
+
+Every distinction the earlier bands hold stays held, and this band adds two:
+
+```
+reach     != truth
+relevance != popularity
+```
+
+### 10.3 The 71–80 gate — dependencies verified against what exists
+
+| Phase | Needs | Status in the certified foundation | True gap |
+|---|---|---|---|
+| 71 Experience Discovery | a feed projection, governed filters, status | `feed_entries` ✓ with `suppressed` ✓, projection consumers for publish/suppress/purge ✓ | **the governed read.** `getRankedFeed` filters `suppressed` and nothing re-checks the experience's status at read time; there is no context filter (entity, category, locality) at all |
+| 72 Contextual Search | an index over safe fields | `search_documents` ✓ carrying no actor reference ✓, purge on all four removal events ✓ | **a read-time status re-check**, and a structural guard that no internal attribute reaches a hit — true today, asserted nowhere |
+| 73 Relevance Ranking | factors, a comparison, a reason | `ranking_inputs` ✓ with four stored factors ✓ | **the composite has to go.** See §10.1 — this is the phase, and two of its three findings are defects rather than absences |
+| 74 User Relevance Profile | declared preferences, explicit interactions | follows ✓, categories ✓, no dwell-time or view tracking anywhere ✓ (which is the useful finding) | **the profile itself**, and a forbidden-input guard so the absences stay absences |
+| 75 Organization Intelligence Read | governed evidence, responsiveness, benchmarks | responsiveness ✓, benchmark ✓ (data-blocked), cases ✓, disputes ✓ | **one composed read**, and the refusal of a public league table |
+| 76 Emerging Pattern Discovery | clusters, signals, lifecycle states | `emerging` is already a lifecycle state ✓, floors ✓ | **the read that surfaces them**, with the floors applied and `emerging` never rendered as established |
+| 77 Community Network Effects | corroborations, reach, trust | corroborations ✓, `uniqueExperiencers` ✓ | **reach as a count of people**, and the refusal of self-manufactured amplification |
+| 78 Experience Follow / Watch | an edge table, idempotency | `graph_edges` ✓ — but keyed on *actors*, for follow/mute/block | **watching an experience.** A different relation with a different privacy rule: a follow is between people and a watch is a person and a thing |
+| 79 Governed Notifications | fan-out, dedupe, delivery | `notifications` ✓ with `unique (recipient_actor_id, dedupe_key)` ✓, fan-out consumer ✓ | **the stages, named.** Eligibility and authorization happen implicitly inside one handler, so neither is separately testable and a notification cannot be refused for a stated reason |
+| 80 Certification | the harness, six statuses | ✓ | the band's own gates |
+
+Three things this changes about the band as sketched:
+
+1. **Phase 73 is a repair, not a feature.** The engagement composite exists and
+   decides the feed today. Adding an explainable ranking beside it would leave two
+   answers to "what order is this in", and the opaque one is the one already wired.
+2. **Phase 74's finding is an absence worth keeping.** There is no view tracking, no
+   dwell time and no scroll depth anywhere in the codebase — so a privacy-safe
+   relevance profile is not a compromise here, it is the only kind available. The
+   phase's job is to make that permanent rather than incidental.
+3. **Phase 78 is not a fourth graph edge kind.** A follow is between two people and
+   carries a mutual-visibility question. A watch is a person and an experience, and
+   the privacy rule is the opposite direction: the watched thing is public and the
+   watcher is not.
+
+### Phase 71 — Experience Discovery
+
+- **Owner** E5 Feed · **support** E7 Subjects, E8 Signals
+- **Objective:** find published experiences by what they were about, through governed
+  filters, with status re-checked at read time.
+- **Design constraint:** the read is the authority on status, not the projection. A
+  projection is a cache and a cache is wrong for a window.
+- **Design constraint:** no filter may accept an internal attribute — trust, severity
+  band, screening outcome or ranking factor as an *input*.
+- **Failure tests:** a removed experience is absent before its consumer has drained; a
+  private one never appears; an unpublished one never appears; a filter on an internal
+  attribute is refused; discovery is deterministic for fixed inputs.
+
+### Phase 72 — Contextual Search
+
+- **Owner** E5 · **support** E1, E7, E11
+- **Objective:** search the safe searchable fields, with the same read-time guarantee.
+- **Design constraint:** a hit carries only what a public page already shows. The
+  document holds no actor reference and the hit adds none.
+- **Failure tests:** removed content absent from results immediately; a hit exposes no
+  internal attribute (asserted over the hit's own keys, so a field added later fails);
+  a query for a term only present in withheld text finds nothing.
+
+### Phase 73 — Relevance Ranking
+
+- **Owner** E5 · **support** E4 Trust, E8 Signals, E11 Intelligence
+- **Objective:** replace the opaque composite with named factors and a stated reason.
+- **Design constraint:** **corroboration is not engagement.** They are separate
+  factors and neither is summed into the other.
+- **Design constraint:** **an unknown factor is withheld, not zero.** Fairness with no
+  votes is absent from the comparison rather than contributing nothing-as-if-negative.
+- **Design constraint:** ordering is a comparison over named factors in stated
+  precedence, and the read names the factor that decided each pair — the
+  `explainOrder` pattern from Phase 43, which already exists and works.
+- **Design constraint:** **trust constrains amplification and never ranks.** No trust
+  value may appear as a ranking factor, enforced by the Phase 48 discovery guard.
+- **Failure tests:** ranking is deterministic; the reason is present on every result;
+  no result carries a composite; an experience with no fair votes is not ranked as
+  unfair; a highly-reacted account does not outrank a widely-corroborated one on
+  reactions alone; no trust value reaches the comparison.
+
+### Phase 74 — User Relevance Profile
+
+- **Owner** E1 Experience · **support** E6 Community, E12 Intelligence
+- **Objective:** a privacy-safe relevance context from what somebody declared or did
+  deliberately.
+- **Design constraint:** **declared or deliberate inputs only** — follows, watches,
+  chosen categories, explicit locality. A forbidden-input list covers dwell time, view
+  history, scroll depth, inferred demographics and anything derived from the *content*
+  of what somebody read.
+- **Design constraint:** the profile is derived on read and stored nowhere, so there is
+  no row to leak and nothing to forget to delete.
+- **Failure tests:** the profile contains no inferred attribute; a forbidden input has
+  no path in; an empty profile produces unfiltered discovery rather than an empty feed;
+  the profile is not readable by anybody but its subject.
+
+### Phase 75 — Organization Intelligence Read
+
+- **Owner** E11 · **support** E8, E9, E10
+- **Objective:** one composed read over governed evidence about one organization.
+- **Design constraint:** it composes existing governed reads and computes no new
+  judgement.
+- **Design constraint:** **no public league table.** `organizationLeaderboard()`
+  returns undefined, because ranking companies against each other from this data is
+  Phase 47's question and it is data-blocked for a reason.
+- **Failure tests:** every figure is a `Measure` that can be withheld; no ranking
+  across organizations exists; the read is refused to somebody who does not act for
+  the organization where the underlying read is already restricted.
+
+### Phase 76 — Emerging Pattern Discovery
+
+- **Owner** E8 · **support** E7, E11
+- **Objective:** surface patterns early, labelled as early.
+- **Design constraint:** **emerging is not verified**, and the vocabulary must make
+  that impossible to misread. No "confirmed", no "verified", no bare count.
+- **Design constraint:** the same floors as every other measure. Below them the
+  pattern is not surfaced at all rather than surfaced with a caveat.
+- **Failure tests:** a pattern below the person floor is absent; an emerging pattern
+  is never labelled established; a stale signal is not surfaced as current; the read
+  is idempotent.
+
+### Phase 77 — Community Network Effects
+
+- **Owner** E6 · **support** E4, E7
+- **Objective:** let genuine shared experience reinforce itself, and refuse the
+  manufactured kind.
+- **Design constraint:** **reach is a count of people, never of rows.** Six accounts
+  from one person is one person.
+- **Design constraint:** self-amplification is refused, and the refusal is structural:
+  nobody's own action on their own experience contributes to its reach.
+- **Failure tests:** self-amplification contributes nothing; a share does not increase
+  reach (it is amplification, not experience); reach over one person is one; a
+  retracted corroboration reduces reach.
+
+### Phase 78 — Experience Follow / Watch
+
+- **Owner** E6 · **support** E1, E8, E10
+- **Objective:** follow what happens to an experience without becoming visible for
+  doing so.
+- **Design constraint:** **the watcher is never public.** A count may be; an identity
+  never, on any surface or in any payload.
+- **Design constraint:** idempotent. Watching twice is watching.
+- **Failure tests:** a duplicate watch changes nothing; a watcher identity appears on
+  no read; watching an unpublished or removed experience is refused; unwatching is
+  idempotent; a watch on a deleted experience is gone.
+
+### Phase 79 — Governed Notifications
+
+- **Owner** E12 · **support** E6, E8, E10
+- **Objective:** make the notification pipeline's stages explicit and separately
+  testable: **trigger → eligibility → authorization → dedupe → delivery**.
+- **Design constraint:** each stage can refuse, with a reason, and the reason is
+  recorded rather than inferred from an absent notification.
+- **Design constraint:** **authorization is not eligibility.** "You asked not to be
+  told" and "you may not be told" are different refusals and must not collapse.
+- **Design constraint:** replay-safe. The dedupe key is content-derived, so
+  re-delivering an event notifies nobody twice.
+- **Failure tests:** each stage refuses for its own reason; replay produces no
+  duplicate; a notification about content the recipient may not see is refused at
+  authorization even if eligible; a preference refusal is distinguishable from an
+  authorization refusal; the payload carries no withheld field.
+
+### Phase 80 — Discovery & Network Certification
+
+- **Owner** E5 · **all relevant engines**
+- **Required scenario, run twice — once for a Rage and once for a Rave.** An
+  experience is published → it is discoverable by what it was about → it is searchable
+  → it is ranked with a stated reason → a second person watches it → a third
+  corroborates → reach counts people → an emerging pattern is surfaced as emerging →
+  the watcher is notified once, and again on replay is notified zero more times → the
+  author removes it → and it is absent from discovery, search, ranking, the watch list
+  and every subsequent notification.
+- **Required failure tests, all of them:** removed absent from search ·
+  private/unpublished absent · self-amplification rejected · ranking deterministic ·
+  ranking reason exposed · insufficient sample withheld · duplicate watch idempotent ·
+  unauthorized watch/read refused · notification replay does not duplicate · stale
+  signal not amplified as current · concurrent discovery and update safe.
+- **Decision values:** `PHASES_71_80_READY`,
+  `PHASES_71_80_READY_WITH_EXTERNAL_BLOCKERS`, or `PHASES_71_80_NOT_READY`.
+
+### 10.4 Order
+
+```
+73 ranking repair ─┬─ 71 discovery ─┬─ 76 emerging ──┐
+                   ├─ 72 search ────┤                ├─ 80 certification
+74 profile ────────┤                ├─ 77 reach ─────┤
+                   └─ 75 org read ──┤                │
+                        78 watch ───┴─ 79 notifications ┘
+```
+
+**Batch A** — 71, 72, 73, 74, 75, **and 78**. The reads, the ranking repair, and the
+watch table. Checkpoint commit.
+
+**Batch B** — 76, 77, 79, 80. Emerging patterns, reach, the notification stages, and the
+band's certification. One full certification run at the end.
+
+**A dependency the order above got wrong, corrected here rather than silently.** Phase 74's
+profile draws on *followed subjects*, and following a subject does not exist: `graph_edges`
+carries `follow | block | mute` against `actor | alias` only, so every follow in this
+codebase is a follow of a person. Phase 78 is where a person can follow a *thing*, so 74
+depends on 78 and the diagram had them in different batches.
+
+The fix is one mechanism rather than two. A watch is *a person and a thing*, and both an
+experience and a subject are things — so Phase 78's table is
+`(actor, target_type ∈ {experience, subject}, target_id)` and carries one privacy rule for
+both. Extending `graph_edges` with two new target kinds was the alternative and it is worse:
+a follow between people raises a mutual-visibility question that a watch does not, and
+sharing a table would mean sharing the answer.

@@ -3,6 +3,7 @@ import type { Consumer } from '../runtime/orchestrator.ts';
 import { eq } from '../ports/store.ts';
 import type { FeedEntry, RankingInput, Trend, TrendWindow } from '../ports/store.ts';
 import type { ExperienceKind } from '../domain/types.ts';
+import { discover } from './discovery.engine.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -14,6 +15,28 @@ import type { EngineDeps } from './deps.ts';
  *
  * The balance adjustment exists to counteract the "complaint board" risk in
  * PRD §10 — if Rages outpace Raves, Raves gain a lift.
+ *
+ * ## Phase 73 — `finalScore` no longer decides anything
+ *
+ * `computeScore` is retained, still computed, still stored, and **no longer read by any
+ * ordering.** It is kept rather than deleted for two reasons: the `ranking_inputs` and
+ * `feed_entries.rank_score` columns exist and the additive-migration rule forbids dropping
+ * them, and the four stored factors are genuinely useful as recorded inputs even though
+ * their weighted sum was not.
+ *
+ * Why the sum had to go — the argument is in `src/domain/relevance.ts` and the summary is
+ * that it broke three rules this codebase states elsewhere. It added corroborations
+ * (`reRageCount`, somebody saying *this happened to me too*) to reactions and replies, so
+ * `corroboration != popularity` and `engagement != truth` were both violated by one `+`, in
+ * the one place the result decided what everybody saw. It read "nobody has voted" as
+ * `fairness = 0`, giving every new experience the same contribution as a unanimously-unfair
+ * one at a 0.3 weight. And it was one opaque number, so nothing could tell an author or an
+ * operator why one account sat above another.
+ *
+ * `getRankedFeed` now delegates to `discover`, which orders by named factors in stated
+ * precedence and returns the reason each pair was ordered that way. Leaving both orderings
+ * live would have meant two answers to "what order is this in", with the opaque one already
+ * wired to the home page.
  */
 export const HALF_LIFE_MS = 24 * 60 * 60 * 1_000;
 
@@ -43,6 +66,13 @@ export const balanceAdjustment = (kind: ExperienceKind, context: BalanceContext)
   return kind === 'rage' ? lift : 0;
 };
 
+/**
+ * The Phase 16 composite. **Superseded — nothing orders by this.**
+ *
+ * Retained because the columns it fills cannot be dropped and because a recorded input is
+ * worth keeping even when its weighting was wrong. `rankingCompositeIsAuthoritative()`
+ * returns false so a future edit that re-wires an ordering to it has a test to argue with.
+ */
 export const computeScore = (parts: {
   engagementScore: number;
   fairnessScore: number;
@@ -122,25 +152,44 @@ export interface RankedFeed {
 /**
  * Ranked read with a chronological fallback. The feed always renders, even when
  * ranking has not run or has failed.
+ *
+ * **Phase 73: the ordering is now `discover`'s.** The entries are looked up by the ids
+ * discovery returned, so this keeps its `FeedEntry[]` signature for the two callers that
+ * have it while the *order* comes from named factors with a stated reason. The
+ * chronological fallback stays and is now reached when discovery returns nothing at all —
+ * a feed that does not render is still worse than one ordered plainly.
  */
 export const getRankedFeed = async (
   deps: EngineDeps,
   options: { kind?: ExperienceKind; limit?: number } = {},
 ): Promise<RankedFeed> => {
+  const discovered = await discover(deps, {
+    ...(options.kind === undefined ? {} : { kind: options.kind }),
+    limit: options.limit ?? 25,
+  });
+
+  if (discovered.length > 0) {
+    const entries: FeedEntry[] = [];
+    for (const result of discovered) {
+      const entry = await deps.store.feedEntries.get(result.experienceId);
+      if (entry) entries.push(entry);
+    }
+    return { entries, order: 'ranked' };
+  }
+
+  // Nothing ranked — either there is nothing published, or every candidate failed the
+  // read-time status check. Fall back rather than returning an empty page on an ordering
+  // failure, which is the original rule and still the right one.
   const entries = await deps.store.feedEntries.query([
     { field: 'suppressed', op: 'isFalse' },
     ...(options.kind === undefined ? [] : [eq<FeedEntry>('kind', options.kind)]),
   ]);
-  const scored = await deps.store.rankingInputs.count();
-  const order: FeedOrder = scored === 0 ? 'chronological' : 'ranked';
-
-  const sorted = [...entries].sort((a, b) =>
-    order === 'ranked'
-      ? b.rankScore - a.rankScore || b.publishedAt - a.publishedAt
-      : b.publishedAt - a.publishedAt,
-  );
-  return { entries: sorted.slice(0, options.limit ?? 25), order };
+  const sorted = [...entries].sort((a, b) => b.publishedAt - a.publishedAt);
+  return { entries: sorted.slice(0, options.limit ?? 25), order: 'chronological' };
 };
+
+/** Nothing orders by the composite. Asserted rather than trusted to review. */
+export const rankingCompositeIsAuthoritative = (): false => false;
 
 const WINDOW_MS: Readonly<Record<TrendWindow, number>> = {
   '1h': 60 * 60 * 1_000,

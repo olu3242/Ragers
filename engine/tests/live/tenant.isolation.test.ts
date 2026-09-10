@@ -336,6 +336,84 @@ describe(
       await expectNoRows(MEMBER, 'authenticated', `select organization_id from organization_entitlements`);
     });
 
+    test('every security-definer function pins its search path', async () => {
+      // Added when Phase 78 introduced `watch_count`, which is `security definer` so it can
+      // count rows the caller cannot select — the only way to publish a watcher count without
+      // publishing the watchers.
+      //
+      // A definer function runs with the owner's privileges, so a mutable `search_path` is a
+      // privilege escalation waiting for somebody to create a table or operator with the right
+      // name in a schema that resolves first. The four identity helpers in 0002 pin it and the
+      // convention was written down in a comment; this makes it a rule, because the next
+      // definer function will be written by somebody who did not read that comment.
+      const unpinned = await h.query<{ proname: string; config: string | null }>(
+        `select p.proname, array_to_string(p.proconfig, ',') as config
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public'
+           and p.prosecdef
+           and (p.proconfig is null or not exists (
+             select 1 from unnest(p.proconfig) as c where c like 'search_path=%'
+           ))
+         order by p.proname`,
+      );
+      assert.deepEqual(
+        unpinned,
+        [],
+        'a security definer function without a pinned search_path is a privilege escalation',
+      );
+
+      // And the sweep is looking at something. The floor is 2 rather than the 4 I first
+      // assumed: of the four identity helpers in 0002, only `current_actor_role` is
+      // `security definer` — the other three are plain functions that read a setting, so they
+      // need no elevated privilege and correctly do not ask for one. `watch_count` is the
+      // second. Asserting the real number rather than the expected one, because a floor
+      // nobody checked is a floor that passes by accident.
+      const definers = await h.query<{ proname: string }>(
+        `select p.proname from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.prosecdef
+         order by p.proname`,
+      );
+      assert.deepEqual(
+        definers.map((row) => row.proname),
+        ['current_actor_role', 'watch_count'],
+        'the definer functions are exactly the two that need to be, and both are checked above',
+      );
+    });
+
+    test('a watcher is invisible at the database, in both directions', async () => {
+      // Phase 78's rule, held by RLS rather than by the engine. Seeded through the store so
+      // the rows are real, then read as two different people.
+      await h.query(
+        `insert into experience_watches (id, actor_id, target_type, target_id)
+         values ('w_iso_1', $1, 'experience', 'iso_exp')`,
+        [OTHER],
+      );
+
+      // The author of the watched experience cannot see who is watching it.
+      await expectNoRows(MEMBER, 'authenticated', `select actor_id from experience_watches`);
+      // Nor can anybody else, including a signed-out visitor.
+      await expectNoRows(undefined, 'anon', `select * from experience_watches`);
+      // The watcher sees their own row and only their own.
+      const own = await as<{ id: string }>(
+        OTHER,
+        'authenticated',
+        `select id from experience_watches order by id`,
+      );
+      assert.deepEqual(own.map((row) => row.id), ['w_iso_1'], 'a watcher reads their own watch');
+
+      // And the count is available to anybody, through the definer function, without the rows
+      // being. This is the whole reason it is a function rather than a permissive policy: a
+      // count filtered by a predicate is an oracle, and this one takes no predicate.
+      const counted = await as<{ watch_count: number }>(
+        undefined,
+        'anon',
+        `select watch_count('experience'::watch_target, 'iso_exp') as watch_count`,
+      );
+      assert.equal(counted[0]?.watch_count, 1, 'a stranger may count and may not enumerate');
+    });
+
     test('no policy grants every command without scoping it to somebody', async () => {
       // `for all` is legitimate and used throughout: "you may do anything to your own rows"
       // (`actor_id = current_actor_id()`) and "staff own this table" (`is_staff()`) are both

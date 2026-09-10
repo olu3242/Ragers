@@ -189,6 +189,9 @@ test('every port table has a corresponding relation in the migration', () => {
     entitlements: 'organization_entitlements',
     subscriptions: 'integration_subscriptions',
     deliveries: 'integration_deliveries',
+    // Phase 78. Prefixed for the same reason the ESE relations are: the table is about
+    // experiences (and subjects), and a bare `watches` says nothing about what is watched.
+    watches: 'experience_watches',
   };
   const relations = new Set(tableNames(allMigrations));
   const missing: string[] = [];
