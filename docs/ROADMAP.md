@@ -1219,3 +1219,241 @@ P4 runtime ─┬─ P1 experience ─┬─ P3 identity ─┬─ P2 voice ─�
 
 P4 and P1 land together (the runtime is untestable without an aggregate, and the aggregate is unpersistable
 without the runtime). Everything after follows the graph above.
+
+---
+
+## 8. Phases 51–60 — the experience loop
+
+**Prerequisite:** Ragers Foundation RC1 (`docs/releases/RAGERS_FOUNDATION_RC1.md`).
+Phases 1–50 are frozen; nothing in this band rebuilds them.
+
+### What this band is for
+
+Phases 1–50 built a system that can hold one experience correctly from capture to
+outcome. This band is about the **second** experience — what the system may
+legitimately remember, connect and conclude once the same organization, the same
+failure or the same person appears again.
+
+That is exactly where a product like this goes wrong, so the band's constraints are
+narrower than its ambitions:
+
+- **A relationship is between experiences, not between people.** A generic social
+  graph is not in scope and is not a stepping stone to anything here.
+- **Memory is of an experience, not of a person.** Context that accumulates against
+  a *person* is profiling, and it is absent by design rather than deferred.
+- **History is not a ranking.** An organization's pattern history is a record of
+  what happened, and a record does not become a league table because it is stored.
+- **A signal is not permanent truth.** It emerges, stabilises and expires. Nothing
+  in 1–50 lets a signal age, so a stale one currently reads exactly like a live one.
+- **Decay is not deletion.** A signal's weight falls; the rows behind it stay
+  auditable, because "this was true in March" is a fact and erasing it is a lie.
+- **Reputation is not popularity, and not one opaque number.** No raw popularity
+  score, and no single score at all unless every part of it is explainable.
+- **Intelligence stays evidence-backed.** A conclusion drawn across experiences must
+  point at the rows a reviewer can open, or it is not shown.
+- **A recommendation is still a proposal, and a plan is still a proposal.** A plan's
+  steps execute through the authoritative target engines, each facing every check a
+  human would.
+
+The non-negotiables from earlier bands hold unchanged, and this band adds nothing
+that could route around them:
+
+```
+engagement != truth        cluster != signal        signal != fact
+response != resolution     recommendation != decision   decision != effect
+reputation != popularity   AI proposes; governed engines decide
+E12 cannot directly mutate E1–E11        authorization is server-side
+```
+
+### 8.1 The 51–60 gate — dependencies verified against what exists
+
+| Phase | Needs | Status in the frozen foundation | True gap |
+|---|---|---|---|
+| 51 Relationship graph | asserted relations between experiences, canonical pairs, cluster membership | **substantially delivered by E6/E7** — `experience_relations` canonicalises the pair, keys on `(pair, actor)`, carries `assertion` and `status`, and `trustWeightOfRelations` is structurally zero | **reading it as a graph.** There is no traversal, no equivalence between a relation and a shared cluster, and no guard against the same connection being counted twice by two routes. |
+| 52 Rager context memory | an experience's own history: enrichment, resolution events, responses, disputes | inputs **all exist** and are already append-only | **a read that assembles them in order**, scoped to the experience. The risk is the shape, not the data: anything keyed on the *person* rather than the experience is out of scope. |
+| 53 Organization pattern history | organization cases, responses, resolution events, responsiveness snapshots | all ✓ (P35, E9, E10, E11), and `sampleSize` already travels with every median | **the time dimension.** Responsiveness is a snapshot of now; nothing says whether it is better or worse than it was, and no floor policy currently governs a *trend*. |
+| 54 Signal lifecycle | measured signals with windows | `signal_snapshots` ✓ with `windowSpan` and every named metric | **the states.** `emerging · active · stabilizing · resolved · expired` do not exist, so a signal has no way to stop being current. |
+| 55 Decay & recovery | 54 | — | entire. Depends on lifecycle states existing first. |
+| 56 Reputation evolution | contribution reads, responsiveness reads | ✓ (E11), and no popularity input reaches either | **the series.** Reputation answers "now" and nothing answers "changing how". |
+| 57 Cross-experience intelligence | proposals with evidence refs, handoffs, clusters | ✓ (E12, P40), and a proposal with no traceable basis is already refused at creation | **reading across experiences.** Every current proposal is about one subject. |
+| 58 Proactive recommendations | 57 | — | entire. Also needs deduplication: the same finding proposed twice is noise that trains reviewers to dismiss. |
+| 59 Governed action plans | 58, and the dispatch path | dispatch ✓ — approval already runs the target engine's own command and records `dispatched` / `dispatchError` | **multi-step, and partial failure.** One step succeeding and the next being refused is the normal case, not the exception, and a plan that cannot express that would report success for work that did not happen. |
+| 60 Loop certification | all of the above | the harness reports four statuses over 55 gates | the band's own gates, once 51–59 exist, for **both** the Rage and the Rave path. |
+
+Three things this changes about the band as first sketched:
+
+1. **Phase 51 is a read, not a schema.** The relation rows exist and are already
+   canonical. Adding a second edge table would create two answers to "are these two
+   connected" — which is the duplication its own failure test is meant to catch.
+2. **Phase 54 blocks 55, 57 and 60.** Decay needs states to decay between; a
+   cross-experience conclusion that cannot tell a live signal from a stale one is
+   worse than no conclusion; and the loop cannot be certified while a signal has no
+   end.
+3. **Phase 59 is where this band can do real damage.** It is the first thing in the
+   product that executes more than one governed action from one approval. Its whole
+   design is about *not* becoming an autonomous actor: the plan proposes, each step
+   dispatches, and a refused step stays refused and visible.
+
+### Phase 51 — Experience Relationship Graph
+
+- **Owner** E6 Community · **support** E1, E7
+- **Objective:** read the connections between experiences that already exist —
+  asserted relations, shared clusters, shared confirmed entity — as one graph.
+- **Design constraint:** **not a social graph.** Nodes are experiences. There is no
+  edge between people, and no path by which one could be derived.
+- **Design constraint:** one connection is one edge. A pair connected both by an
+  assertion and by shared cluster membership is *one* connection with two reasons,
+  never two connections.
+- **Design constraint:** an edge carries no trust weight. `trustWeightOfRelations`
+  already returns zero and that stays true of the graph as a whole.
+- **Failure test:** graph duplication — assert the same pair twice by two routes and
+  assert the degree does not double.
+
+### Phase 52 — Rager Context Memory
+
+- **Owner** E1 Experience · **support** E6, E12
+- **Objective:** assemble an experience's own history in order — what was asserted,
+  what was confirmed, who responded, what was reported, what was disputed — as one
+  read a reviewer or a copilot can consume.
+- **Design constraint:** **no hidden profiling.** The memory is keyed on the
+  experience. Nothing accumulates against a person, and there is no column in which
+  an inference about a person could be stored.
+- **Design constraint:** derived on read from rows that already exist. A second
+  store of the same facts would be a second version of the truth.
+- **Failure test:** attempt to read a memory keyed on an actor and assert there is no
+  such read; assert the memory of a deleted experience is gone with it.
+
+### Phase 53 — Organization Pattern History
+
+- **Owner** E11 Reputation · **support** E8, E9, E10
+- **Objective:** what has happened with this organization over time — volume,
+  response, resolution, recurrence — as a series rather than a snapshot.
+- **Design constraint:** **no unsupported ranking.** A history is not a position in
+  a table. Nothing here orders organizations against each other; that is P47's
+  question, and P47 is data-blocked for good reasons that apply here too.
+- **Design constraint:** the P38 floors and the P39 differencing guard govern every
+  point in the series, not just the latest one. A series is exactly how a suppressed
+  cell gets recovered by subtraction.
+- **Failure test:** a series whose points individually clear every floor but whose
+  differences do not, and assert the difference is withheld.
+
+### Phase 54 — Signal Lifecycle
+
+- **Owner** E8 Signals
+- **Objective:** give a signal states — `emerging · active · stabilizing · resolved ·
+  expired` — so that being current is something a signal can stop being.
+- **Design constraint:** **a signal is not permanent truth.** The state is derived
+  from measured inputs and elapsed time, never asserted by a person, and never by an
+  organization.
+- **Design constraint:** `resolved` here means the *signal* is no longer live. It
+  does not touch any experience's `resolution_status`, which only experiencers move.
+- **Failure test:** stale signal decay — a signal with no new contribution for the
+  window must leave `active`, and an expired signal must not present as current.
+
+### Phase 55 — Signal Decay & Recovery
+
+- **Owner** E8 Signals · needs 54
+- **Objective:** weight recent contribution over old, and let a signal recover when
+  a pattern returns.
+- **Design constraint:** **the historical record remains auditable.** Decay changes
+  the weight, never the rows. Every contribution that was ever counted is still
+  readable, with its date.
+- **Design constraint:** recovery is measured, not manual. There is no command that
+  revives a signal.
+- **Failure test:** replay the same contributions in a different order and assert the
+  same weight; assert a decayed signal's underlying rows are all still present.
+
+### Phase 56 — Reputation Evolution
+
+- **Owner** E11 Reputation
+- **Objective:** how a contributor's or an organization's standing is *changing*, not
+  only where it stands.
+- **Design constraint:** **no raw popularity score.** No shares, views or reactions
+  reach it — the same rule that already governs every reputation read.
+- **Design constraint:** **no single opaque score.** If a number is published, every
+  component of it is named and separately readable. Otherwise the answer is the
+  components.
+- **Design constraint:** no public trust score beside a person's name. That absence
+  is a decision recorded in `ENGINE_GAPS.md` and this band does not revisit it.
+- **Failure test:** reputation replay — recompute from the event log and assert the
+  same series, so evolution is derived rather than accumulated.
+
+### Phase 57 — Cross-Experience Intelligence
+
+- **Owner** E12 Intelligence
+- **Objective:** conclusions that span more than one experience — this failure is
+  recurring, these two clusters are the same thing, this response pattern changed.
+- **Design constraint:** **must remain evidence-backed.** Every conclusion carries
+  refs to the rows behind it. A conclusion whose basis cannot be opened is not shown,
+  which is already how `proposal.create` behaves.
+- **Design constraint:** reads lifecycle state (P54). A conclusion drawn over expired
+  signals must say so or not be drawn.
+- **Design constraint:** it concludes; it does not act. Output is a proposal.
+- **Failure test:** insufficient evidence — assert a conclusion with no openable basis
+  is refused at creation, not filtered at display.
+
+### Phase 58 — Proactive Recommendations
+
+- **Owner** E12 Intelligence · needs 57
+- **Objective:** surface a recommendation before somebody asks for one.
+- **Design constraint:** **recommendations remain proposals.** Proactive changes when
+  it appears, not what it is or what it may do.
+- **Design constraint:** deduplicated. The same finding recommended twice teaches
+  reviewers to dismiss recommendations, which is worse than silence.
+- **Design constraint:** no notification pressure. A recommendation is available; it
+  does not chase.
+- **Failure test:** recommendation duplication — run the generator twice over
+  unchanged state and assert one proposal, not two.
+
+### Phase 59 — Governed Action Plans
+
+- **Owner** E12 Intelligence · needs 58
+- **Objective:** a plan of more than one step, approved once, executed through the
+  engines that own each step.
+- **Design constraint:** **each step executes through the authoritative target
+  engine**, dispatched on the bus, facing authorization and every domain check. A
+  plan has no privileged path and no write of its own.
+- **Design constraint:** partial failure is a first-class outcome. A plan records per
+  step whether it dispatched and what refused it, exactly as a single proposal
+  already does. A plan is never reported as complete because it was approved.
+- **Design constraint:** approval is per plan, but authorization is per step and at
+  execution time. An actor who could approve the plan and not perform step three
+  gets step three refused.
+- **Failure tests:** action-plan partial failure (step two refused, and the plan
+  reports it); unauthorized action step (the step is refused, the plan does not
+  escalate its own privileges); AI direct-mutation attempt (assert there is no path
+  from a plan to an E1–E11 write that skips the bus).
+
+### Phase 60 — Experience Loop Certification
+
+- **Owner** E12 Intelligence · **all engines**
+- **Objective:** certify the loop that this band creates: a second experience
+  arriving, being connected, changing a signal, changing a history, producing a
+  conclusion, producing a recommendation, producing a plan, and the plan executing
+  through governed engines — with the loop closing without any of the distinctions
+  collapsing.
+- **Required scenario, run twice — once for a Rage and once for a Rave.** A band that
+  only holds its rules for complaints has not held them.
+- **Required failure tests, all of them:** graph duplication · stale signal decay ·
+  reputation replay · recommendation duplication · action-plan partial failure ·
+  unauthorized action step · AI direct-mutation attempt · insufficient evidence ·
+  concurrency and idempotency across every new command.
+- **Decision values:** `PHASES_51_60_READY`,
+  `PHASES_51_60_READY_WITH_EXTERNAL_BLOCKERS`, or `PHASES_51_60_NOT_READY`.
+- **Standing rule:** the loop must be provable with no live model provider. If a
+  conclusion or a recommendation cannot be produced by the deterministic path, the
+  band is not certifiable and no provider will make it so.
+
+### 8.2 Order
+
+```
+51 graph ─┬─ 52 memory ─┬─ 54 lifecycle ─ 55 decay ─┬─ 57 cross-experience ─ 58 proactive ─ 59 plans ─ 60 certification
+          └─ 53 history ─┘                          │
+                                    56 evolution ───┘
+```
+
+**Batch A** — 51, 52, 53, 54, 55. Reads and lifecycle: everything that changes what
+the system knows, and nothing that acts. Checkpoint commit.
+
+**Batch B** — 56, 57, 58, 59, 60. Evolution, conclusions, recommendations, plans, and
+the band's certification. One full certification run at the end, not per phase.
