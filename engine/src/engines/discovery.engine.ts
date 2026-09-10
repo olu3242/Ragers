@@ -8,8 +8,16 @@ import {
   type RelevanceFactors,
 } from '../domain/relevance.ts';
 import { confirmedValue } from '../domain/normalization.ts';
+import { decideEmergence, reachOf, type Reach } from '../domain/reach.ts';
 import { lifecycleOf, type SignalLifecycleInput } from '../domain/signal-lifecycle.ts';
-import type { CorroborationRow, ExperienceSubject, FeedEntry, SearchDocument } from '../ports/store.ts';
+import type {
+  ClusterMember,
+  CorroborationRow,
+  ExperienceSubject,
+  FeedEntry,
+  SearchDocument,
+  SignalSnapshotRow,
+} from '../ports/store.ts';
 import type { Experience } from '../domain/experience.ts';
 import type { ExperienceKind } from '../domain/types.ts';
 import type { EngineDeps } from './deps.ts';
@@ -349,4 +357,109 @@ export const relatedByContext = async (
 export const signalIsCurrent = (input: SignalLifecycleInput): boolean => {
   const state = lifecycleOf(input).state;
   return state === 'emerging' || state === 'active' || state === 'stabilizing';
+};
+
+// ── Phases 76 and 77: emergence and reach, over rows ─────────────────────
+
+/**
+ * Reach for one experience, counted in people.
+ *
+ * Built from the corroboration rows rather than from `counters.corroboratorCount`, for the
+ * same reason `factorsFor` is: the counter counts rows and reach counts people. The share
+ * count travels beside reach rather than inside it, so a reader can see that something
+ * travelled without being able to mistake that for how many people it happened to.
+ */
+export const reachFor = async (deps: EngineDeps, experienceId: string): Promise<Reach> => {
+  const experience = await deps.store.experiences.get(experienceId);
+  if (!experience) return { people: 0, selfOrDuplicate: 0, amplification: 0 };
+  const corroborations = await deps.store.corroborations.query([
+    eq<CorroborationRow>('experienceId', experienceId),
+    eq<CorroborationRow>('status', 'active'),
+  ]);
+  const counters = await deps.store.counters.get(experienceId);
+  return reachOf({
+    authorActorId: experience.actorId,
+    corroboratorActorIds: corroborations.map((row) => row.corroboratorId),
+    shareCount: counters?.shareCount ?? 0,
+    reactionCount: (counters?.same ?? 0) + (counters?.fairPoint ?? 0),
+  });
+};
+
+export interface EmergingPattern {
+  readonly clusterId: string;
+  readonly headline: string;
+  /** Always the word `emerging`. Never a synonym that could read as established. */
+  readonly label: 'emerging';
+  readonly people: number;
+  readonly experiences: number;
+}
+
+/**
+ * Phase 76 — patterns that may be surfaced as emerging, and only those.
+ *
+ * Every candidate goes through `decideEmergence`, so a pattern below either floor or over a
+ * stale signal is absent rather than caveated. The refusals are not returned: a list of
+ * "patterns we decided not to show you" is a list of patterns, and a reader would treat it
+ * as one.
+ */
+export const emergingPatterns = async (
+  deps: EngineDeps,
+  limit = 10,
+): Promise<readonly EmergingPattern[]> => {
+  const clusters = (await deps.store.clusters.query([])).slice(0, DISCOVERY_CANDIDATE_LIMIT);
+  const surfaced: EmergingPattern[] = [];
+
+  for (const cluster of clusters) {
+    const members = await deps.store.clusterMembers.query([
+      eq<ClusterMember>('clusterId', cluster.id),
+    ]);
+
+    // Distinct *people* across the cluster's experiences, and distinct *published*
+    // experiences — a cluster whose members have been removed is not a live pattern, and the
+    // status re-check applies here for the same reason it does everywhere else in this file.
+    const people = new Set<string>();
+    let experiences = 0;
+    for (const member of members) {
+      const experience = await deps.store.experiences.get(member.experienceId);
+      if (!isDiscoverable(experience)) continue;
+      experiences += 1;
+      people.add(experience.actorId);
+      for (const row of await deps.store.corroborations.query([
+        eq<CorroborationRow>('experienceId', experience.id),
+        eq<CorroborationRow>('status', 'active'),
+      ])) {
+        people.add(row.corroboratorId);
+      }
+    }
+
+    const snapshot = await deps.store.signalSnapshots.queryOne([
+      eq<SignalSnapshotRow>('clusterId', cluster.id),
+    ]);
+    const verdict = decideEmergence({
+      distinctPeople: people.size,
+      distinctExperiences: experiences,
+      signalCurrent: signalIsCurrent({
+        firstContributionAt: cluster.createdAt,
+        lastContributionAt: snapshot?.computedAt ?? cluster.updatedAt,
+        uniqueExperiencers: people.size,
+        recentContributions: experiences,
+        resolvedShare: 0,
+        outcomeReporters: 0,
+        now: deps.clock.now(),
+      }),
+    });
+    if (!verdict.surfaced) continue;
+
+    surfaced.push({
+      clusterId: cluster.id,
+      headline: cluster.headline,
+      label: verdict.label,
+      people: verdict.people,
+      experiences,
+    });
+  }
+
+  // Most people first. Not a score — one named factor, and the only one that means anything
+  // for an emerging pattern.
+  return surfaced.sort((left, right) => right.people - left.people).slice(0, limit);
 };

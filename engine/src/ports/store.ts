@@ -387,7 +387,14 @@ export type NotificationKind =
   | 'reaction_received'
   | 'fair_vote_received'
   | 'reply_received'
-  | 'moderation_outcome';
+  | 'moderation_outcome'
+  /**
+   * Phase 78/79 — something happened to a thing you watch.
+   *
+   * The first kind whose recipient is not the author of the subject, which is what makes the
+   * pipeline's authorization stage a live check rather than a latent one.
+   */
+  | 'watched_update';
 
 /**
  * Enumerated as data, not only as a type, because a preference row is keyed on the
@@ -395,6 +402,7 @@ export type NotificationKind =
  * rows, each one silencing nothing.
  */
 export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
+  'watched_update',
   'reaction_received',
   'fair_vote_received',
   'reply_received',

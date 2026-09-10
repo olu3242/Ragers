@@ -109,6 +109,30 @@ export type OperationalIntegrityStatus =
   | 'PHASES_61_70_READY_WITH_EXTERNAL_BLOCKERS'
   | 'PHASES_61_70_NOT_READY';
 
+/**
+ * The Discovery & Network band (Phases 71–80) — Phase 80's own status.
+ *
+ * A seventh status, and the question it answers is the one this band was built around: **can
+ * the product become more useful as the network grows without its ranking becoming a
+ * popularity contest?**
+ *
+ * That is not a correctness question and it is not an operability question. It is a question
+ * about what the system rewards, and the answer is either visible in the ordering or it is
+ * not true. What it certifies: that corroboration outranks engagement rather than being summed
+ * into it, that every ordering states the factor that decided it, that an unvoted experience is
+ * not treated as an unfair one, that trust may constrain amplification and never ranks, that
+ * reach counts people and shares are not reach, that an emerging pattern is never described as
+ * established, that a watcher is invisible in both directions, and that nothing removed,
+ * hidden or unpublished reaches a discovery read, a search hit or a notification payload.
+ *
+ * No `DATA_BLOCKED` variant: every phase in this band is provable with the deterministic path
+ * and a handful of seeded people. A data gap here would be a gap in the test.
+ */
+export type DiscoveryNetworkStatus =
+  | 'PHASES_71_80_READY'
+  | 'PHASES_71_80_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_71_80_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
 export type GateScope =
   | 'engine'
@@ -116,7 +140,8 @@ export type GateScope =
   | 'governance_action'
   | 'experience_os'
   | 'experience_loop'
-  | 'operational_integrity';
+  | 'operational_integrity'
+  | 'discovery_network';
 
 export interface GateDefinition {
   readonly id: string;
@@ -743,6 +768,34 @@ export const GATES: readonly GateDefinition[] = [
       'No database is configured. The sweep enumerates tables, policies and column grants from pg_catalog, and none of that exists without one — which is exactly why the four world-readable identity columns it found had survived a green in-memory suite.',
   },
   {
+    id: 'phases_71_74',
+    name: 'P71–74: corroboration outranks engagement, and a profile knows only what you declared',
+    scope: 'discovery_network',
+    requirement: 'phases/71-74',
+    command: ['node', '--test', 'tests/unit/relevance.test.ts'],
+  },
+  {
+    id: 'phases_76_79',
+    name: 'P76–79: reach counts people, emerging is not verified, a notification has stages',
+    scope: 'discovery_network',
+    requirement: 'phases/76-79',
+    command: ['node', '--test', 'tests/unit/reach.notification.test.ts'],
+  },
+  {
+    id: 'discovery_reads',
+    name: 'P71–75, 78 through the store: removed content is absent before its consumer drains',
+    scope: 'discovery_network',
+    requirement: 'phases/71-78',
+    command: ['node', '--test', 'tests/integration/discovery.watch.test.ts'],
+  },
+  {
+    id: 'discovery_certification',
+    name: 'The discovery lap closes, for a Rage and again for a Rave',
+    scope: 'discovery_network',
+    requirement: 'discovery/certification',
+    command: ['node', '--test', 'tests/integration/discovery.certification.test.ts'],
+  },
+  {
     id: 'command_boundaries',
     name: 'Command boundaries: bad input is refused, never reported as a defect',
     scope: 'experience_os',
@@ -852,6 +905,16 @@ export const decideExperienceLoopStatus = (results: readonly GateResult[]): Expe
  * store nothing has configured. Folding that into a gate would mean either failing working
  * code or hiding the gap, and the honest third option is a status that names it.
  */
+export const decideDiscoveryNetworkStatus = (
+  results: readonly GateResult[],
+): DiscoveryNetworkStatus => {
+  const own = results.filter((result) => result.scope === 'discovery_network');
+  if (own.length === 0) return 'PHASES_71_80_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_71_80_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'PHASES_71_80_READY_WITH_EXTERNAL_BLOCKERS';
+  return 'PHASES_71_80_READY';
+};
+
 export const decideOperationalIntegrityStatus = (
   results: readonly GateResult[],
   objectStorageBlocked: boolean,
@@ -872,6 +935,7 @@ export interface CertificationReport {
   readonly experienceOsStatus: ExperienceOsStatus;
   readonly experienceLoopStatus: ExperienceLoopStatus;
   readonly operationalIntegrityStatus: OperationalIntegrityStatus;
+  readonly discoveryNetworkStatus: DiscoveryNetworkStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -888,6 +952,7 @@ export const buildReport = (
   experienceOsStatus: decideExperienceOsStatus(results, options.benchmarkDataBlocked ?? false),
   experienceLoopStatus: decideExperienceLoopStatus(results),
   operationalIntegrityStatus: decideOperationalIntegrityStatus(results, options.objectStorageBlocked ?? true),
+  discoveryNetworkStatus: decideDiscoveryNetworkStatus(results),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -923,8 +988,10 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 61–70 status: \`${report.operationalIntegrityStatus}\``);
   lines.push('');
+  lines.push(`## Phases 71–80 status: \`${report.discoveryNetworkStatus}\``);
+  lines.push('');
   lines.push(
-    'Six statuses, because they answer different questions. The engine status is about ' +
+    'Seven statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
@@ -946,7 +1013,15 @@ export const renderLedger = (report: CertificationReport): string => {
       'leaves no stored reference behind; a raw artefact has a stated ceiling and expires ' +
       'without taking the account with it; an unavailable dependency produces one reported ' +
       'state rather than three unrelated-looking bugs; and every action taken under authority ' +
-      'about somebody else is attributable.',
+      'about somebody else is attributable. The Phases 71–80 status answers the question the ' +
+      'discovery band was built around: whether the product can become more useful as the ' +
+      'network grows without its ranking becoming a popularity contest. Corroboration outranks ' +
+      'engagement rather than being summed into it; every ordering states the factor that ' +
+      'decided it; an unvoted experience is not treated as an unfair one; trust may constrain ' +
+      'amplification and never ranks; reach counts people and a share is not reach; an emerging ' +
+      'pattern is never described as established; a watcher is invisible in both directions; ' +
+      'and nothing removed, hidden or unpublished reaches a discovery read, a search hit or a ' +
+      'notification payload.',
   );
   lines.push('');
   lines.push(

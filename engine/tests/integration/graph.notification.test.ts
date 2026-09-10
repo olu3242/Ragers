@@ -175,7 +175,12 @@ test('a blocked actor generates no notification across the boundary', async () =
   );
   const suppressed = await h.engine.store.notifications.find((row) => row.state === 'suppressed');
   assert.equal(suppressed.length, 1);
-  assert.equal(suppressed[0]?.suppressionReason, 'blocked');
+  // Phase 79 changed this value's shape, deliberately: the *stage* travels with the reason.
+  // `eligibility:blocked` is queryable by stage — an operator can ask for every
+  // `authorization:%` suppression without knowing which reasons belong to that stage — and
+  // "you asked not to be told" and "you may not be told" must not look alike. Nothing renders
+  // this field, so the richer record costs nothing.
+  assert.equal(suppressed[0]?.suppressionReason, 'eligibility:blocked');
 });
 
 test('notification preferences are honoured', async () => {
@@ -207,7 +212,10 @@ test('notification preferences are honoured', async () => {
 
   assert.equal((await notificationsFor(h.engine, author.auth.actorId)).length, 0);
   const row = await h.engine.store.notifications.findOne((r) => r.recipientActorId === author.auth.actorId);
-  assert.equal(row?.suppressionReason, 'preference');
+  // A preference refusal is an *eligibility* refusal: the recipient could see the thing and
+  // chose not to hear about it, so turning the setting back on makes it appear. That is the
+  // distinction the stage prefix carries.
+  assert.equal(row?.suppressionReason, 'eligibility:preference');
 });
 
 test('a moderation outcome always reaches the author', async () => {

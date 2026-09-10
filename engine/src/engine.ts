@@ -3,6 +3,7 @@ import { createQuotaGuard } from './runtime/quota.ts';
 import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
 import { createWatchErasureConsumer, registerWatchEngine } from './engines/watch.engine.ts';
+import { createWatchNotificationConsumer } from './engines/notification.engine.ts';
 import { createMetrics } from './runtime/metrics.ts';
 import { createRetryPolicy } from './runtime/retry.ts';
 import { systemClock, type Clock } from './runtime/clock.ts';
@@ -314,6 +315,10 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // Phase 78: a deleted experience takes its watches with it. There is no foreign key to
   // cascade — `target_id` points at one of two tables — so this is a consumer.
   orchestrator.subscribe(createWatchErasureConsumer(deps));
+  // Phase 79: the watchers of a thing are told when its *outcome* changes. The first
+  // notification whose recipient is not the author, which is what made the pipeline's
+  // authorization stage a live check.
+  orchestrator.subscribe(createWatchNotificationConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));
 
