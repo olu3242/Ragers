@@ -38,8 +38,9 @@ import { organizationFor } from './organization.engine.ts';
  *
  * Entitlement appears in exactly one place in this engine: whether an organization may *read*
  * a benchmark or hold a subscription at all. It reaches nothing that decides what gets
- * published, ranked, moderated or prioritised — `INTEGRITY_MODULES` and the static test over
- * it are what keep that true.
+ * published, ranked, moderated or prioritised. This file is one of three declared commercial
+ * surfaces in `COMMERCIAL_SURFACES`, each carrying its reason; every other module in the domain
+ * and the engines is held to entitlement-blindness by discovery rather than by a list.
  */
 export const deliveryKey = (subscriptionId: string, outboxId: string): string =>
   `dlv:${subscriptionId}:${outboxId}`;

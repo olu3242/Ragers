@@ -120,7 +120,16 @@ The independent-signal thresholds and the `relatedSimilarity` calibration point 
 open considerations rather than ports; neither is a composite score and neither has
 been adopted.
 
-**The path collision is unresolved and still needs an owner decision.** Porting one
-pure function does not resolve it: PR #6's files would still land inside the
-TypeScript package directory, and whichever branch merges second conflicts
-structurally.
+## Settled
+
+**PR #6 is closed.** The owner decision is recorded: the certified TypeScript runtime in
+`engine/` is authoritative, and that branch does not become a second one.
+
+The path collision is resolved by closure rather than by relocation — nothing from that branch
+lands in `engine/`, and the one capability worth keeping was already ported. The disposition is
+stated on the closed pull request as well as here, so a reader arriving from the pull request
+list does not reopen the question, and `docs/architecture/CONVERGENCE_1_50.md` records it as
+the convergence decision.
+
+Nothing is lost by closing it: the branch stays readable, and the reference material above
+survives as reference.

@@ -33,6 +33,9 @@ evidence.
 | Entitlement boundary (P48) | — | `src/domain/entitlement.ts`, `organization_entitlements` | `entitlement.integration` (5) · `governance.action` (1) |
 | Platform integrations (P49) | E12/E9 | `src/domain/integration.ts`, `src/engines/integration.engine.ts`, `integration_subscriptions`, `integration_deliveries` | `entitlement.integration` (7) · `governance.action` (4) |
 | Experience OS certification (P50) | — | 5 band gates + the fourth status | `certification.harness` (2) · replay proved by re-draining |
+| Entitlement guard by discovery | — | `INTEGRITY_SCAN_ROOTS` + `COMMERCIAL_SURFACES` in `src/domain/entitlement.ts` | `entitlement.integration` (4) — all three failure modes verified by introducing each |
+| Dead subscription: `ReportResolved` | E4/E9 | emitted per resolved report in `safety.engine.ts` | `convergence.circular` · enumeration now reports zero dead subscriptions |
+| 1–50 convergence | — | `docs/architecture/CONVERGENCE_1_50.md`, `tests/integration/convergence.circular.test.ts` | `convergence.circular` (3) — one lap for Rage and one for Rave |
 
 ## Open
 
@@ -42,7 +45,7 @@ evidence.
 | Real PII provider | E2, E4 | BLOCKED | Same. The entity-alias exemption for person-name detection is in place. |
 | Private object storage | E2 | BLOCKED | Needs a bucket and credentials. |
 | Deployment target | — | BLOCKED | Deployment and rollback certification gates remain blocked on it. |
-| Independent-signal tiers | E8 | ABSENT | Considered; would be a presentation tier over `uniqueExperiencers`, never a composite score. PR #6's thresholds remain the calibration data point. |
+| Independent-signal tiers | E8 | ABSENT | Considered; would be a presentation tier over `uniqueExperiencers`, never a composite score. PR #6's thresholds survive as reference in `ENGINE_RUNTIME_CONFLICT.md`; the branch itself is closed. |
 | Autonomous agents | E12 | ABSENT by choice | The framework exists (P45) and agents may read, propose and escalate. `AgentAction` has no write verb, so autonomy in the sense of *acting* is not expressible; nothing here is a gap to close. |
 | Real model provider | E12 | BLOCKED | Needs credentials. The port and the deterministic fallback are certified; live-provider behaviour is not, and `live: false` is what says so. |
 | Benchmark sample volume | E11 | DATA-BLOCKED | The code is certified. Twenty distinct contributors per comparison set do not exist in any environment the harness runs in, which is the engine being correct rather than failing. |

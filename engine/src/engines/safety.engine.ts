@@ -271,6 +271,30 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
         eq<Report>('status', 'open'),
       ])) {
         await deps.store.reports.put({ ...report, status: 'reviewed' });
+        /**
+         * Emitted per report, and the reason it exists is a dead subscription found during
+         * convergence: `trust.recompute` has always listened for `ReportResolved`, and nothing
+         * emitted it. Trust follows durable facts, and a report being reviewed is one — so a
+         * reporter whose report was resolved by *no action* or a warning never had their
+         * contribution history recomputed. Removal happened to work only because
+         * `ContentRemoved` is emitted on that branch and the consumer also listens for it.
+         *
+         * Carries the reporter, which is what the consumer reads, and the outcome — never the
+         * report's own text.
+         */
+        events.push({
+          aggregateType: 'experience',
+          aggregateId: input.targetId,
+          eventName: 'ReportResolved',
+          payload: {
+            reportId: report.id,
+            reporterActorId: report.reporterActorId,
+            targetType: input.targetType,
+            targetId: input.targetId,
+            experienceId: input.targetType === 'experience' ? input.targetId : '',
+            outcome: input.action,
+          },
+        });
       }
 
       await writeAudit(deps, ctx, {

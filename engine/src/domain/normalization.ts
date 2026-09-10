@@ -172,7 +172,19 @@ export const confirmFacts = (
   input: ConfirmationInput,
   meta: { actorId: string; now: number },
 ): Result<Confirmation, EngineError> => {
+  // Validated rather than assumed. A caller sending the wrong shape — `confirmations`
+  // instead of `fields`, say — used to reach `Object.entries(undefined)` and throw, which the
+  // bus caught and reported as `command_threw`: an internal, non-retryable error for what is
+  // plainly a bad request. A domain boundary should refuse malformed input in its own words.
+  if (typeof input.fields !== 'object' || input.fields === null || Array.isArray(input.fields)) {
+    return err(
+      validationError('fields_required', 'confirmation takes a `fields` object of field names to values'),
+    );
+  }
   const entries = Object.entries(input.fields) as [NormalizableField, string][];
+  if (entries.length === 0) {
+    return err(validationError('nothing_to_confirm', 'confirmation must name at least one field'));
+  }
   const fields: ConfirmedField[] = [];
 
   for (const [field, value] of entries) {

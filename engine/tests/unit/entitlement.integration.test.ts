@@ -1,14 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
+  COMMERCIAL_SURFACES,
   ENTITLEMENT_VOCABULARY,
   ENTITLED_FEATURES,
-  INTEGRITY_MODULES,
+  INTEGRITY_SCAN_ROOTS,
   entitlementFor,
+  exemptionReason,
   integrityInputsFor,
+  isCommercialSurface,
   mayUse,
 } from '../../src/domain/entitlement.ts';
 import {
@@ -39,30 +42,87 @@ const stripComments = (source: string): string =>
   source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 // ── Phase 48 — the integrity layer is blind to payment ──────────────────
-test('no integrity module references entitlement, in any spelling', () => {
-  for (const module of INTEGRITY_MODULES) {
-    const source = stripComments(read(module));
+/**
+ * Every module in the scanned roots, discovered rather than listed.
+ *
+ * This is the whole hardening: coverage comes from walking the tree, so a module added
+ * tomorrow is covered tomorrow, and one renamed today keeps its coverage today.
+ */
+const discovered = (): readonly string[] =>
+  // `scanRoot`, not `root` — the outer `root` is the repository root, and shadowing it here
+  // would have resolved every path relative to the wrong directory.
+  INTEGRITY_SCAN_ROOTS.flatMap((scanRoot) =>
+    readdirSync(join(root, scanRoot), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .map((entry) => `${scanRoot}/${entry.name}`),
+  );
+
+test('every module in the domain and the engines is entitlement-blind, or a justified surface', () => {
+  const modules = discovered();
+  // Non-vacuous: a guard that discovers nothing passes trivially.
+  assert.ok(modules.length >= 60, `expected to scan the domain and engines, found ${modules.length}`);
+
+  const offenders: string[] = [];
+  for (const module of modules) {
+    if (isCommercialSurface(module)) continue;
+    const source = stripComments(read(module)).toLowerCase();
     for (const word of ENTITLEMENT_VOCABULARY) {
-      assert.equal(
-        source.toLowerCase().includes(word.toLowerCase()),
-        false,
-        `${module} mentions ${word}; the integrity layer must have no input for entitlement at all`,
-      );
+      if (source.includes(word.toLowerCase())) offenders.push(`${module} mentions ${word}`);
     }
-    assert.equal(
-      source.includes('entitlement.ts'),
-      false,
-      `${module} imports the entitlement module`,
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `the integrity layer must have no input for entitlement at all:\n${offenders.join('\n')}`,
+  );
+});
+
+test('a new integrity module cannot escape the guard, because coverage is not a list', () => {
+  // The failure mode the old hand-maintained array had: a module added later was simply not
+  // scanned. Here the scan *is* the directory, so the only way out is an explicit exemption.
+  const modules = discovered();
+  for (const scanRoot of INTEGRITY_SCAN_ROOTS) {
+    assert.ok(
+      modules.some((module) => module.startsWith(`${scanRoot}/`)),
+      `${scanRoot} must be scanned`,
     );
+  }
+  // Every file in the roots is either scanned or exempt — there is no third state.
+  for (const module of modules) {
+    const covered = isCommercialSurface(module) || module.endsWith('.ts');
+    assert.equal(covered, true, `${module} is neither scanned nor exempt`);
   }
 });
 
-test('the integrity modules named actually exist, so the guard is not vacuous', () => {
-  // A list of filenames is worthless if a rename silently empties it.
-  assert.ok(INTEGRITY_MODULES.length >= 12);
-  for (const module of INTEGRITY_MODULES) {
-    assert.ok(read(module).length > 0, `${module} must exist`);
+test('every exemption names a file that exists and states why', () => {
+  // An exemption for a file that has been renamed away is a hole wearing a justification.
+  for (const [file, reason] of Object.entries(COMMERCIAL_SURFACES)) {
+    // Checked with `existsSync` rather than by reading, so a stale exemption reports itself
+    // as a stale exemption instead of as a raw ENOENT a maintainer has to decode.
+    assert.ok(
+      existsSync(join(root, file)),
+      `${file} is exempt but does not exist — a renamed file leaves a hole wearing a justification`,
+    );
+    assert.ok(read(file).length > 0, `${file} is empty`);
+    assert.ok(reason.trim().length > 20, `${file} must say why it is exempt`);
+    assert.equal(exemptionReason(file), reason);
   }
+  // And the exemption set stays small enough to read. A guard everybody can opt out of is not
+  // a guard.
+  assert.ok(
+    Object.keys(COMMERCIAL_SURFACES).length <= 5,
+    'too many commercial surfaces; the invariant is being exempted rather than held',
+  );
+});
+
+test('the guard actually fires — proved against a synthetic offender', () => {
+  // The one thing the discovery test cannot show about itself: that it would fail. Run the
+  // same classification over a module body that references a plan, and assert it is caught.
+  const rogue = 'const tier: PlanTier = "professional"; export const boost = 2;';
+  const caught = ENTITLEMENT_VOCABULARY.filter((word) =>
+    stripComments(rogue).toLowerCase().includes(word.toLowerCase()),
+  );
+  assert.ok(caught.length >= 2, 'a module referencing a plan tier and a boost must be caught');
 });
 
 test('an entitlement contributes nothing to any integrity decision', () => {

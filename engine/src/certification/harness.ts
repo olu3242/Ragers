@@ -485,6 +485,13 @@ export const GATES: readonly GateDefinition[] = [
       'No database is configured. The unique and coherence constraints that arbitrate concurrent agent runs and deliveries cannot be certified without one.',
   },
   {
+    id: 'convergence_circular',
+    name: 'Convergence: one full lap, Rage and Rave, every distinction intact',
+    scope: 'experience_os',
+    requirement: 'convergence/circular',
+    command: ['node', '--test', 'tests/integration/convergence.circular.test.ts'],
+  },
+  {
     id: 'deployment',
     name: 'Deployment to a target environment',
     requirement: 'deployment',

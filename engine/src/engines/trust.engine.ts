@@ -93,7 +93,10 @@ export const createTrustRecomputeConsumer = (deps: EngineDeps): Consumer => ({
   ],
   handle: async (event) => {
     const actorIds = new Set<string>();
-    for (const key of ['actorId', 'authorActorId', 'corroboratorActorId', 'reporterId']) {
+    // `reporterActorId`, not `reporterId`: every other actor key in this system carries the
+    // `ActorId` suffix, and the odd one out matched nothing any event emitted — so a resolved
+    // report would have recomputed nobody even once `ReportResolved` started being emitted.
+    for (const key of ['actorId', 'authorActorId', 'corroboratorActorId', 'reporterActorId']) {
       const value = event.payload[key];
       if (typeof value === 'string' && value.length > 0) actorIds.add(value);
     }
