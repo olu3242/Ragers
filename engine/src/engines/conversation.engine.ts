@@ -5,7 +5,7 @@ import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import { MAX_REPLY_DEPTH, type Reply } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
-import { experienceResource, loadExperience, loadReply, replyResource } from './support.ts';
+import { experienceResource, loadExperience, loadReply, replyResource, writeAudit } from './support.ts';
 import { eq } from '../ports/store.ts';
 
 export interface CreateReplyCommand {
@@ -130,6 +130,17 @@ export const registerConversationEngine = (deps: EngineDeps): void => {
       if (loaded.value.status === 'deleted') return ok({ value: { deleted: true }, events: [] });
 
       await deps.store.replies.put({ ...loaded.value, status: 'deleted' });
+
+      // Phase 68, clause 3: the audit event is the only thing that survives a deletion.
+      // Erasing the record that an erasure happened is not erasure, it is amnesia.
+      await writeAudit(deps, ctx, {
+        action: 'reply.delete',
+        resourceType: 'reply',
+        resourceId: loaded.value.id,
+        before: { status: loaded.value.status },
+        after: { status: 'deleted' },
+      });
+
       return ok({
         value: { deleted: true },
         events: [

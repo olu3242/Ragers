@@ -10,6 +10,7 @@ import {
 import { eq, ne } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { OrganizationCaseRow, OrganizationMembership } from '../ports/store.ts';
+import { writeAudit } from './support.ts';
 import type { EngineDeps } from './deps.ts';
 import { organizationFor } from './organization.engine.ts';
 
@@ -130,6 +131,16 @@ export const registerCaseEngine = (deps: EngineDeps): void => {
       if (!moved.ok) return moved;
       await deps.store.organizationCases.put(moved.value);
 
+      // Phase 68, clause 1: a case moves because staff decided it should, about somebody
+      // else's experience. The event says the state changed; the audit says who changed it.
+      await writeAudit(deps, ctx, {
+        action: 'case.transition',
+        resourceType: 'organization_case',
+        resourceId: row.id,
+        before: { state: row.state },
+        after: { state: moved.value.state },
+      });
+
       return ok({
         value: {
           caseId: moved.value.id,
@@ -185,6 +196,16 @@ export const registerCaseEngine = (deps: EngineDeps): void => {
       const assigned = assignCase(row, input.assigneeId, ctx.clock.now());
       if (!assigned.ok) return assigned;
       await deps.store.organizationCases.put(assigned.value);
+
+      // Clause 1 again, and the assignee is named: "who was this parked with, and by
+      // whom" is the question an unanswered case eventually raises.
+      await writeAudit(deps, ctx, {
+        action: 'case.assign',
+        resourceType: 'organization_case',
+        resourceId: row.id,
+        before: { assigneeId: row.assigneeId ?? null },
+        after: { assigneeId: assigned.value.assigneeId ?? null },
+      });
 
       return ok({
         value: {

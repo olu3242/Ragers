@@ -80,6 +80,18 @@ export const registerCreatorEngine = (deps: EngineDeps): void => {
       const change = changeVisibility(loaded.value, input.visibility, input.aliasId, ctx.clock.now());
       if (!change.ok) return change;
       await deps.store.experiences.put(change.value.experience);
+
+      // Phase 68, clause 2: visibility governs who *else* may read. The dispute this
+      // anticipates is "my experience was public and I never made it public", and the row
+      // cannot answer it because the row only holds the current value.
+      await writeAudit(deps, ctx, {
+        action: 'experience.change_visibility',
+        resourceType: 'experience',
+        resourceId: change.value.experience.id,
+        before: { visibility: loaded.value.visibility },
+        after: { visibility: change.value.experience.visibility },
+      });
+
       return ok({ value: { visibility: change.value.experience.visibility }, events: change.value.events });
     },
   };
@@ -96,6 +108,17 @@ export const registerCreatorEngine = (deps: EngineDeps): void => {
         createdAt: ctx.clock.now(),
       };
       await deps.store.exportRequests.put(request);
+
+      // Phase 68, clause 3: an export takes a copy of a person's data out of the system,
+      // and "who asked for my data and when" must be answerable afterwards. The request row
+      // is not enough on its own — a completed export can be pruned; the trail cannot.
+      await writeAudit(deps, ctx, {
+        action: 'export.request',
+        resourceType: 'export',
+        resourceId: request.id,
+        after: { state: request.state },
+      });
+
       return ok({
         value: { exportRequestId: request.id },
         events: [

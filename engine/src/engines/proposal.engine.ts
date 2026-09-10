@@ -11,6 +11,7 @@ import {
 import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { ProposalRow } from '../ports/store.ts';
+import { writeAudit } from './support.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -141,6 +142,18 @@ export const registerProposalEngine = (deps: EngineDeps): void => {
         ...decided.value,
         ...(dispatched ? { dispatchedAt: ctx.clock.now() } : {}),
         ...(dispatchError === undefined ? {} : { dispatchError }),
+      });
+
+      // Phase 68, clause 1: a person decided whether a machine's suggestion about somebody
+      // would be acted on. `dispatched` is recorded because approval and effect are
+      // different things — a proposal can be approved and still refused by the engine that
+      // owns the action, and the trail has to distinguish them.
+      await writeAudit(deps, ctx, {
+        action: 'proposal.decide',
+        resourceType: 'proposal',
+        resourceId: decided.value.id,
+        before: { status: row.status },
+        after: { status: decided.value.status, dispatched },
       });
 
       const eventName =

@@ -11,6 +11,12 @@ import type {
 } from '../domain/types.ts';
 import type { WorkState } from '../runtime/work.ts';
 import type { QuotaWindow } from '../domain/quota.ts';
+import type {
+  ByteRemovalStatus,
+  RetentionClass,
+  RetentionHold,
+  RetentionVerdict,
+} from '../domain/retention.ts';
 import type { Role } from '../runtime/authz.ts';
 import type { Corroboration, ExperienceShare } from '../domain/corroboration.ts';
 import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts';
@@ -277,6 +283,10 @@ export interface Transcript {
   readonly provider: string;
   readonly redactionFindings?: Readonly<Record<string, number>>;
   readonly createdAt: number;
+  /** Phase 65 — the raw text's removal record. Strictly more dangerous than the audio. */
+  readonly rawRemovedAt?: number;
+  readonly rawRemovalReason?: string;
+  readonly rawByteRemoval?: 'removed' | 'object_storage_blocked';
 }
 
 // ── P9 Trust & safety ─────────────────────────────────────────────────────
@@ -644,6 +654,16 @@ export interface EvidenceRow {
   readonly mimeType: string;
   readonly contentDigest?: string;
   readonly createdAt: number;
+  /**
+   * Phase 65 — the original's removal record.
+   *
+   * Evidence gets the longest ceiling of the three raw classes, because it was submitted
+   * in order to be examined and a dispute can be opened long after publication. Expiring
+   * it early would mean accepting evidence and destroying it before anybody weighed it.
+   */
+  readonly originalRemovedAt?: number;
+  readonly originalRemovalReason?: string;
+  readonly originalByteRemoval?: 'removed' | 'object_storage_blocked';
 }
 
 /** An assessment is not a verdict: "consistent" is not "verified". */
@@ -841,6 +861,26 @@ export interface ActionPlanStepRow {
  */
 export type QuotaWindowRow = QuotaWindow;
 
+/**
+ * Phase 65 — one row per artefact per sweep, including the artefacts nothing happened to.
+ *
+ * "We looked and it was held" is the answer to the only question anybody asks about a
+ * retention policy, and a ledger recording only removals could not give it. The reason is
+ * denormalised deliberately: a row read a year from now has to explain itself without
+ * depending on what the policy says by then.
+ */
+export interface RetentionSweepRow {
+  readonly id: string;
+  readonly sweptAt: number;
+  readonly subjectId: string;
+  readonly retentionClass: RetentionClass;
+  readonly verdict: RetentionVerdict;
+  readonly expiresAt: number;
+  readonly hold?: RetentionHold;
+  readonly byteRemoval?: ByteRemovalStatus;
+  readonly reason: string;
+}
+
 export interface HandoffRow {
   readonly id: string;
   readonly triggerId: string;
@@ -1027,4 +1067,7 @@ export interface EngineStore {
 
   // ── Phase 61 ─────────────────────────────────────────────────────────────
   readonly quotaWindows: Table<QuotaWindowRow>;
+
+  // ── Phase 65 ─────────────────────────────────────────────────────────────
+  readonly retentionSweeps: Table<RetentionSweepRow>;
 }

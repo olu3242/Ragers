@@ -18,8 +18,14 @@ const allMigrations = readdirSync(migrations)
   .map((name) => readFileSync(join(migrations, name), 'utf8'))
   .join('\n');
 
+/**
+ * `if not exists` is tolerated here even though the migrations do not use it, because the
+ * alternative is what happened once: a table written with it was invisible to this scan, so
+ * the port-to-relation check passed while the relation went unverified. A guard that can be
+ * bypassed by optional SQL syntax is not a guard.
+ */
 const tableNames = (sql: string): readonly string[] =>
-  [...sql.matchAll(/^create table (\w+) \(/gm)].map((m) => m[1] as string);
+  [...sql.matchAll(/^create table (?:if not exists )?(\w+) \(/gm)].map((m) => m[1] as string);
 
 /** Strip `--` comments so assertions test the schema, not the prose around it. */
 const stripComments = (sql: string): string =>

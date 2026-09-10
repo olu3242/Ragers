@@ -4,7 +4,7 @@ import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { DisputeRow, EvidenceAssessment, EvidenceRow, ResolutionReportRow } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
-import { experienceResource } from './support.ts';
+import { experienceResource, writeAudit } from './support.ts';
 
 /**
  * Evidence Engine — evidence strengthens a signal; it never becomes a verdict.
@@ -245,6 +245,16 @@ export const registerEvidenceEngine = (deps: EngineDeps): void => {
         createdAt: ctx.clock.now(),
       };
       await deps.store.evidenceAssessments.put(assessment);
+
+      // Phase 68, clause 1: a reviewer's reading of somebody else's evidence. The
+      // assessment row carries `assessedBy`, but a *new* assessment can be written for the
+      // same artefact, so the row is the current reading rather than the sequence of them.
+      await writeAudit(deps, ctx, {
+        action: 'evidence.assess',
+        resourceType: 'evidence',
+        resourceId: row.id,
+        after: { outcome: assessment.outcome },
+      });
 
       return ok({
         value: { assessmentId: assessment.id, outcome: assessment.outcome },

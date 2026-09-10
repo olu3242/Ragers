@@ -89,6 +89,17 @@ export interface MediaAsset {
   readonly attemptCount: number;
   readonly failureReason?: string;
   readonly createdAt: number;
+  /**
+   * Phase 65 — the original's removal record.
+   *
+   * Set once retention has expired the raw upload. A reason rather than only a
+   * timestamp, so a reader can tell "this was removed on schedule" from "this never had
+   * an original", and a byte-removal status because today the row can be marked and the
+   * bytes cannot be deleted: there is no object storage to delete them from.
+   */
+  readonly originalRemovedAt?: number;
+  readonly originalRemovalReason?: string;
+  readonly originalByteRemoval?: 'removed' | 'object_storage_blocked';
 }
 
 export interface VoiceCandidate {

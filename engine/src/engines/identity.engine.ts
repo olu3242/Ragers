@@ -132,6 +132,18 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
       const session = await deps.store.sessions.get(input.sessionId);
       if (!session) return err(notFoundError('session_not_found', 'no such session'));
       await deps.store.sessions.put(revokeSession(session, ctx.clock.now()));
+
+      // Phase 68, clause 2: revocation changes what somebody may do, immediately and
+      // without warning them. Whether they did it themselves or somebody with authority did
+      // it to them is exactly what the trail has to distinguish.
+      await writeAudit(deps, ctx, {
+        action: 'session.revoke',
+        resourceType: 'session',
+        resourceId: session.id,
+        before: { actorId: session.actorId },
+        after: { revoked: true },
+      });
+
       return ok({
         value: { revoked: true },
         events: [

@@ -12,7 +12,7 @@ import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { CorroborationRow, DisputeRow } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
-import { experienceResource, loadExperience } from './support.ts';
+import { experienceResource, loadExperience, writeAudit } from './support.ts';
 import { organizationFor } from './organization.engine.ts';
 
 /**
@@ -230,6 +230,17 @@ export const registerDisputeEngine = (deps: EngineDeps): void => {
       );
       if (!reviewed.ok) return reviewed;
       await deps.store.disputes.put(reviewed.value);
+
+      // Phase 68, clause 1. This was the most surprising gap the rule found: a reviewer
+      // upholds or declines somebody's dispute about their own experience, and until now
+      // the only record was the row's own `reviewedBy` — which the next review overwrites.
+      await writeAudit(deps, ctx, {
+        action: 'dispute.review',
+        resourceType: 'dispute',
+        resourceId: row.id,
+        before: { status: row.status },
+        after: { status: reviewed.value.status },
+      });
 
       const all = await deps.store.disputes.query([eq<DisputeRow>('experienceId', row.experienceId)]);
       return ok({
