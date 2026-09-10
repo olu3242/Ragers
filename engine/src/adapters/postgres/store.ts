@@ -124,6 +124,15 @@ export const createPostgresStore = (db: Db): EngineStore => {
     quotaWindows: table(descriptor({ relation: 'quota_windows', idColumn: 'id' })),
     retentionSweeps: table(descriptor({ relation: 'retention_sweeps', idColumn: 'id' })),
     watches: table(descriptor({ relation: 'experience_watches', idColumn: 'id' })),
+    confidencePoints: table(descriptor({ relation: 'confidence_points', idColumn: 'id' })),
+    // Keyed by the recommendation it remembers, so the memory cannot duplicate.
+    recommendationMemory: table(
+      descriptor({
+        relation: 'recommendation_memory',
+        idColumn: 'recommendation_id',
+        derivedId: (row) => String(row['id'] ?? ''),
+      }),
+    ),
     // Keyed by the organization it describes: one plan per organization.
     entitlements: table(
       descriptor({

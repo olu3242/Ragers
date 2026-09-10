@@ -3,6 +3,7 @@ import { createQuotaGuard } from './runtime/quota.ts';
 import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
 import { createWatchErasureConsumer, registerWatchEngine } from './engines/watch.engine.ts';
+import { createConfidencePointConsumer } from './engines/confidence.engine.ts';
 import { createWatchNotificationConsumer } from './engines/notification.engine.ts';
 import { createMetrics } from './runtime/metrics.ts';
 import { createRetryPolicy } from './runtime/retry.ts';
@@ -319,6 +320,11 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // notification whose recipient is not the author, which is what made the pipeline's
   // authorization stage a live check.
   orchestrator.subscribe(createWatchNotificationConsumer(deps));
+  // Phase 82: the confidence series, written on the four events that can move it. Not
+  // `ExperienceShared`, which the corroboration consumer also listens for — a share is not a
+  // claim, and subscribing to it here would have been the quiet way to let amplification move
+  // a trust figure.
+  orchestrator.subscribe(createConfidencePointConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));
 

@@ -11,6 +11,7 @@ import type {
 } from '../domain/types.ts';
 import type { WorkState } from '../runtime/work.ts';
 import type { QuotaWindow } from '../domain/quota.ts';
+import type { ConfidenceBand } from '../domain/confidence.ts';
 import type {
   ByteRemovalStatus,
   RetentionClass,
@@ -881,6 +882,50 @@ export type QuotaWindowRow = QuotaWindow;
  */
 export type WatchTarget = 'experience' | 'subject';
 
+/**
+ * Phase 82 — one point in a confidence series.
+ *
+ * Computed from the whole set as of `at` rather than folded forward from the previous point,
+ * so replaying a boundary produces the identical row and the primary key absorbs it. There
+ * is no actor column anywhere: a confidence is about a *pattern*, and a series keyed by
+ * person would be a reputation history under another name.
+ */
+export interface ConfidencePointRow {
+  readonly id: string;
+  readonly subjectId: string;
+  readonly subjectKind: 'experience' | 'cluster';
+  readonly at: number;
+  readonly band: ConfidenceBand;
+  /** People, never rows. Carried so a reader sees the count was not adjusted by the band. */
+  readonly independentPeople: number;
+  readonly deciding: string;
+  readonly computedAt: number;
+}
+
+/**
+ * Phase 87 — what happened to a recommendation.
+ *
+ * The omissions are the design: no free text, no actor. A dismissal reason would become one
+ * person's written judgement about another's situation, readable by every operator
+ * afterwards; and who dismissed it is not needed to stop re-offering it, which is the only
+ * thing this table is for.
+ */
+export type RecommendationOutcome = 'shown' | 'dismissed' | 'accepted' | 'acted_on';
+
+export interface RecommendationMemoryRow {
+  /** The recommendation's own id, so the memory cannot duplicate. */
+  readonly id: string;
+  readonly outcome: RecommendationOutcome;
+  readonly shownAt: number;
+  readonly dismissedAt?: number;
+  readonly acceptedAt?: number;
+  readonly actedOnAt?: number;
+  /** The plan an acceptance produced. A plan that then refused every step is how
+   *  `decision != effect` stays visible here. */
+  readonly planId?: string;
+  readonly updatedAt: number;
+}
+
 export interface WatchRow {
   readonly id: string;
   readonly actorId: string;
@@ -1101,4 +1146,8 @@ export interface EngineStore {
 
   // ── Phase 78 ─────────────────────────────────────────────────────────────
   readonly watches: Table<WatchRow>;
+
+  // ── Phases 82 and 87 ─────────────────────────────────────────────────────
+  readonly confidencePoints: Table<ConfidencePointRow>;
+  readonly recommendationMemory: Table<RecommendationMemoryRow>;
 }

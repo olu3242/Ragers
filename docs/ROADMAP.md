@@ -2027,3 +2027,283 @@ experience and a subject are things — so Phase 78's table is
 both. Extending `graph_edges` with two new target kinds was the alternative and it is worse:
 a follow between people raises a mutual-visibility question that a watch does not, and
 sharing a table would mean sharing the answer.
+
+## 11. Phases 81–90 — trust, quality and safe personalization
+
+**Prerequisite:** phases 1–80 certified. `docs/EVIDENCE.md` is authoritative.
+
+### What this band is for
+
+The band's question, stated by the person who commissioned it: **can Ragers become
+personally relevant without learning to reward outrage, expose trust internals, or
+construct hidden profiles?**
+
+Phases 71–80 answered the first half at the level of the *corpus* — one ordering for
+everybody, named factors, engagement last. This band asks it at the level of the
+*person*, which is harder in a specific way: a personalized ordering is one nobody
+else can check. When everybody sees the same list, a bad ranking is visible and
+arguable. When each person sees their own, the only thing standing between "relevant"
+and "whatever keeps you here" is what the code is willing to read.
+
+### 11.1 The phase this band had to change, and why
+
+**Phase 81 was specified as "Trust-Weighted Corroboration". It is implemented as
+un-weighted corroboration with a separate, factored confidence.** The rename is not
+cosmetic and the reason is the most important thing in this section.
+
+A trust-weighted corroboration count would break three things that are already
+certified:
+
+1. **A count of people would stop being a count of people.** The Experience Signal
+   Engine's central guarantee — the one `EXPERIENCE_SIGNAL_ENGINE_READY` attests — is
+   that `1,842 Re-Rages` means 1,842 people said it happened to them. Weighted, it
+   means "1,842 people, discounted by how much we think of them", and no reader could
+   know which they were looking at.
+2. **It would make trust rank.** Phase 73 refused precisely this, in those words: *a
+   more trusted person's experience ranks above yours is a caste system with a scoring
+   function.* Weighting a claim is the same act one layer down, and harder to see.
+3. **It would discount the exact case that matters most.** Phase 62 established that
+   new accounts and fast arrivals are what a *genuine* event produces — a local story
+   breaks, forty people recognise it, half sign up to say so. `assessTrust` scores
+   account maturity, so a trust-weighted count would systematically discount the burst
+   that means something real just happened. That is not a tuning problem; it is the
+   mechanism working as designed against the product's purpose.
+
+The band's own invariant list contains `trust != identity`, and a weighted count is
+that violation in its purest form.
+
+**What the requirements actually asked for is legitimate and different.** Every listed
+input — unique independent contributors, evidence strength, duplication, recency,
+cluster consistency, "count people not rows", "one actor cannot manufacture
+confidence", "expose reasons/factors" — describes **confidence in a pattern**, which
+is a separate measure from the count and always has been. So:
+
+- The count stays a count. `uniqueExperiencers` is untouched, and
+  `confidenceAdjustsCorroborationCount()` returns undefined.
+- Confidence is a set of **named factors** with a band, in the shape Phase 43 and
+  Phase 73 already use, and it is withheld below its floors like every other measure.
+- **Confidence reads facts about contributions, never scores about people.** Whether
+  *this* claim carried evidence, whether *that* evidence was contradicted, whether the
+  set arrived independently — all properties of the claims. Not `accountConfidence`,
+  not `contributionConfidence`, not any per-person figure. That distinction is what
+  keeps a new account's honest claim worth exactly what an established account's is,
+  and it is enforced by a discovery guard rather than by this paragraph.
+
+### 11.2 The 81–90 gate — dependencies verified against what exists
+
+| Phase | True gap |
+|---|---|
+| 81 Corroboration confidence | **the confidence, as factors.** Corroborations, evidence, assessments, clusters and the coordination signal all exist; nothing composes them into a stated confidence, and `signal_snapshots` holds counts rather than a judgement about them |
+| 82 Confidence evolution | **a durable history, and replay safety.** Phase 56 established the replay-safe pattern for reputation — every point counts the whole set as of its boundary rather than folding forward — and confidence has no series at all |
+| 83 Community reliability | **a viewer-shaped read.** `actor_reputation` exists with `internal_signals` staff-only, and `actor_reputation_public` is the view. The gap is a read that answers "is this contributor reliable" in bands with `INSUFFICIENT_DATA`, and **the refusal of a leaderboard** |
+| 84 Response quality | **quality, as distinct from responsiveness.** `responsiveness_snapshots` measures *timing* — medians, rates, sample size, all floored. Timing is not quality: answering in an hour and doing nothing is fast and bad |
+| 85 Resolution quality | **`resolved != well resolved`.** `tallyReports` and `resolutionFromReports` decide *whether* it is resolved. Nothing asks whether it was resolved *well*, and a resolution that is disputed or recurs is a different thing from one that is accepted |
+| 86 Personalized relevance | **the ordering constraint, asserted.** Phase 74's `discoverForActor` already narrows after `discover` applies status, so the order is right — and nothing asserts it, which means nothing stops the next edit from filtering first for a plausible-looking performance reason |
+| 87 Recommendation memory | **the whole record.** `recommendations` holds what was concluded and nothing about what happened to it — shown, dismissed, accepted, acted on, outcome |
+| 88 Improvement recommendations | **the inputs.** `recommend` exists (Phase 58) and draws on cross-experience conclusions. Response and resolution quality are new inputs to the same contract, not a new contract |
+| 89 Governed follow-up | **almost nothing — and this is worth stating plainly.** Phase 59 already implements proposal → approval → per-step authorization *at execution time* → the owning engine's own command → partial failure as a normal outcome, with `MAX_PLAN_STEPS`, the three prohibitions, and a check constraint refusing a plan that claims completion it did not earn. The gap is the *follow-up* link — a recommendation from 88 becoming a plan — and one assertion nobody has written: that approval does not pre-authorize a **later** step added after the fact |
+| 90 Certification | the band's gates, and the explicit `decision != effect` assertion |
+
+Two consequences worth recording:
+
+1. **Phase 89 is mostly reuse, and pretending otherwise would be the wrong kind of
+   work.** Rebuilding a governed execution path beside the certified one would create
+   two, and the second would be the one without the check constraint. What 89 adds is
+   the link from 88 and the missing "approval is not a standing authorization" test.
+2. **Phase 84 is not Phase 39.** Responsiveness measures how fast; quality asks whether
+   anything happened. Keeping them separate is the same discipline that keeps severity,
+   urgency and priority three questions — and the same failure if collapsed, because a
+   fast non-answer would read as good.
+
+### 11.3 The band's constraints
+
+- **A count is never weighted.** Confidence is a separate measure; the count of people
+  is the count of people.
+- **Confidence reads facts about claims, never scores about claimants.** No per-person
+  trust figure enters any confidence, reliability or quality measure. Enforced by a
+  discovery guard.
+- **`resolved != well resolved`**, and both are named dimensions rather than one score.
+- **No public leaderboard of anything.** Not contributors, not organizations. Phase 75
+  refused one for organizations; this band refuses one for people, which is worse.
+- **Personalization runs after eligibility, never before.** Trust and safety decide what
+  a person *may* see; personalization decides the order of what is left. Reversing them
+  makes a preference into a permission.
+- **No engagement composite under another name.** Confidence, quality and reliability
+  are each factored and each state their deciding factor.
+- **AI proposes; the governed engine decides.** Unchanged from Phase 44 and Phase 59.
+
+Two new invariants:
+
+```
+resolved   != well resolved
+relevant   != permitted
+```
+
+### Phase 81 — Corroboration Confidence
+
+- **Owner** E4 Trust · **support** E6, E7
+- **Objective:** state how much confidence a pattern's corroboration supports, as named
+  factors, without touching the count.
+- **Design constraint:** the count is untouched, and
+  `confidenceAdjustsCorroborationCount()` returns undefined.
+- **Design constraint:** facts about claims, not scores about claimants.
+- **Failure tests:** self-corroboration cannot inflate confidence; duplicate rows
+  cannot inflate unique people; a set below the person floor is withheld; no per-person
+  trust value reaches the computation.
+
+### Phase 82 — Confidence Evolution
+
+- **Owner** E4 · **support** E8, E10
+- **Objective:** a durable, replayable series — how confidence moved and why.
+- **Design constraint:** each point counts the whole set as of its boundary rather than
+  folding forward, so replaying the log in any order gives the same series. The Phase 56
+  pattern, for the same reason.
+- **Failure tests:** contradictory evidence can reduce confidence; stale evidence
+  reduces or withholds it; replay cannot double-apply; the series is deterministic.
+
+### Phase 83 — Community Reliability Read
+
+- **Owner** E11 · **support** E4, E6
+- **Objective:** a viewer-shaped answer to "has this contributor's account of things
+  held up", in bands.
+- **Design constraint:** bands and `INSUFFICIENT_DATA`, never a number, and **never a
+  leaderboard**. `reliabilityLeaderboard()` returns undefined.
+- **Failure tests:** an insufficient sample is withheld; no internal trust feature is
+  exposed; no ordering across people exists.
+
+### Phase 84 — Organization Response Quality
+
+- **Owner** E11 · **support** E9, E10
+- **Objective:** whether responses did anything, as distinct from how fast they came.
+- **Design constraint:** floored like every measure, and **not** a ranking across
+  organizations.
+- **Failure tests:** a tiny sample is withheld; a fast non-answer does not read as good;
+  recurrence lowers it.
+
+### Phase 85 — Resolution Quality
+
+- **Owner** E10 · **support** E11, E12
+- **Objective:** `resolved != well resolved`, as named dimensions.
+- **Failure tests:** resolved-and-disputed is not high quality; recurrence lowers it;
+  a partial resolution is not a resolution; the reasons are returned, not a score.
+
+### Phase 86 — Personalized Relevance
+
+- **Owner** E1 · **support** E5, E12
+- **Objective:** the Phase 71–80 reads, narrowed by the Phase 74 profile, with the
+  ordering constraint made explicit.
+- **Design constraint:** **eligibility first, personalization second**, asserted rather
+  than assumed.
+- **Failure tests:** private or removed content cannot enter personalization;
+  personalization cannot bypass a trust or safety floor; an empty profile yields
+  everything permitted rather than nothing.
+
+### Phase 87 — Recommendation Memory
+
+- **Owner** E12 · **support** E1, E11
+- **Objective:** what happened to a recommendation — shown, dismissed, accepted, acted
+  on, outcome.
+- **Design constraint:** the minimum that is necessary. No prose, no profile data, no
+  free text about the person who dismissed it.
+- **Failure tests:** replay is idempotent; a dismissal is not a judgement about the
+  dismisser; the record carries no profile field.
+
+### Phase 88 — Organization Improvement Recommendations
+
+- **Owner** E12 · **support** E9, E10, E11
+- **Objective:** quality measures as inputs to the *existing* proposal contract.
+- **Design constraint:** output is a proposal. Never a mutation.
+- **Failure tests:** E12 cannot mutate a target engine; a recommendation below its
+  floors is not produced; the proposal carries openable references.
+
+### Phase 89 — Governed Follow-Up
+
+- **Owner** E12 · **support** E9, E10
+- **Objective:** link a recommendation to the certified Phase 59 execution path, and
+  close the one assertion missing from it.
+- **Design constraint:** **approval is not a standing authorization.** A step added
+  after approval is not covered by it.
+- **Failure tests:** an approved follow-up may still be refused per step; partial
+  failure stays partial; a step appended after approval is refused.
+
+### Phase 90 — Trust, Quality & Personalization Certification
+
+- **Required scenario, run twice — Rage and Rave.** experience → corroboration →
+  confidence evolves → response → resolution quality → reliability → personalized
+  discovery → recommendation → governed follow-up → effect, with **`decision != effect`
+  asserted explicitly** at the step where an approval produces a refusal.
+- **Decision values:** `PHASES_81_90_READY`,
+  `PHASES_81_90_READY_WITH_EXTERNAL_BLOCKERS`, `PHASES_81_90_NOT_READY`.
+
+### 11.4 Order
+
+```
+81 confidence ─┬─ 82 evolution ─┬─ 84 response quality ─┬─ 88 recommendations ─┐
+               ├─ 83 reliability ┤                       │                     ├─ 90
+               └─────────────────┴─ 85 resolution quality┴─ 89 follow-up ──────┤
+                                    86 personalization ── 87 memory ───────────┘
+```
+
+**Batch A** — 81, 82, 83, 84, 85. Confidence, its history, and the three quality reads.
+
+**Batch B** — 86, 87, 88, 89, 90. Personalization, memory, recommendations, follow-up,
+certification. One full certification run at the end.
+
+### 11.5 What Batch A found by executing
+
+Two defects and one correction to an assumption, all three found by running the code rather
+than by reading it.
+
+**1. `actionDescribed` was measuring a response kind that does not exist.** Phase 84's whole
+point is that a fast non-answer is not a good answer, and the dimension that carries it is
+whether a response said something was *done*. I wrote it against `fix_described` and
+`resolution_published` — two strings that appear nowhere in `RESPONSE_KINDS`. The count would
+have been permanently zero, so **no organization could ever have read as `good`**, and the
+failure would have looked like a harsh-but-defensible measure rather than a bug: every
+organization reading `mixed` at best, with a plausible-sounding reason attached.
+
+The vocabulary already existed and already had a name for exactly this set:
+`PROPOSAL_RESPONSE_KINDS`, `['publish_resolution', 'remediation_instructions']`, used by
+`resolution.engine.ts` to decide the same question. It is now reused rather than restated,
+for the reason the coordination heuristic was reused in Phase 81: a second list drifts from
+the first the moment somebody adds a kind, and the drift is invisible because both lists still
+look plausible.
+
+The integration test asserts both directions — an `acknowledge` does not raise the dimension
+and a `publish_resolution` does — because a test that only checked the negative would have
+passed against the broken version.
+
+**2. The live schema enforces one-claim-per-person, which I had assumed only the command did.**
+The integration test seeds six corroboration rows from one account, deliberately bypassing the
+command, because the read must not be fooled by rows that arrived some other way — a backfill,
+a repaired duplicate, a bug. The same fixture is *impossible* in Postgres:
+`(experience_id, corroborator_id)` is unique.
+
+That is a better position than the one the test was written for, and the live test now asserts
+the constraint instead of working around it. The guarantee is layered — the database refuses to
+hold duplicate rows, the command refuses to create them, and the read discards them if they
+somehow exist — and each layer is asserted where it lives. The in-memory test remains the only
+place the read's own discard logic can be exercised, which is a reason to keep it rather than
+to align the two adapters.
+
+**3. The PII detector routes an experience naming an organization to review**, so
+`pending_moderation` is where a body text like "Northwind Air never processed my refund" lands,
+and nothing published. Not a new defect — it is the known person-name false positive — but it
+is the reason the fixtures in this band attach the entity through `normalization.confirm` and
+keep the organization's name out of the body. That is also how the product works: **structure
+comes from confirmation, never from the prose**, so a fixture that named the organization in
+the body was testing a path the product does not use.
+
+**And one thing that had to be built rather than found.** Nothing called
+`recordConfidencePoint`, which would have left `confidence_points` a table only a test ever
+writes to. `createConfidencePointConsumer` subscribes to the four events that can move
+confidence — `ExperienceReRaged`, `ExperienceReRaved`, `CorroborationRetracted`,
+`EvidenceAssessed` — and deliberately **not** to `ExperienceShared`, which the corroboration
+consumer does listen for in order to maintain a share count. A share is not a claim;
+subscribing to it here would have been the quiet way to let amplification move a trust figure.
+
+The boundary is a **day**, not an event. A point per event would make the series a log of
+corroborations, which `experience_corroborations` already is with more detail, and its length
+would become a proxy for activity — so a busy pattern would look like a moving one. The daily
+boundary also makes replay free rather than merely safe: every delivery inside the same day
+derives the identical id, so the second is absorbed on absence with no comparison of contents.
