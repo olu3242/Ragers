@@ -1709,3 +1709,32 @@ commit.
 **Batch B** — 65, 66, 67, 68, 69, 70. Retention, the operator surfaces, degraded
 mode, the audit rule, the tenant sweep, and the band's certification. One full
 certification run at the end.
+
+### 9.3 What the band actually found
+
+Recorded because the gate analysis in §9.1 predicted four declared-but-absent
+capabilities and the work found five more, each by executing rather than reading:
+
+1. **The engine charged itself a quota.** The handoff consumer dispatches as
+   `SERVICE_ACTOR_ID`, which has no `actors` row, so every internal dispatch threw
+   inside the charge and the bus allowed it through as an unavailable quota. Visible
+   only as sixteen foreign-key violations per run in the Postgres log. Memory has no
+   foreign keys to violate, which is why a green in-memory suite hid it.
+2. **Nine commands took a decision about somebody and left no trace.** Applying
+   Phase 68's rule to `bus.registeredCommands()` found them; `dispute.review` was the
+   one that mattered most, where the only record was a `reviewedBy` column the next
+   review overwrites.
+3. **Four columns disclosed an actor identity to an unauthenticated visitor.**
+   `reactions.actor_id` above all — a `been_there` reaction is somebody saying *this
+   happened to me as well*, world-readable with their account id attached. Found by
+   Phase 69's sweep over `pg_catalog`, not by anybody reading migration 0002.
+4. **A migration written `create table if not exists` was invisible to the schema
+   guard**, so a new relation went unverified while the suite stayed green.
+5. **The Phase 67 guard caught its own author.** `incident.engine.ts` imported the
+   degraded module, which the rule forbids. It would have been a defensible exception —
+   a pure read with no write path — and the fix was to remove the import rather than
+   write the exception, because exceptions to an invariant erode it.
+
+The pattern across all five: every one was found by running something against
+Postgres or by a discovery guard enumerating the real system. None would have been
+found by review.

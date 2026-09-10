@@ -159,7 +159,21 @@ for (const gate of GATES) {
  */
 const benchmarkDataBlocked = process.env['RAGERS_BENCHMARK_DATA_READY'] !== '1';
 
-const report = buildReport(results, new Date().toISOString(), { benchmarkDataBlocked });
+/**
+ * Phase 65's honest blocker, declared here for the same reason Phase 47's is.
+ *
+ * Every retention gate *passes*: the ceilings are stated, the holds are enforced, the
+ * ledger is written, and the byte deletion records `object_storage_blocked` because there
+ * is no bucket in any environment this runs in. Folding that into a gate would mean either
+ * failing working code or hiding the gap. `RAGERS_OBJECT_STORAGE_READY=1` is how a
+ * deployment with real storage flips it.
+ */
+const objectStorageBlocked = process.env['RAGERS_OBJECT_STORAGE_READY'] !== '1';
+
+const report = buildReport(results, new Date().toISOString(), {
+  benchmarkDataBlocked,
+  objectStorageBlocked,
+});
 
 // Only a full run may rewrite the ledger; a partial run reports to stdout only.
 if (only.length === 0) {
@@ -176,6 +190,7 @@ process.stdout.write(`Experience Signal Engine status: ${report.experienceSignal
 process.stdout.write(`Phases 31–40 status: ${report.governanceActionStatus}\n`);
 process.stdout.write(`Phases 41–50 status: ${report.experienceOsStatus}\n`);
 process.stdout.write(`Phases 51–60 status: ${report.experienceLoopStatus}\n`);
+process.stdout.write(`Phases 61–70 status: ${report.operationalIntegrityStatus}\n`);
 // Either certification failing is a failure: a green platform with a broken
 // corroboration contract is not a shippable product.
 process.exit(
@@ -183,7 +198,8 @@ process.exit(
     report.experienceSignalEngineStatus === 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY' ||
     report.governanceActionStatus === 'PHASES_31_40_NOT_READY' ||
     report.experienceOsStatus === 'RAGERS_EXPERIENCE_OS_NOT_READY' ||
-    report.experienceLoopStatus === 'PHASES_51_60_NOT_READY'
+    report.experienceLoopStatus === 'PHASES_51_60_NOT_READY' ||
+    report.operationalIntegrityStatus === 'PHASES_61_70_NOT_READY'
     ? 1
     : 0,
 );

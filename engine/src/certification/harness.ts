@@ -82,13 +82,41 @@ export type ExperienceLoopStatus =
   | 'PHASES_51_60_READY_WITH_EXTERNAL_BLOCKERS'
   | 'PHASES_51_60_NOT_READY';
 
+/**
+ * The Operational Integrity band (Phases 61–70) — Phase 70's own status.
+ *
+ * A sixth status, and the one that answers a question none of the five before it does:
+ * phases 1–60 asked whether the system is *correct*, and this asks whether it is safe to
+ * **operate**. Those fail differently. A correct system with no rate limit, no retention
+ * ceiling, no reply moderation and an audit trail covering four engines out of twelve is
+ * correct code in an environment that cannot hold it.
+ *
+ * What it certifies: that being throttled is never being judged, that detection opens a
+ * review and never takes an action, that a reported reply can actually be actioned, that a
+ * deletion leaves no stored reference behind, that a raw artefact has a stated ceiling and
+ * expires without taking the account with it, that an unavailable dependency produces one
+ * reported state rather than three unrelated-looking bugs, and that every action taken
+ * under authority about somebody else is attributable.
+ *
+ * `READY_WITH_EXTERNAL_BLOCKERS` is the expected value while no object storage exists:
+ * retention decides, marks and records, and the deletion of remote bytes reports
+ * `OBJECT_STORAGE_BLOCKED` rather than claiming a deletion nothing performed. A plain
+ * `READY` that quietly skipped that would be the first time this ledger claimed something
+ * it had not done.
+ */
+export type OperationalIntegrityStatus =
+  | 'PHASES_61_70_READY'
+  | 'PHASES_61_70_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_61_70_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
 export type GateScope =
   | 'engine'
   | 'experience_signal_engine'
   | 'governance_action'
   | 'experience_os'
-  | 'experience_loop';
+  | 'experience_loop'
+  | 'operational_integrity';
 
 export interface GateDefinition {
   readonly id: string;
@@ -664,6 +692,57 @@ export const GATES: readonly GateDefinition[] = [
       'No database is configured. The recommendation ledger arbitrates concurrent sweeps at its primary key and the action-plan constraints refuse a plan claiming completion it did not earn — neither is certifiable without one.',
   },
   {
+    id: 'phases_61_64',
+    name: 'P61–64: a quota is not a judgement, detection is not an action, a reply can be actioned',
+    scope: 'operational_integrity',
+    requirement: 'phases/61-64',
+    command: [
+      'node',
+      '--test',
+      'tests/unit/quota.governance.test.ts',
+      'tests/unit/coordination.reply.test.ts',
+      'tests/integration/quota.enforcement.test.ts',
+    ],
+  },
+  {
+    id: 'phases_65_68',
+    name: 'P65–68: a stated ceiling, one reported state, and a rule for the audit trail',
+    scope: 'operational_integrity',
+    requirement: 'phases/65-68',
+    command: [
+      'node',
+      '--test',
+      'tests/unit/retention.policy.test.ts',
+      'tests/unit/degraded.mode.test.ts',
+      'tests/integration/retention.sweep.test.ts',
+      'tests/integration/audit.completeness.test.ts',
+    ],
+  },
+  {
+    id: 'phase_66_incidents',
+    name: 'P66: the incident surface reports and does not act',
+    scope: 'operational_integrity',
+    requirement: 'phases/66',
+    command: ['node', '--test', 'tests/integration/incident.surface.test.ts'],
+  },
+  {
+    id: 'operational_integrity_certification',
+    name: 'Operational integrity, for a Rage and again for a Rave',
+    scope: 'operational_integrity',
+    requirement: 'operational/certification',
+    command: ['node', '--test', 'tests/integration/operational.integrity.test.ts'],
+  },
+  {
+    id: 'tenant_isolation_sweep',
+    name: 'P69: every table swept, and no world-readable table names a person',
+    scope: 'operational_integrity',
+    requirement: 'phases/69/live',
+    command: ['node', '--test', 'tests/live/tenant.isolation.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. The sweep enumerates tables, policies and column grants from pg_catalog, and none of that exists without one — which is exactly why the four world-readable identity columns it found had survived a green in-memory suite.',
+  },
+  {
     id: 'command_boundaries',
     name: 'Command boundaries: bad input is refused, never reported as a defect',
     scope: 'experience_os',
@@ -764,12 +843,35 @@ export const decideExperienceLoopStatus = (results: readonly GateResult[]): Expe
   return 'PHASES_51_60_READY';
 };
 
+/**
+ * Phases 61–70.
+ *
+ * `objectStorageBlocked` is passed in rather than inferred from a gate, for the same reason
+ * the benchmark data block is: every retention gate *passes*. The policy is certified, the
+ * ceilings are enforced, the ledger is written — and the bytes behind the keys are in a
+ * store nothing has configured. Folding that into a gate would mean either failing working
+ * code or hiding the gap, and the honest third option is a status that names it.
+ */
+export const decideOperationalIntegrityStatus = (
+  results: readonly GateResult[],
+  objectStorageBlocked: boolean,
+): OperationalIntegrityStatus => {
+  const own = results.filter((result) => result.scope === 'operational_integrity');
+  if (own.length === 0) return 'PHASES_61_70_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_61_70_NOT_READY';
+  if (own.some((result) => result.status === 'blocked') || objectStorageBlocked) {
+    return 'PHASES_61_70_READY_WITH_EXTERNAL_BLOCKERS';
+  }
+  return 'PHASES_61_70_READY';
+};
+
 export interface CertificationReport {
   readonly status: CertificationStatus;
   readonly experienceSignalEngineStatus: ExperienceSignalEngineStatus;
   readonly governanceActionStatus: GovernanceActionStatus;
   readonly experienceOsStatus: ExperienceOsStatus;
   readonly experienceLoopStatus: ExperienceLoopStatus;
+  readonly operationalIntegrityStatus: OperationalIntegrityStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -778,13 +880,14 @@ export interface CertificationReport {
 export const buildReport = (
   results: readonly GateResult[],
   generatedAt: string,
-  options: { readonly benchmarkDataBlocked?: boolean } = {},
+  options: { readonly benchmarkDataBlocked?: boolean; readonly objectStorageBlocked?: boolean } = {},
 ): CertificationReport => ({
   status: decideStatus(results),
   experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
   governanceActionStatus: decideGovernanceActionStatus(results),
   experienceOsStatus: decideExperienceOsStatus(results, options.benchmarkDataBlocked ?? false),
   experienceLoopStatus: decideExperienceLoopStatus(results),
+  operationalIntegrityStatus: decideOperationalIntegrityStatus(results, options.objectStorageBlocked ?? true),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -818,8 +921,10 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 51–60 status: \`${report.experienceLoopStatus}\``);
   lines.push('');
+  lines.push(`## Phases 61–70 status: \`${report.operationalIntegrityStatus}\``);
+  lines.push('');
   lines.push(
-    'Five statuses, because they answer different questions. The engine status is about ' +
+    'Six statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
@@ -834,7 +939,14 @@ export const renderLedger = (report: CertificationReport): string => {
       'never between people, a memory of an experience rather than of a person, a history that ' +
       'is not a ranking, a signal that can stop being current without any row being erased, ' +
       'reputation that is neither popularity nor one opaque number, and a plan of several ' +
-      'governed steps that cannot launder privilege past the policy matrix.',
+      'governed steps that cannot launder privilege past the policy matrix. The Phases ' +
+      '61–70 status is the one that is not about correctness at all: it is about whether the ' +
+      'system is safe to *operate*. Being throttled is never being judged; detection opens a ' +
+      'review and never takes an action; a reported reply can actually be actioned; a deletion ' +
+      'leaves no stored reference behind; a raw artefact has a stated ceiling and expires ' +
+      'without taking the account with it; an unavailable dependency produces one reported ' +
+      'state rather than three unrelated-looking bugs; and every action taken under authority ' +
+      'about somebody else is attributable.',
   );
   lines.push('');
   lines.push(

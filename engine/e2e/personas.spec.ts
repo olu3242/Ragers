@@ -78,6 +78,11 @@ test('a consumer is offered no operator or organization surface, and is refused 
   // Navigating there anyway is refused by the surface, not merely unlinked.
   await page.goto('/operate');
   await expect(page.getByRole('heading', { name: 'Not available' })).toBeVisible();
+  // Phase 66's incident surface is the same gate. It names dead letters, worker hostnames
+  // and failure text across every account, so a consumer reaching it directly would be the
+  // widest single disclosure on the site.
+  await page.goto('/operate/incidents');
+  await expect(page.getByRole('heading', { name: 'Not available' })).toBeVisible();
   await page.goto('/organizations/org_northwind');
   await expect(page.getByRole('heading', { name: 'Not available' })).toBeVisible();
 
@@ -382,4 +387,32 @@ test('rejecting a recommendation requires a reason', async ({ page }) => {
   await card.getByRole('textbox').fill('The account describes a delay, not something to remove.');
   await card.getByRole('button', { name: 'Reject' }).click();
   await expect(card.getByText('Rejected. Nothing was applied.')).toBeVisible();
+});
+
+test('an operator can read the incident surface, and it reports rather than acts', async ({ page }) => {
+  const request: Req = page.request;
+  expect((await request.post('/api/test/seed', { data: {} })).ok()).toBeTruthy();
+  await signUp(request, `${OPERATOR}.incidents`);
+  expect((await request.post('/api/test/seed', { data: { grantModerator: true } })).ok()).toBeTruthy();
+
+  await page.goto('/operate/incidents');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('System state');
+
+  // On a healthy system it says so plainly. A surface whose empty state is a blank page
+  // leaves an operator unable to tell "nothing is wrong" from "the page is broken".
+  await expect(page.getByRole('heading', { name: 'Everything is healthy' })).toBeVisible();
+  await expect(page.getByText('Every dependency is responding.')).toBeVisible();
+  await expect(page.getByText('Nothing has been dead-lettered.')).toBeVisible();
+
+  // No worker registered is stated as its own fact rather than shown as an empty list:
+  // "nothing is draining the queue" and "every worker is healthy" are opposite situations
+  // that look identical on a page which only lists problems.
+  await expect(page.getByRole('heading', { name: 'Workers' })).toBeVisible();
+
+  // The surface reports. Every control that would *act* on the runtime is absent, because
+  // the runtime already reclaims a dead worker's leases and a second actor racing it is
+  // the class of bug this page exists to help find.
+  for (const forbidden of ['Reclaim', 'Drain', 'Retry all', 'Restart', 'Clear']) {
+    await expect(page.getByRole('button', { name: forbidden })).toHaveCount(0);
+  }
 });
