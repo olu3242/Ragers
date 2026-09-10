@@ -191,3 +191,48 @@ test('an operator sees why something escalated, and the outcome is unchanged', a
   }
   expect(experienceId.length).toBeGreaterThan(0);
 });
+
+test('the operator queue shows why something ranks, and never a score', async ({ page }) => {
+  const request: Req = page.request;
+  expect((await request.post('/api/test/seed', { data: {} })).ok()).toBeTruthy();
+  await signUp(request, `${RAGER}.f`);
+
+  // Published, with no capitalised pair: priority is about what to look at first among
+  // things that are *live*, and its inputs only exist after publication. A
+  // screening-held account is in the review queue above and legitimately has no ranking.
+  const experienceId = await publish(request, `the fire exit was blocked again (${stamp}-f).`);
+  await projected(request, experienceId);
+  const asserted = await request.post(`/api/experiences/${experienceId}/enrichment`, {
+    data: { dimension: 'safety_involved', flag: true },
+  });
+  expect(asserted.status()).toBe(201);
+
+  await signUp(request, `${OPERATOR}.f`);
+  expect((await request.post('/api/test/seed', { data: { grantModerator: true } })).ok()).toBeTruthy();
+
+  await expect
+    .poll(
+      async () => {
+        await page.goto('/operate');
+        return page.locator('.priority').count();
+      },
+      { timeout: 20_000, intervals: [200, 300, 500] },
+    )
+    .toBeGreaterThan(0);
+
+  const priority = page.locator('.priority').first();
+  // Band and urgency in words, separately — they answer different questions.
+  await expect(priority.locator('.priority-band')).toHaveText('Critical priority');
+  // Scoped to the urgency element: the reason legitimately repeats the phrase, and a
+  // page-wide match would be asserting the wrong thing in two places at once.
+  await expect(priority.locator('.priority-urgency')).toHaveText('Needs attention now');
+  // The reason names a cause.
+  await expect(priority.locator('.priority-reason')).not.toBeEmpty();
+  // No score anywhere in the block, and no decimal figure.
+  const text = (await priority.textContent()) ?? '';
+  expect(text.toLowerCase()).not.toContain('score');
+  expect(text).not.toMatch(/\d+\.\d/);
+  // An impact nobody can estimate says so in words rather than showing a zero.
+  await expect(priority.getByText(/Not enough people have said this happened to them/)).toBeVisible();
+  expect(text).not.toMatch(/\b0 people\b/);
+});

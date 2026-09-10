@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { PriorityRow, type PriorityView } from './PriorityRow.tsx';
 
 /**
  * The operator's review queue.
@@ -34,6 +35,14 @@ export interface QueueCase {
   readonly escalations: readonly string[];
   /** How long it has been waiting, when it is an escalated experience. */
   readonly aging?: string;
+  /**
+   * Where it sits and why — Phases 41–43. Absent when nothing was assessed.
+   *
+   * Named `ranking` rather than `priority` because `priority` on this type is already
+   * the queue item's own numeric weight from screening. Two different things called the
+   * same name in one row is how the wrong one gets rendered.
+   */
+  readonly ranking?: PriorityView;
 }
 
 const SIGNAL_LABELS: Readonly<Record<string, string>> = {
@@ -149,6 +158,10 @@ export const ModerationQueue = ({ cases, actorId }: { cases: readonly QueueCase[
               </ul>
             ) : null}
             {item.aging === undefined ? null : <p className="queue-aging">{item.aging}</p>}
+
+            {/* Where it sits, and why — separately from why it was queued. Screening put
+                it here; priority says what to do with it first. */}
+            <PriorityRow priority={item.ranking} />
 
             <p className="queue-body">{item.bodyText}</p>
 

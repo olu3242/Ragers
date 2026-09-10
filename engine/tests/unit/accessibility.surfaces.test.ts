@@ -34,6 +34,7 @@ const recommendation = read('components', 'RecommendationCard.tsx');
 const severityBadge = read('components', 'SeverityBadge.tsx');
 const agingNote = read('components', 'AgingNote.tsx');
 const cost = read('components', 'CostControl.tsx');
+const priorityRow = read('components', 'PriorityRow.tsx');
 
 test('a visible focus treatment is defined once, globally', () => {
   assert.match(css, /:focus-visible\s*\{/, 'a focus-visible rule must exist');
@@ -137,6 +138,7 @@ test('every interactive element in the app surfaces is a real button or link', (
     ['ResponsivenessPanel', responsiveness],
     ['RecommendationCard', recommendation],
     ['CostControl', cost],
+    ['PriorityRow', priorityRow],
   ] as const) {
     // A div with an onClick is not keyboard-operable.
     assert.equal(
@@ -184,6 +186,7 @@ test('all app surface files are accounted for by these assertions', () => {
       'OrganizationResponses.tsx',
       'OutcomeBadge.tsx',
       'PersonaNav.tsx',
+      'PriorityRow.tsx',
       'ReactionRow.tsx',
       'RecommendationCard.tsx',
       'RelateControl.tsx',
@@ -268,6 +271,21 @@ test('a recommendation says in words what happened, and announces the change', (
   // The effect changes after an action taken elsewhere on the card, so it is
   // announced rather than only redrawn.
   assert.match(recommendation, /className="recommendation-effect"\s*\n?\s*role="status"/);
+});
+
+test('a priority renders no score, and never a zero for an unknown impact', () => {
+  const stripped = priorityRow.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  for (const forbidden of ['score', 'weight', 'points', 'toFixed']) {
+    assert.equal(stripped.includes(forbidden), false, `a priority must not render a ${forbidden}`);
+  }
+  // Band and urgency are named separately, because they answer different questions and
+  // disagree constantly.
+  assert.match(priorityRow, /BAND_LABELS\[priority\.band\]/);
+  assert.match(priorityRow, /URGENCY_LABELS\[priority\.urgency\]/);
+  // An unknown impact says so in words rather than falling back to a number.
+  assert.match(priorityRow, /Not enough people have said this happened to them/);
+  // And an unassessed reading renders nothing at all.
+  assert.match(priorityRow, /priority\.unassessed\) return null/);
 });
 
 test('a severity band is words, never a number beside a person', () => {

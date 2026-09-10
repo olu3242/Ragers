@@ -2,7 +2,9 @@ import { eq } from '../../src/ports/store.ts';
 import { getEngine } from '../../lib/engine-instance.ts';
 import { resolveViewer } from '../../lib/persona.ts';
 import { ModerationQueue, type QueueCase } from '../../components/ModerationQueue.tsx';
+import { PriorityRow } from '../../components/PriorityRow.tsx';
 import { escalationsOf } from '../../src/engines/escalation.engine.ts';
+import { prioritisedQueue } from '../../src/engines/priority.engine.ts';
 import { ageOf, describeDuration } from '../../src/domain/aging.ts';
 import { eq as equals } from '../../src/ports/store.ts';
 import type { ResolutionEventRow, ScreeningResult } from '../../src/ports/store.ts';
@@ -45,6 +47,11 @@ const OperatePage = async () => {
     { orderBy: { field: 'priority', direction: 'desc' } },
   );
 
+  // The prioritised queue, read once and joined by experience id. Position is derived
+  // here rather than stored: a stored position is wrong the moment anything else in the
+  // queue changes, and a stale "#9" is worse than no number at all.
+  const ranked = new Map((await prioritisedQueue(engine)).map((entry) => [entry.subjectId, entry]));
+
   const cases: QueueCase[] = [];
   for (const item of items) {
     const experience = await engine.store.experiences.get(item.targetId);
@@ -64,6 +71,23 @@ const OperatePage = async () => {
       publicationStatus: experience?.status ?? 'unknown',
       bodyText: experience?.bodyText ?? '',
       escalations: (await escalationsOf(engine, item.targetId)).map((row) => row.because),
+      ...(await (async () => {
+        const entry = ranked.get(item.targetId);
+        if (!entry) return {};
+        const row = await engine.store.priorities.get(`pri:${item.targetId}`);
+        return {
+          ranking: {
+            band: entry.band,
+            reason: entry.reason,
+            urgency: entry.urgency,
+            urgencyFactors: row?.urgencyFactors ?? [],
+            ...(entry.peopleAffected === undefined ? {} : { peopleAffected: entry.peopleAffected }),
+            impactKnown: entry.impactKnown,
+            unassessed: entry.unassessed,
+            position: entry.position,
+          },
+        };
+      })()),
       // Aging is derived on read from the event log, never stored — so what an
       // operator sees is what the log says, not a counter somebody forgot to update.
       ...(experience?.publishedAt === undefined
@@ -83,6 +107,26 @@ const OperatePage = async () => {
     });
   }
 
+  /**
+   * Two lists, and they are not the same question.
+   *
+   * The review queue is about *content decisions* — screening or a report routed
+   * something here, and much of it is not published yet. Priority is about *what to look
+   * at first among things that are live*, and its inputs (elapsed time, corroborations,
+   * resolution state) only exist after publication.
+   *
+   * Decorating one with the other would have been the tempting shortcut and would have
+   * produced a queue where half the rows silently have no ranking. Two sections, each
+   * answering its own question, is the honest shape.
+   */
+  const ranking = [...ranked.values()];
+  const rankedRows = [];
+  for (const entry of ranking.slice(0, 25)) {
+    const row = await engine.store.priorities.get(`pri:${entry.subjectId}`);
+    const experience = await engine.store.experiences.get(entry.subjectId);
+    rankedRows.push({ entry, row, experience });
+  }
+
   return (
     <>
       <h1>Review queue</h1>
@@ -90,6 +134,42 @@ const OperatePage = async () => {
         Content routed here needs a human decision. Deciding that nothing is wrong is one of them.
       </p>
       <ModerationQueue cases={cases} actorId={viewer.actor.actorId} />
+
+      <section className="ranked-section" aria-labelledby="ranked-heading">
+        <h2 id="ranked-heading">What to look at first</h2>
+        <p className="lede">
+          Published accounts, ordered by what people said it cost them and how long it has been
+          waiting. Ordering is by named dimensions — there is no score.
+        </p>
+        {rankedRows.length === 0 ? (
+          <div className="empty">
+            <h3>Nothing ranked yet.</h3>
+            <p>An account is ranked once somebody says what it cost them.</p>
+          </div>
+        ) : (
+          <ul className="ranked">
+            {rankedRows.map(({ entry, row, experience }) => (
+              <li className="ranked-item" key={entry.subjectId}>
+                <p className="ranked-body">
+                  <a href={`/experiences/${entry.subjectId}`}>{experience?.bodyText ?? entry.subjectId}</a>
+                </p>
+                <PriorityRow
+                  priority={{
+                    band: entry.band,
+                    reason: entry.reason,
+                    urgency: entry.urgency,
+                    urgencyFactors: row?.urgencyFactors ?? [],
+                    ...(entry.peopleAffected === undefined ? {} : { peopleAffected: entry.peopleAffected }),
+                    impactKnown: entry.impactKnown,
+                    unassessed: entry.unassessed,
+                    position: entry.position,
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </>
   );
 };

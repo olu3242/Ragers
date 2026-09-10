@@ -87,6 +87,7 @@ import { registerCaseEngine } from './engines/case.engine.ts';
 import { createSeverityConsumer } from './engines/severity.engine.ts';
 import { createEscalationConsumer } from './engines/escalation.engine.ts';
 import { createHandoffConsumer } from './engines/handoff.engine.ts';
+import { createPriorityConsumer } from './engines/priority.engine.ts';
 import { createResponsivenessConsumer } from './engines/responsiveness.engine.ts';
 import {
   createAbuseDetectionConsumer,
@@ -267,6 +268,9 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   orchestrator.subscribe(createEscalationConsumer(deps));
   // Phase 40: governed state is handed to the intelligence layer last, so it can only
   // ever propose over measurements the phases above it have already made governed.
+  // Phases 41–43: urgency and impact feed priority, so the priority consumer runs after
+  // severity and escalation have written the inputs it reads.
+  orchestrator.subscribe(createPriorityConsumer(deps));
   orchestrator.subscribe(createHandoffConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));

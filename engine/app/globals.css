@@ -548,6 +548,40 @@ legend { font-size: 13px; color: var(--text-dim); padding: 0; margin-bottom: 8px
 /* Counted per side, never pooled and never ranked. */
 .outcome-evidence { margin: 8px 0; font-size: 12px; color: var(--text-dim); }
 
+/* ── Priority (Phases 41–43) ─────────────────────────────────────────────
+   Band and urgency are named separately because they answer different questions
+   and disagree constantly. There is no score to render, and the hue only echoes
+   a word that is already there. */
+.priority {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-strong);
+  font-size: 13px;
+}
+.priority-critical { border-left-color: var(--rage); }
+.priority-head { margin: 0 0 4px; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.priority-position { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.priority-band { color: var(--text); }
+.priority-urgency { color: var(--text-dim); font-size: 12px; }
+.priority-reason { margin: 0 0 4px; color: var(--text-dim); }
+.priority-factors {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 4px;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.priority-impact { margin: 0; font-size: 12px; color: var(--text-faint); }
+
+/* Two lists on one page, visibly separate: one is about content decisions, the
+   other about what to look at first among things already live. */
+.ranked-section { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border-strong); }
+.ranked { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.ranked-item { border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px; }
+.ranked-body { margin: 0; font-size: 13px; }
+
 /* ── Relate ──────────────────────────────────────────────────────────────
    Visually quieter than the claim controls, because relating is a weaker
    statement than claiming and must not read like one. */

@@ -23,6 +23,9 @@ evidence.
 | Benchmark-safe aggregation (P39) | E11 | `src/domain/aggregation.ts` — row floor, person floor, differencing guard | `sampling.aggregation` (10) |
 | Resolution & dispute evidence (P37) | E10 | fourth evidence parent, `resolution_report_id` | `governance.action` (2) · `governance.action.live` (1) |
 | Governed intelligence handoff (P40) | E12 | `src/engines/handoff.engine.ts`, `intelligence_handoffs` | `sampling.aggregation` (1) · `governance.action` (4) · `governance.action.live` (1) |
+| Urgency (P41) | E8 | `src/domain/urgency.ts` — the only gap P32 left | `urgency.impact.priority` (8) · `governance.action` (1) · `governance-action` browser (1) |
+| Impact estimation (P42) | E8 | `src/domain/impact.ts`, derived on read across a pattern | `urgency.impact.priority` (9) · `governance.action` (3) |
+| Explainable prioritisation (P43) | E8 | `src/domain/priority.ts`, `src/engines/priority.engine.ts`, `experience_priorities` | `urgency.impact.priority` (11) · `governance.action` (2) · `governance.action.live` (2) · browser (1) |
 
 ## Open
 
@@ -34,7 +37,6 @@ evidence.
 | Deployment target | — | BLOCKED | Deployment and rollback certification gates remain blocked on it. |
 | Independent-signal tiers | E8 | ABSENT | Considered; would be a presentation tier over `uniqueExperiencers`, never a composite score. PR #6's thresholds remain the calibration data point. |
 | Autonomous agents | E12 | ABSENT | Deliberately not built. The proposal contract is the governed floor. |
-| Impact estimation and prioritisation | (E8 extensions) | ABSENT | Roadmap phases 42–43. The 31–40 band they depend on is now specified and certified (`PHASES_31_40_READY`); Phase 41 extends P32's band with urgency and population affected. |
 | Benchmarking, commercial intelligence, platform APIs | (E8/E9 extensions) | ABSENT | Roadmap phases 47–49. Vocabulary is internal-only per `CLAUDE.md`. |
 | SLA thresholds | E11 | ABSENT by choice | No service-level agreement exists. Responsiveness is measured; nothing is called an SLA and no overdue indicator is shown, because there is nothing to be overdue against. |
 

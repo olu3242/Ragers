@@ -16,6 +16,8 @@ import type { ResolutionEvent, ResolutionReport } from '../domain/resolution.ts'
 import type { ExperienceEnrichment } from '../domain/enrichment.ts';
 import type { OrganizationCase } from '../domain/case.ts';
 import type { SeverityBand } from '../domain/severity.ts';
+import type { UrgencyLevel } from '../domain/urgency.ts';
+import type { PriorityBand, DominantFactor } from '../domain/priority.ts';
 import type { Dispute } from '../domain/dispute.ts';
 import type { ExperienceRelation } from '../domain/relation.ts';
 import type { IntelligenceProposal } from '../domain/proposal.ts';
@@ -766,6 +768,35 @@ export interface HandoffRow {
   readonly createdAt: number;
 }
 
+/**
+ * Urgency, impact and priority for one experience — Phases 41–43.
+ *
+ * A cache of a derivation, not a source of truth. There is deliberately no command to
+ * write it: a `priority.set` would be a way to move somebody's complaint up or down the
+ * queue by hand, and Phase 43's whole claim is that a position is answerable from the
+ * rows instead.
+ *
+ * The named inputs are carried through rather than collapsed into a score, so a reader
+ * can see which dimension decided the band.
+ */
+export interface PriorityRow {
+  readonly id: string;
+  readonly experienceId: string;
+  readonly band: PriorityBand;
+  readonly reason: string;
+  readonly dominant: readonly string[];
+  readonly urgency: UrgencyLevel;
+  /** Why it is urgent, in the words a person reads. */
+  readonly urgencyFactors: readonly string[];
+  readonly severity?: SeverityBand;
+  readonly peopleAffected?: number;
+  readonly impactKnown: boolean;
+  readonly confidence?: number;
+  readonly unresolvedDays: number;
+  readonly unassessed: boolean;
+  readonly computedAt: number;
+}
+
 export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
@@ -836,4 +867,7 @@ export interface EngineStore {
 
   // ── Phase 40: the governed intelligence handoff ledger ──────────────────
   readonly handoffs: Table<HandoffRow>;
+
+  // ── Phases 41–43: urgency, impact and explainable priority ──────────────
+  readonly priorities: Table<PriorityRow>;
 }

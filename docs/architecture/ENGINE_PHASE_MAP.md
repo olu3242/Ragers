@@ -59,3 +59,30 @@ made. This file is where ownership lives.
 The command bus, transactional outbox, leased job runtime, idempotency store, dead
 letters and audit trail are infrastructure every engine rides. They are not an
 engine and must not be duplicated — see `ENGINE_RUNTIME_CONFLICT.md`.
+
+## Phases 41–43 — urgency, impact, priority
+
+All three are **E8 Signals**, and all three are derived rather than asserted. They are
+listed together because they are one read: priority is a function of urgency and impact,
+and computing them apart would mean three passes over the same rows and three chances to
+disagree about what the rows said.
+
+| Phase | Primary | Supporting | Module | Persistence |
+|---|---|---|---|---|
+| 41 Urgency | E8 | E4, E9, E10 | `src/domain/urgency.ts` | none — derived |
+| 42 Impact | E8 | E1, E7, E10 | `src/domain/impact.ts` | none — derived |
+| 43 Priority | E8 | E4, E10 | `src/domain/priority.ts`, `src/engines/priority.engine.ts` | `experience_priorities` (a cache of a derivation) |
+
+The three questions, kept apart because they disagree constantly:
+
+* **severity** — how bad it was. Asserted by the person it happened to (P32).
+* **urgency** — how soon somebody should look. Derived from state and elapsed time.
+* **priority** — where it sits relative to everything else.
+
+A minor problem left unanswered for four months is not severe and is urgent. A critical
+one already being worked is severe and not urgent. Collapsing any pair produces a queue
+that is confidently wrong, so none of the three is stored in terms of another.
+
+**No command writes any of them.** A `priority.set` would be a way to move somebody's
+complaint up or down the queue by hand, and Phase 43's whole claim is that a position is
+answerable from the rows instead.

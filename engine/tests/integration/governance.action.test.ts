@@ -7,6 +7,12 @@ import { severityFor } from '../../src/engines/severity.engine.ts';
 import { escalationsOf, evaluateEscalations } from '../../src/engines/escalation.engine.ts';
 import { caseFor, openCasesFor } from '../../src/engines/case.engine.ts';
 import { handOff, handoffsFor } from '../../src/engines/handoff.engine.ts';
+import {
+  prioritisedQueue,
+  priorityFor,
+  priorityKey,
+  recomputePriority,
+} from '../../src/engines/priority.engine.ts';
 import { eq } from '../../src/ports/store.ts';
 import type { ActorContext } from '../../src/runtime/authz.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
@@ -442,4 +448,111 @@ test('an unassessed experience is never handed off, however long it sits', async
   // Nothing was asserted, so there is no governed state to hand over. Proposing on the
   // default band would be proposing on an absence of information.
   assert.deepEqual(opened, []);
+});
+
+// ── Phases 41–43, through the bus ────────────────────────────────────────
+test('urgency, impact and priority are derived — there is no command to set any of them', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The heating has been off for three weeks');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  const commands = h.engine.bus.registeredCommands();
+  for (const forbidden of ['urgency.', 'impact.', 'priority.']) {
+    assert.equal(
+      commands.some((name) => name.startsWith(forbidden)),
+      false,
+      `${forbidden} must not be settable — a queue position moved by hand is not explainable`,
+    );
+  }
+
+  const view = await priorityFor(h.engine, experienceId);
+  assert.ok(view, 'a priority is derived from the rows');
+  assert.equal(view.urgency.level, 'immediate', 'an asserted safety concern is immediate');
+  assert.equal(view.priority.band, 'CRITICAL');
+  assert.ok(view.urgency.factors.some((factor) => factor.id === 'safety_asserted'));
+});
+
+test('the priority consumer writes the reading, and a replay does not change it', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The lift has been broken for a month');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'time_lost_minutes', amount: 600 }), 'time');
+
+  const first = await h.engine.store.priorities.get(priorityKey(experienceId));
+  assert.ok(first, 'the consumer wrote a reading');
+
+  // Recompute is a read of the rows, so running it again is idempotent — the only
+  // field that may move is when it was computed.
+  const second = await recomputePriority(h.engine, experienceId);
+  assert.ok(second);
+  const { computedAt: _a, ...firstRest } = first;
+  const { computedAt: _b, ...secondRest } = second;
+  assert.deepEqual(secondRest, firstRest, 'a replay produces the same reading');
+});
+
+test('impact over a pattern of one person is INSUFFICIENT_DATA, not zero', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  // No capitalised pair in the body: an unseeded one is read as a person's name and
+  // correctly routed to review rather than published, which is not what this test is about.
+  const experienceId = await publish(h, actor, 'my bag was lost and the refund never came');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'money_lost', amount: 400, currency: 'GBP' }), 'money');
+
+  const view = await priorityFor(h.engine, experienceId);
+  assert.ok(view);
+  assert.equal(view.impact.outcome, 'INSUFFICIENT_DATA');
+  // The account still carries what the person said it cost them — Phase 31 records that
+  // without extrapolating. What is refused is an estimate *across* people.
+  assert.equal(view.priority.impactKnown, false);
+  assert.equal(view.priority.peopleAffected, undefined, 'absent, never 0');
+});
+
+test('one person posting repeatedly cannot manufacture impact', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const text = 'The same charge appeared on my account again';
+  const ids: string[] = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    ids.push(await publish(h, actor, `${text} (${attempt})`));
+  }
+  for (const id of ids) {
+    expect(await assertDim(h, actor, id, { dimension: 'money_lost', amount: 500, currency: 'GBP' }), 'money');
+  }
+
+  // Six accounts, one author. Impact is drawn over distinct people, so the population
+  // stays at one and no estimate is produced however many rows exist.
+  for (const id of ids) {
+    const view = await priorityFor(h.engine, id);
+    assert.equal(view?.impact.outcome, 'INSUFFICIENT_DATA', `${id} must not read as broad`);
+  }
+});
+
+test('the queue is ordered by named dimensions and every position is answerable', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+
+  const unsafe = await publish(h, actor, 'The fire door was chained shut again');
+  expect(await assertDim(h, actor, unsafe, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  const costly = await publish(h, actor, 'They charged me twice and will not refund it');
+  expect(await assertDim(h, actor, costly, { dimension: 'money_lost', amount: 900, currency: 'GBP' }), 'money');
+
+  const trivial = await publish(h, actor, 'The shop shut ten minutes early');
+
+  const queue = await prioritisedQueue(h.engine);
+  const positions = new Map(queue.map((entry) => [entry.subjectId, entry.position]));
+
+  assert.ok(positions.has(unsafe), 'an assessed experience is in the queue');
+  assert.equal(positions.get(trivial), undefined, 'an unassessed one is not in the queue at all');
+  assert.ok(
+    (positions.get(unsafe) ?? Infinity) < (positions.get(costly) ?? Infinity),
+    'a safety concern outranks a financial one',
+  );
+
+  // And the reason names a cause rather than a number.
+  const top = queue[0];
+  assert.ok(top);
+  assert.ok(top.reason.length > 0);
+  assert.equal(/\d+\.\d/.test(top.reason), false, 'no decimal score in a reason');
 });

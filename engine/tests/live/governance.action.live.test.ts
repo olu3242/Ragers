@@ -14,6 +14,7 @@ import { enrichmentFor, nearDuplicatesOf } from '../../src/engines/enrichment.en
 import { severityFor } from '../../src/engines/severity.engine.ts';
 import { evaluateEscalations, openEscalations } from '../../src/engines/escalation.engine.ts';
 import { handOff } from '../../src/engines/handoff.engine.ts';
+import { priorityKey, recomputePriority } from '../../src/engines/priority.engine.ts';
 import type { ActorContext } from '../../src/runtime/authz.ts';
 import type { AuthResult } from '../../src/engines/identity.engine.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
@@ -232,6 +233,55 @@ describe(
         ),
         /cases_one_per_experience/,
       );
+    });
+
+    test('a priority reading round-trips, and the impact-coherence constraint holds', async () => {
+      const actor = await signUp('live-kim@example.com');
+      const experienceId = await publish(actor, 'The stair light has been out for a month and nobody came');
+      await assertDim(actor, experienceId, { dimension: 'safety_involved', flag: true });
+
+      const row = await engine.store.priorities.get(priorityKey(experienceId));
+      assert.ok(row, 'the consumer wrote a reading');
+      assert.equal(row.band, 'CRITICAL');
+      assert.equal(row.urgency, 'immediate');
+      // text[] columns must come back as arrays, not as a JSON string.
+      assert.ok(Array.isArray(row.dominant));
+      assert.ok(Array.isArray(row.urgencyFactors));
+      assert.ok(row.urgencyFactors.some((factor) => factor.includes('safety')));
+      // numeric must come back as a number where present.
+      if (row.confidence !== undefined) assert.equal(typeof row.confidence, 'number');
+      assert.equal(typeof row.unresolvedDays, 'number');
+
+      // The database refuses a population attached to an unknown impact: a caller reading
+      // `people_affected` without checking `impact_known` would treat an absence as a
+      // small number.
+      await assert.rejects(
+        h.query(
+          `update experience_priorities set impact_known = false, people_affected = 3 where id = $1`,
+          [row.id],
+        ),
+        /priorities_impact_coherent/,
+      );
+    });
+
+    test('concurrent recomputes converge on one reading', async () => {
+      const actor = await signUp('live-lee@example.com');
+      const experienceId = await publish(actor, 'The gate alarm has been dead for weeks and nobody attended');
+      await assertDim(actor, experienceId, { dimension: 'time_lost_minutes', amount: 300 });
+
+      // Six workers recomputing at once. Priority is a recompute from rows, so they must
+      // all agree — and one row must exist, not six.
+      const results = await Promise.all(
+        Array.from({ length: 6 }, async () => recomputePriority(engine, experienceId)),
+      );
+      const bands = new Set(results.map((row) => row?.band));
+      assert.equal(bands.size, 1, 'concurrent recomputes cannot disagree');
+
+      const rows = await h.query<{ count: string }>(
+        `select count(*)::text as count from experience_priorities where experience_id = $1`,
+        [experienceId],
+      );
+      assert.equal(rows[0]?.count, '1');
     });
 
     test('an idle connection dying does not take the process with it', async () => {
