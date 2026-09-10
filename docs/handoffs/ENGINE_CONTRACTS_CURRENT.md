@@ -274,3 +274,48 @@ Five now. The fifth, `PHASES_51_60_READY`, answers *what may the system remember
 connect and conclude the second time?* — and is reported separately for the same
 reason as the other four: folding it in would let a broken loop read as somebody
 else's problem.
+
+---
+
+## Certification evidence — what a failed gate leaves behind
+
+**The gap this closed.** A gate failure used to record `10/11 assertions passed,
+1 failed` and nothing else. When an intermittent orchestration-durability failure
+turned CI red, answering *which assertion* cost a blind re-run — and the re-run
+passed, so the evidence for the original failure was gone.
+
+**What a gate records now.** `GateResult` carries, in addition to its status:
+
+| Field | For | Notes |
+|---|---|---|
+| `command` | every gate that has one | redacted |
+| `exitCode` | every gate that ran | `null` means killed by a signal |
+| `counts` | where the runner reported them | absent rather than zero when it did not |
+| `failureSummary[]` | failing gates | test name, assertion, `file:line` |
+| `evidenceExcerpt` | failing gates | bounded and redacted |
+| `failuresOmitted` | failing gates past the cap | how many were not listed |
+| `blockedBy` | blocked gates | the specific missing dependency |
+| `attempts[]` · `conclusion` | gates attempted more than once | see below |
+
+**Bounds.** At most 5 retained failures, a 2,000-character excerpt, 400-character
+assertions. A passing gate carries counts and a one-line detail and *nothing else* —
+keeping an excerpt of a successful run would bury the failures this exists to surface.
+
+**Redaction is by shape, never by vocabulary.** URIs with credentials, `Bearer`
+tokens, provider token shapes, JWTs, and `NAME=value` where the name is
+credential-shaped. A test named *"a short secret is a signature anybody can forge"*
+is untouched, because redacting the word would destroy exactly the names this
+preserves.
+
+**Retries are represented, not performed.** The harness owns no retry loop and this
+did not give it one. `mergeAttempt` folds a previous attempt's result onto the
+current one and yields `INITIAL_FAIL_RETRY_PASS` or `INITIAL_FAIL_RETRY_FAIL`. CI
+supplies the history: each attempt uploads
+`certification-evidence-attempt-<n>`, and a re-run downloads the previous one and
+passes it as `RAGERS_PREVIOUS_REPORT`. A missing or unparseable file means "no
+history", never a failed run.
+
+**Readiness statuses are unchanged.** `decideStatus` and the four band decisions read
+`status` exactly as before, so a gate whose final attempt passed still counts as a
+pass. What changed is that the ledger, the CI step summary and the console all say
+the earlier failure happened.

@@ -1,24 +1,68 @@
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import {
   buildReport,
+  conclusionOf,
   GATES,
+  mergeAttempt,
   renderLedger,
+  type CertificationReport,
   type GateResult,
 } from '../src/certification/harness.ts';
+import { evidenceFor, redact } from '../src/certification/evidence.ts';
 
 /**
  * Run every gate and write the evidence ledger. Synchronous by design: a
  * certification run must be reproducible, not racy.
+ *
+ * The parsing that turns a runner's output into evidence lives in
+ * `src/certification/evidence.ts` rather than here. It used to live in this file, which
+ * is why it was never tested — and an untested summariser is how a gate came to record
+ * `10/11` and nothing about which one failed.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const engineRoot = join(here, '..');
 const repoRoot = join(engineRoot, '..');
 
 const only = process.argv.slice(2).filter((arg) => !arg.startsWith('-'));
+
+/**
+ * A previous attempt's report, when CI hands one over.
+ *
+ * The harness owns no retry loop and this slice does not give it one. But CI *does*
+ * re-run failed jobs, and a re-run starting from a clean checkout would otherwise
+ * report a green gate with no trace of the run that failed. Pointing
+ * `RAGERS_PREVIOUS_REPORT` at the previous attempt's `certification-report.json`
+ * carries that attempt forward, so the ledger shows `INITIAL_FAIL_RETRY_PASS` rather
+ * than simply `PASS`.
+ *
+ * Read defensively: a missing, truncated or unparseable artefact must not stop a
+ * certification run. The evidence is worth less than the run.
+ */
+const previousResults = ((): ReadonlyMap<string, GateResult> => {
+  const path = process.env['RAGERS_PREVIOUS_REPORT'];
+  if (path === undefined || path.length === 0) return new Map();
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as CertificationReport;
+    if (!Array.isArray(parsed.results)) return new Map();
+    return new Map(parsed.results.map((result) => [result.id, result]));
+  } catch (cause) {
+    process.stdout.write(
+      `note: could not read a previous report from ${path} (${cause instanceof Error ? cause.message : String(cause)}); running without retry history\n`,
+    );
+    return new Map();
+  }
+})();
+
+/** Fold in the previous attempt, when there was one for this gate. */
+const withHistory = (result: GateResult): GateResult => {
+  const previous = previousResults.get(result.id);
+  if (!previous) return { ...result, conclusion: conclusionOf(result.status) };
+  return mergeAttempt(previous, result);
+};
 
 const results: GateResult[] = [];
 
@@ -33,16 +77,21 @@ for (const gate of GATES) {
   const blockedBy = gate.blockedBy ?? (missingEnv ? gate.blockedWithoutEnv : undefined);
 
   if (!gate.command || blockedBy !== undefined) {
-    results.push({
-      id: gate.id,
-      name: gate.name,
-      ...(gate.scope === undefined ? {} : { scope: gate.scope }),
-      requirement: gate.requirement,
-      status: 'blocked',
-      durationMs: 0,
-      detail: 'blocked by an external dependency',
-      ...(blockedBy === undefined ? {} : { blockedBy }),
-    });
+    results.push(
+      withHistory({
+        id: gate.id,
+        name: gate.name,
+        ...(gate.scope === undefined ? {} : { scope: gate.scope }),
+        requirement: gate.requirement,
+        status: 'blocked',
+        durationMs: 0,
+        detail: 'blocked by an external dependency',
+        // The reason travels with the gate. A blocked gate whose reason was only in
+        // the console is a gate nobody can act on later.
+        ...(blockedBy === undefined ? {} : { blockedBy }),
+        ...(gate.command === undefined ? {} : { command: redact(gate.command.join(' ')) }),
+      }),
+    );
     process.stdout.write(`⛔ ${gate.name} — blocked\n`);
     continue;
   }
@@ -56,39 +105,44 @@ for (const gate of GATES) {
     maxBuffer: 32 * 1024 * 1024,
   });
   const durationMs = Date.now() - startedAt;
-  const combined = `${outcome.stdout ?? ''}${outcome.stderr ?? ''}`;
   const passed = outcome.status === 0;
 
-  // Summarise rather than paste output: the ledger is a record, not a log.
-  const testCount = /^# tests (\d+)$/m.exec(combined)?.[1];
-  const passCount = /^# pass (\d+)$/m.exec(combined)?.[1];
-  const failCount = /^# fail (\d+)$/m.exec(combined)?.[1];
-  const playwright = /(\d+) passed/.exec(combined)?.[1];
-
-  let detail: string;
-  if (testCount && passCount) {
-    detail = `${passCount}/${testCount} assertions passed`;
-    if (failCount && failCount !== '0') detail += `, ${failCount} failed`;
-  } else if (playwright) {
-    detail = `${playwright} browser test(s) passed`;
-  } else if (passed) {
-    detail = 'clean';
-  } else {
-    const firstError = combined.split('\n').find((line) => /error|Error|failed/.test(line))?.trim();
-    detail = firstError ? firstError.slice(0, 160) : `exited ${outcome.status}`;
-  }
-  detail += ` (${(durationMs / 1000).toFixed(1)}s)`;
-
-  results.push({
-    id: gate.id,
-    name: gate.name,
-    ...(gate.scope === undefined ? {} : { scope: gate.scope }),
-    requirement: gate.requirement,
-    status: passed ? 'passed' : 'failed',
+  const evidence = evidenceFor({
+    command: gate.command,
+    exitCode: outcome.status,
+    stdout: outcome.stdout ?? '',
+    stderr: outcome.stderr ?? '',
     durationMs,
-    detail,
   });
-  process.stdout.write(`${passed ? '✅' : '❌'} ${gate.name} — ${detail}\n`);
+
+  results.push(
+    withHistory({
+      id: gate.id,
+      name: gate.name,
+      ...(gate.scope === undefined ? {} : { scope: gate.scope }),
+      requirement: gate.requirement,
+      status: passed ? 'passed' : 'failed',
+      durationMs,
+      detail: evidence.detail,
+      command: evidence.command,
+      exitCode: evidence.exitCode,
+      counts: evidence.counts,
+      ...(evidence.failureSummary.length === 0 ? {} : { failureSummary: evidence.failureSummary }),
+      ...(evidence.evidenceExcerpt === undefined ? {} : { evidenceExcerpt: evidence.evidenceExcerpt }),
+      ...(evidence.failuresOmitted === undefined ? {} : { failuresOmitted: evidence.failuresOmitted }),
+    }),
+  );
+  const recorded = results.at(-1);
+  process.stdout.write(`${passed ? '✅' : '❌'} ${gate.name} — ${evidence.detail}\n`);
+  // Named on the console too, so a CI log answers the question without the artefact.
+  for (const failure of evidence.failureSummary) {
+    process.stdout.write(`     ↳ ${failure.test}${failure.assertion === undefined ? '' : `: ${failure.assertion}`}\n`);
+  }
+  // A gate that did not pass first time says so here, not only in the ledger: a green
+  // console with a transient failure hidden in an artefact is how the failure gets lost.
+  if (recorded?.conclusion !== undefined && recorded.conclusion !== 'PASS' && recorded.conclusion !== 'FAIL') {
+    process.stdout.write(`     ↳ conclusion across attempts: ${recorded.conclusion}\n`);
+  }
 }
 
 /**

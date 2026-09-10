@@ -47,6 +47,7 @@ evidence.
 | Governed action plans (P59) | E12 | `src/domain/plan.ts`, `src/engines/plan.engine.ts`, `action_plans`, `action_plan_steps` | `evolution.conclusion.plan` (10) · `loop.intelligence` (7) · `experience.loop.live` (2) |
 | Experience loop certification (P60) | — | 5 band gates + the fifth status | `loop.certification` (3) — one lap for Rage and one for Rave |
 | Public read of a removed experience through `relatedTo` | E6 | status re-checked on read in `relation.engine.ts` and `relationship.engine.ts` | `experience.loop` (1) — asserted by removing one and re-reading |
+| Certification evidence on failure | — | `src/certification/evidence.ts` (parsers, redaction, bounds), `GateAttempt`/`GateConclusion` in `harness.ts`, per-attempt CI artefacts | `certification.evidence` (19) — the failing-subtest path proved against `tests/fixtures/deliberate-failure.test.ts`, a real `node --test` run |
 | Command boundary refusals | all | shape guard in `src/runtime/bus.ts`; `checkNote` in `src/domain/types.ts`; per-field guards in the seven modules that lacked them | `command.boundaries` (11) · `command.boundaries.live` (6) — nine defects, each verified red before the fix |
 
 ## Open

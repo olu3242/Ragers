@@ -4,7 +4,7 @@
   "governanceActionStatus": "PHASES_31_40_READY",
   "experienceOsStatus": "RAGERS_EXPERIENCE_OS_CODE_READY_DATA_BLOCKED",
   "experienceLoopStatus": "PHASES_51_60_READY",
-  "generatedAt": "2026-09-10T12:09:24.764Z",
+  "generatedAt": "2026-09-10T13:01:09.723Z",
   "totals": {
     "passed": 58,
     "failed": 0,
@@ -16,160 +16,298 @@
       "name": "Static validation (architecture, hygiene, content separation)",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 374,
-      "detail": "clean (0.4s)"
+      "durationMs": 403,
+      "detail": "clean (0.4s)",
+      "command": "npm run lint",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
     },
     {
       "id": "schema_migrations",
       "name": "Schema & migrations (static)",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 359,
-      "detail": "20/20 assertions passed (0.4s)"
+      "durationMs": 327,
+      "detail": "20/20 assertions passed (0.3s)",
+      "command": "node --test tests/unit/schema.migrations.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "unit",
       "name": "Unit tests",
       "requirement": "unit",
       "status": "passed",
-      "durationMs": 2893,
-      "detail": "468/468 assertions passed (2.9s)"
+      "durationMs": 2954,
+      "detail": "487/487 assertions passed (3.0s)",
+      "command": "node --test tests/unit/**/*.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 487,
+        "passed": 487,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "integration",
       "name": "Integration tests",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 4800,
-      "detail": "233/233 assertions passed (4.8s)"
+      "durationMs": 5222,
+      "detail": "233/233 assertions passed (5.2s)",
+      "command": "node --test tests/integration/**/*.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 233,
+        "passed": 233,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "authorization",
       "name": "Authorization",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 560,
-      "detail": "27/27 assertions passed (0.6s)"
+      "durationMs": 592,
+      "detail": "27/27 assertions passed (0.6s)",
+      "command": "node --test tests/unit/identity.policy.test.ts tests/unit/runtime.authz.test.ts tests/integration/governance.audit.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 27,
+        "passed": 27,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "retry_dead_letter",
       "name": "Retry & dead-letter",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 313,
-      "detail": "7/7 assertions passed (0.3s)"
+      "durationMs": 319,
+      "detail": "7/7 assertions passed (0.3s)",
+      "command": "node --test tests/unit/runtime.retry.test.ts tests/unit/runtime.deadletter.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 7,
+        "passed": 7,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "concurrency",
       "name": "Concurrency & idempotency",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 655,
-      "detail": "20/20 assertions passed (0.7s)"
+      "durationMs": 651,
+      "detail": "20/20 assertions passed (0.7s)",
+      "command": "node --test tests/unit/runtime.idempotency.test.ts tests/unit/runtime.outbox.test.ts tests/integration/reaction.mechanics.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "voice",
       "name": "Voice capture & golden path",
       "requirement": "voice",
       "status": "passed",
-      "durationMs": 526,
-      "detail": "21/21 assertions passed (0.5s)"
+      "durationMs": 510,
+      "detail": "21/21 assertions passed (0.5s)",
+      "command": "node --test tests/unit/voice.recorder.test.ts tests/unit/voice.validation.test.ts tests/integration/voice.goldenpath.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 21,
+        "passed": 21,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "moderation_failure_path",
       "name": "Moderation failure path (fail-closed)",
       "requirement": "moderation failure-path",
       "status": "passed",
-      "durationMs": 517,
-      "detail": "6/6 assertions passed (0.5s)"
+      "durationMs": 489,
+      "detail": "6/6 assertions passed (0.5s)",
+      "command": "node --test tests/integration/privacy.failclosed.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "privacy_search_leakage",
       "name": "Privacy & search leakage",
       "requirement": "privacy/search leakage",
       "status": "passed",
-      "durationMs": 1148,
-      "detail": "39/39 assertions passed (1.1s)"
+      "durationMs": 1113,
+      "detail": "39/39 assertions passed (1.1s)",
+      "command": "node --test tests/unit/identity.anonymity.test.ts tests/unit/observability.logging.test.ts tests/integration/search.leakage.test.ts tests/integration/subject.guardrail.test.ts tests/integration/analytics.observability.test.ts tests/integration/creator.deletion.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 39,
+        "passed": 39,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "accessibility",
       "name": "Accessibility (static surfaces)",
       "requirement": "accessibility",
       "status": "passed",
-      "durationMs": 266,
-      "detail": "28/28 assertions passed (0.3s)"
+      "durationMs": 289,
+      "detail": "28/28 assertions passed (0.3s)",
+      "command": "node --test tests/unit/accessibility.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 28,
+        "passed": 28,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "typecheck",
       "name": "Strict typecheck",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 2712,
-      "detail": "clean (2.7s)"
+      "durationMs": 2917,
+      "detail": "clean (2.9s)",
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
     },
     {
       "id": "build",
       "name": "Production build",
       "requirement": "build",
       "status": "passed",
-      "durationMs": 34981,
-      "detail": "clean (35.0s)"
+      "durationMs": 34771,
+      "detail": "clean (34.8s)",
+      "command": "npx next build",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
     },
     {
       "id": "browser_e2e",
       "name": "Browser E2E",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 56069,
-      "detail": "29 browser test(s) passed (56.1s)"
+      "durationMs": 52476,
+      "detail": "29 browser test(s) passed (52.5s)",
+      "command": "npx playwright test",
+      "exitCode": 0,
+      "counts": {
+        "passed": 29
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "security",
       "name": "Dependency audit",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 545,
-      "detail": "clean (0.5s)"
+      "durationMs": 511,
+      "detail": "clean (0.5s)",
+      "command": "npm audit --audit-level=high",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
     },
     {
       "id": "live_migrations",
       "name": "Migrations applied to a live database",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 347,
-      "detail": "clean (0.3s)"
+      "durationMs": 367,
+      "detail": "clean (0.4s)",
+      "command": "npm run migrate",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
     },
     {
       "id": "persistence_parity",
       "name": "Adapter parity (in-memory vs Postgres)",
       "requirement": "integration",
       "status": "passed",
-      "durationMs": 1170,
-      "detail": "12/12 assertions passed (1.2s)"
+      "durationMs": 1030,
+      "detail": "12/12 assertions passed (1.0s)",
+      "command": "node --test tests/live/persistence.parity.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 12,
+        "passed": 12,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "rls_enforcement",
       "name": "RLS enforcement against a live database",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 1156,
-      "detail": "27/27 assertions passed (1.2s)"
+      "durationMs": 1051,
+      "detail": "27/27 assertions passed (1.1s)",
+      "command": "node --test tests/live/rls.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 27,
+        "passed": 27,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "durable_orchestration",
       "name": "Durable orchestration and restart recovery",
       "requirement": "retry/dead-letter",
       "status": "passed",
-      "durationMs": 3899,
-      "detail": "11/11 assertions passed (3.9s)"
+      "durationMs": 3587,
+      "detail": "11/11 assertions passed (3.6s)",
+      "command": "node --test tests/live/orchestration.durability.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "backup_restore",
       "name": "Backup and restore drill",
       "requirement": "backup/restore",
       "status": "passed",
-      "durationMs": 2422,
-      "detail": "6/6 assertions passed (2.4s)"
+      "durationMs": 2101,
+      "detail": "6/6 assertions passed (2.1s)",
+      "command": "node --test tests/live/backup.restore.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_corroboration_contract",
@@ -177,8 +315,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 272,
-      "detail": "15/15 assertions passed (0.3s)"
+      "durationMs": 266,
+      "detail": "15/15 assertions passed (0.3s)",
+      "command": "node --test tests/unit/corroboration.contract.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 15,
+        "passed": 15,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_matching_signal",
@@ -186,8 +332,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 293,
-      "detail": "26/26 assertions passed (0.3s)"
+      "durationMs": 294,
+      "detail": "26/26 assertions passed (0.3s)",
+      "command": "node --test tests/unit/matching.signal.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 26,
+        "passed": 26,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_normalization_trust",
@@ -195,8 +349,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/normalization",
       "status": "passed",
-      "durationMs": 286,
-      "detail": "20/20 assertions passed (0.3s)"
+      "durationMs": 268,
+      "detail": "20/20 assertions passed (0.3s)",
+      "command": "node --test tests/unit/normalization.trust.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_language_guidance",
@@ -204,8 +366,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/language",
       "status": "passed",
-      "durationMs": 285,
-      "detail": "9/9 assertions passed (0.3s)"
+      "durationMs": 268,
+      "detail": "9/9 assertions passed (0.3s)",
+      "command": "node --test tests/unit/language.guidance.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_corroboration_engine",
@@ -213,8 +383,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 595,
-      "detail": "16/16 assertions passed (0.6s)"
+      "durationMs": 558,
+      "detail": "16/16 assertions passed (0.6s)",
+      "command": "node --test tests/integration/corroboration.engine.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 16,
+        "passed": 16,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_intelligence_chain",
@@ -222,8 +400,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 588,
-      "detail": "21/21 assertions passed (0.6s)"
+      "durationMs": 554,
+      "detail": "21/21 assertions passed (0.6s)",
+      "command": "node --test tests/integration/intelligence.chain.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 21,
+        "passed": 21,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_resolution_organization",
@@ -231,8 +417,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/resolution",
       "status": "passed",
-      "durationMs": 575,
-      "detail": "18/18 assertions passed (0.6s)"
+      "durationMs": 587,
+      "detail": "18/18 assertions passed (0.6s)",
+      "command": "node --test tests/integration/resolution.organization.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 18,
+        "passed": 18,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_host_surfaces",
@@ -240,8 +434,16 @@
       "scope": "experience_signal_engine",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 264,
-      "detail": "4/4 assertions passed (0.3s)"
+      "durationMs": 255,
+      "detail": "4/4 assertions passed (0.3s)",
+      "command": "node --test tests/unit/host.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 4,
+        "passed": 4,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_duplicate_concurrency",
@@ -249,8 +451,16 @@
       "scope": "experience_signal_engine",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 1759,
-      "detail": "3/3 assertions passed (1.8s)"
+      "durationMs": 1803,
+      "detail": "3/3 assertions passed (1.8s)",
+      "command": "node --test tests/live/corroboration.concurrency.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_outbox_atomicity",
@@ -258,8 +468,16 @@
       "scope": "experience_signal_engine",
       "requirement": "concurrency",
       "status": "passed",
-      "durationMs": 1524,
-      "detail": "2/2 assertions passed (1.5s)"
+      "durationMs": 1557,
+      "detail": "2/2 assertions passed (1.6s)",
+      "command": "node --test tests/live/outbox.atomicity.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 2,
+        "passed": 2,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_intelligence_live",
@@ -267,8 +485,16 @@
       "scope": "experience_signal_engine",
       "requirement": "ese/intelligence",
       "status": "passed",
-      "durationMs": 2189,
-      "detail": "6/6 assertions passed (2.2s)"
+      "durationMs": 2207,
+      "detail": "6/6 assertions passed (2.2s)",
+      "command": "node --test tests/live/intelligence.chain.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_been_there_backfill",
@@ -276,8 +502,16 @@
       "scope": "experience_signal_engine",
       "requirement": "schema/migrations",
       "status": "passed",
-      "durationMs": 783,
-      "detail": "5/5 assertions passed (0.8s)"
+      "durationMs": 769,
+      "detail": "5/5 assertions passed (0.8s)",
+      "command": "node --test tests/live/migration.retire-been-there.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 5,
+        "passed": 5,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "ese_browser_boundary",
@@ -285,64 +519,124 @@
       "scope": "experience_signal_engine",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 12344,
-      "detail": "2 browser test(s) passed (12.3s)"
+      "durationMs": 12243,
+      "detail": "2 browser test(s) passed (12.2s)",
+      "command": "npx playwright test --project=experience-signal-engine",
+      "exitCode": 0,
+      "counts": {
+        "passed": 2
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "contracts_domain",
       "name": "Contracts: dispute, Relate and proposal semantics",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 288,
-      "detail": "22/22 assertions passed (0.3s)"
+      "durationMs": 303,
+      "detail": "22/22 assertions passed (0.3s)",
+      "command": "node --test tests/unit/dispute.relate.proposal.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 22,
+        "passed": 22,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "contracts_engine",
       "name": "Contracts: the four gaps end to end through the bus",
       "requirement": "ese/contract",
       "status": "passed",
-      "durationMs": 546,
-      "detail": "17/17 assertions passed (0.5s)"
+      "durationMs": 592,
+      "detail": "17/17 assertions passed (0.6s)",
+      "command": "node --test tests/integration/contracts.engine.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 17,
+        "passed": 17,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "persona_authorization",
       "name": "Persona authorization: the five refusals",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 506,
-      "detail": "6/6 assertions passed (0.5s)"
+      "durationMs": 524,
+      "detail": "6/6 assertions passed (0.5s)",
+      "command": "node --test tests/integration/persona.authorization.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "outcome_presentation",
       "name": "Outcome states are distinguishable, including a proposed resolution",
       "requirement": "ese/resolution",
       "status": "passed",
-      "durationMs": 262,
-      "detail": "10/10 assertions passed (0.3s)"
+      "durationMs": 251,
+      "detail": "10/10 assertions passed (0.3s)",
+      "command": "node --test tests/unit/outcome.presentation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "host_surfaces",
       "name": "Host surface guards, including the fixture route",
       "requirement": "security",
       "status": "passed",
-      "durationMs": 277,
-      "detail": "4/4 assertions passed (0.3s)"
+      "durationMs": 279,
+      "detail": "4/4 assertions passed (0.3s)",
+      "command": "node --test tests/unit/host.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 4,
+        "passed": 4,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "contracts_live",
       "name": "Contracts against a live database: races, RLS and numerics",
       "requirement": "authorization",
       "status": "passed",
-      "durationMs": 2625,
-      "detail": "6/6 assertions passed (2.6s)"
+      "durationMs": 2684,
+      "detail": "6/6 assertions passed (2.7s)",
+      "command": "node --test tests/live/contracts.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "relate_reputation_surfaces",
       "name": "Surfaces: Relate carries no weight; reputation shows no score",
       "requirement": "browser E2E",
       "status": "passed",
-      "durationMs": 17913,
-      "detail": "4 browser test(s) passed (17.9s)"
+      "durationMs": 17608,
+      "detail": "4 browser test(s) passed (17.6s)",
+      "command": "npx playwright test --project=relate-reputation",
+      "exitCode": 0,
+      "counts": {
+        "passed": 4
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_31_40_domain",
@@ -350,8 +644,16 @@
       "scope": "governance_action",
       "requirement": "phases/31-35",
       "status": "passed",
-      "durationMs": 301,
-      "detail": "31/31 assertions passed (0.3s)"
+      "durationMs": 350,
+      "detail": "31/31 assertions passed (0.3s)",
+      "command": "node --test tests/unit/severity.escalation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 31,
+        "passed": 31,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_38_40_domain",
@@ -359,8 +661,16 @@
       "scope": "governance_action",
       "requirement": "phases/38-40",
       "status": "passed",
-      "durationMs": 310,
-      "detail": "18/18 assertions passed (0.3s)"
+      "durationMs": 353,
+      "detail": "18/18 assertions passed (0.4s)",
+      "command": "node --test tests/unit/sampling.aggregation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 18,
+        "passed": 18,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_31_40_bus",
@@ -368,8 +678,16 @@
       "scope": "governance_action",
       "requirement": "phases/31-40",
       "status": "passed",
-      "durationMs": 604,
-      "detail": "32/32 assertions passed (0.6s)"
+      "durationMs": 689,
+      "detail": "32/32 assertions passed (0.7s)",
+      "command": "node --test tests/integration/governance.action.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_31_40_live",
@@ -377,8 +695,16 @@
       "scope": "governance_action",
       "requirement": "phases/31-40/live",
       "status": "passed",
-      "durationMs": 4249,
-      "detail": "14/14 assertions passed (4.2s)"
+      "durationMs": 4503,
+      "detail": "14/14 assertions passed (4.5s)",
+      "command": "node --test tests/live/governance.action.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 14,
+        "passed": 14,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_31_40_browser",
@@ -386,8 +712,14 @@
       "scope": "governance_action",
       "requirement": "phases/31-40/surfaces",
       "status": "passed",
-      "durationMs": 17559,
-      "detail": "6 browser test(s) passed (17.6s)"
+      "durationMs": 18684,
+      "detail": "6 browser test(s) passed (18.7s)",
+      "command": "npx playwright test --project=governance-action",
+      "exitCode": 0,
+      "counts": {
+        "passed": 6
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_41_43_domain",
@@ -395,8 +727,16 @@
       "scope": "experience_os",
       "requirement": "phases/41-43",
       "status": "passed",
-      "durationMs": 291,
-      "detail": "28/28 assertions passed (0.3s)"
+      "durationMs": 290,
+      "detail": "28/28 assertions passed (0.3s)",
+      "command": "node --test tests/unit/urgency.impact.priority.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 28,
+        "passed": 28,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_44_47_domain",
@@ -404,8 +744,16 @@
       "scope": "experience_os",
       "requirement": "phases/44-47",
       "status": "passed",
-      "durationMs": 282,
-      "detail": "17/17 assertions passed (0.3s)"
+      "durationMs": 285,
+      "detail": "17/17 assertions passed (0.3s)",
+      "command": "node --test tests/unit/agent.benchmark.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 17,
+        "passed": 17,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_48_49_domain",
@@ -413,8 +761,16 @@
       "scope": "experience_os",
       "requirement": "phases/48-49",
       "status": "passed",
-      "durationMs": 278,
-      "detail": "14/14 assertions passed (0.3s)"
+      "durationMs": 287,
+      "detail": "14/14 assertions passed (0.3s)",
+      "command": "node --test tests/unit/entitlement.integration.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 14,
+        "passed": 14,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_41_50_bus",
@@ -422,8 +778,16 @@
       "scope": "experience_os",
       "requirement": "phases/41-50",
       "status": "passed",
-      "durationMs": 589,
-      "detail": "32/32 assertions passed (0.6s)"
+      "durationMs": 590,
+      "detail": "32/32 assertions passed (0.6s)",
+      "command": "node --test tests/integration/governance.action.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_41_50_live",
@@ -431,8 +795,16 @@
       "scope": "experience_os",
       "requirement": "phases/41-50/live",
       "status": "passed",
-      "durationMs": 4149,
-      "detail": "14/14 assertions passed (4.1s)"
+      "durationMs": 4361,
+      "detail": "14/14 assertions passed (4.4s)",
+      "command": "node --test tests/live/governance.action.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 14,
+        "passed": 14,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "convergence_circular",
@@ -440,8 +812,16 @@
       "scope": "experience_os",
       "requirement": "convergence/circular",
       "status": "passed",
-      "durationMs": 486,
-      "detail": "3/3 assertions passed (0.5s)"
+      "durationMs": 550,
+      "detail": "3/3 assertions passed (0.6s)",
+      "command": "node --test tests/integration/convergence.circular.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_51_55",
@@ -449,8 +829,16 @@
       "scope": "experience_loop",
       "requirement": "phases/51-55",
       "status": "passed",
-      "durationMs": 300,
-      "detail": "41/41 assertions passed (0.3s)"
+      "durationMs": 345,
+      "detail": "41/41 assertions passed (0.3s)",
+      "command": "node --test tests/unit/relationship.memory.history.test.ts tests/unit/lifecycle.decay.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 41,
+        "passed": 41,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_56_59",
@@ -458,8 +846,16 @@
       "scope": "experience_loop",
       "requirement": "phases/56-59",
       "status": "passed",
-      "durationMs": 755,
-      "detail": "42/42 assertions passed (0.8s)"
+      "durationMs": 879,
+      "detail": "42/42 assertions passed (0.9s)",
+      "command": "node --test tests/unit/evolution.conclusion.plan.test.ts tests/integration/loop.intelligence.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 42,
+        "passed": 42,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_51_60_bus",
@@ -467,8 +863,16 @@
       "scope": "experience_loop",
       "requirement": "phases/51-60",
       "status": "passed",
-      "durationMs": 600,
-      "detail": "9/9 assertions passed (0.6s)"
+      "durationMs": 578,
+      "detail": "9/9 assertions passed (0.6s)",
+      "command": "node --test tests/integration/experience.loop.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "loop_certification",
@@ -476,8 +880,16 @@
       "scope": "experience_loop",
       "requirement": "loop/certification",
       "status": "passed",
-      "durationMs": 563,
-      "detail": "3/3 assertions passed (0.6s)"
+      "durationMs": 577,
+      "detail": "3/3 assertions passed (0.6s)",
+      "command": "node --test tests/integration/loop.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "phases_51_60_live",
@@ -485,8 +897,16 @@
       "scope": "experience_loop",
       "requirement": "phases/51-60/live",
       "status": "passed",
-      "durationMs": 4182,
-      "detail": "3/3 assertions passed (4.2s)"
+      "durationMs": 4786,
+      "detail": "3/3 assertions passed (4.8s)",
+      "command": "node --test tests/live/experience.loop.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "command_boundaries",
@@ -494,8 +914,16 @@
       "scope": "experience_os",
       "requirement": "boundaries/commands",
       "status": "passed",
-      "durationMs": 855,
-      "detail": "11/11 assertions passed (0.9s)"
+      "durationMs": 879,
+      "detail": "11/11 assertions passed (0.9s)",
+      "command": "node --test tests/integration/command.boundaries.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "command_boundaries_live",
@@ -503,8 +931,16 @@
       "scope": "experience_os",
       "requirement": "boundaries/commands/live",
       "status": "passed",
-      "durationMs": 1410,
-      "detail": "6/6 assertions passed (1.4s)"
+      "durationMs": 1578,
+      "detail": "6/6 assertions passed (1.6s)",
+      "command": "node --test tests/live/command.boundaries.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
     },
     {
       "id": "deployment",
@@ -513,7 +949,8 @@
       "status": "blocked",
       "durationMs": 0,
       "detail": "blocked by an external dependency",
-      "blockedBy": "No deployment target (Vercel/Railway project, or hosting credentials) is configured, so no environment can be deployed to and verified."
+      "blockedBy": "No deployment target (Vercel/Railway project, or hosting credentials) is configured, so no environment can be deployed to and verified.",
+      "conclusion": "BLOCKED"
     },
     {
       "id": "rollback",
@@ -522,7 +959,8 @@
       "status": "blocked",
       "durationMs": 0,
       "detail": "blocked by an external dependency",
-      "blockedBy": "Requires a deployed environment to roll back. The additive-migration rule rollback depends on is enforced by the static-validation gate, and the migration runner refuses drift, but the drill itself needs a deployment. Procedure in docs/OPERATIONS.md §5."
+      "blockedBy": "Requires a deployed environment to roll back. The additive-migration rule rollback depends on is enforced by the static-validation gate, and the migration runner refuses drift, but the drill itself needs a deployment. Procedure in docs/OPERATIONS.md §5.",
+      "conclusion": "BLOCKED"
     }
   ]
 }

@@ -357,8 +357,24 @@ jobs:
               if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
             end \$\$;"
 
+      # A re-run of this job starts from a clean checkout, so without this the report
+      # it writes would show a green gate with no trace of the attempt that failed.
+      # Best-effort: the first attempt has nothing to download, and the harness runs
+      # perfectly well with no history.
+      - name: Fetch the previous attempt's evidence, if this is a re-run
+        if: ${{ github.run_attempt != '1' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: certification-evidence-attempt-${{ fromJSON(github.run_attempt) - 1 }}
+          path: previous-evidence
+
       - name: Run every certification gate
         working-directory: engine
+        env:
+          # Read only if the download above actually produced it. The harness treats a
+          # missing or unparseable file as "no history" rather than as a failure.
+          RAGERS_PREVIOUS_REPORT: ${{ github.run_attempt != '1' && format('{0}/previous-evidence/certification-report.json', github.workspace) || '' }}
         run: npm run certify
 
       - name: Publish the evidence summary
@@ -380,6 +396,45 @@ jobs:
                 const icon = { passed: "✅", failed: "❌", blocked: "⛔" };
                 for (const gate of report.results) {
                   console.log(`| ${icon[gate.status]} | ${gate.name} | ${gate.status === "blocked" ? (gate.blockedBy ?? "blocked") : gate.detail} |`);
+                }
+                // Named failures, on the CI page itself. The point of the evidence
+                // slice is that nobody should need to download an artefact — or spend
+                // a blind re-run — to find out which subtest failed.
+                const failed = report.results.filter((gate) => gate.status === "failed");
+                for (const gate of failed) {
+                  console.log();
+                  console.log("### " + gate.name);
+                  console.log();
+                  console.log("`" + (gate.command ?? "") + "` exited " + (gate.exitCode ?? "?"));
+                  console.log();
+                  for (const failure of gate.failureSummary ?? []) {
+                    console.log("- **" + failure.test + "**" + (failure.location ? " (" + failure.location + ")" : ""));
+                    if (failure.assertion) console.log("  - " + failure.assertion);
+                  }
+                  if (gate.evidenceExcerpt) {
+                    console.log();
+                    console.log("<details><summary>Output excerpt</summary>");
+                    console.log();
+                    console.log("```");
+                    console.log(gate.evidenceExcerpt);
+                    console.log("```");
+                    console.log();
+                    console.log("</details>");
+                  }
+                }
+                // A gate that failed and then passed. Reported even though the run is
+                // green, because a transient failure nobody records is one nobody fixes.
+                const transient = report.results.filter((gate) => String(gate.conclusion ?? "").startsWith("INITIAL_FAIL"));
+                for (const gate of transient) {
+                  console.log();
+                  console.log("### " + gate.name + " — `" + gate.conclusion + "`");
+                  console.log();
+                  for (const attempt of gate.attempts ?? []) {
+                    console.log("- Attempt " + attempt.attempt + " (" + attempt.status + ") — " + attempt.detail);
+                    for (const failure of attempt.failureSummary ?? []) {
+                      console.log("  - " + failure.test + (failure.assertion ? ": " + failure.assertion : ""));
+                    }
+                  }
                 }
               '
             else
@@ -407,7 +462,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: certification-evidence
+          # Per attempt, so a re-run neither collides with nor overwrites the evidence
+          # from the attempt that failed — which is the attempt worth keeping.
+          name: certification-evidence-attempt-${{ github.run_attempt }}
           path: |
             docs/EVIDENCE.md
             docs/certification-report.json

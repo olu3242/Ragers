@@ -1,3 +1,5 @@
+import type { FailureSummary, GateCounts } from './evidence.ts';
+
 /**
  * P20 Certification harness.
  *
@@ -109,6 +111,41 @@ export interface GateDefinition {
   readonly blockedWithoutEnv?: string;
 }
 
+/**
+ * What one attempt at a gate did.
+ *
+ * Recorded separately from the gate's own result so a re-run cannot erase what the
+ * first run found. A gate that failed and then passed is a fact about the system, and
+ * a ledger that shows only the pass has destroyed the evidence for the one question
+ * anybody asks afterwards: was that flaky, or was it real and is it still there?
+ */
+export interface GateAttempt {
+  /** 1 for the first run. */
+  readonly attempt: number;
+  readonly status: GateStatus;
+  readonly durationMs: number;
+  readonly detail: string;
+  readonly exitCode?: number | null;
+  readonly failureSummary?: readonly FailureSummary[];
+  readonly evidenceExcerpt?: string;
+}
+
+/**
+ * The gate's conclusion across every attempt.
+ *
+ * `INITIAL_FAIL_RETRY_PASS` is the value this whole slice exists for. Certification
+ * policy may still count the gate as green — that is a separate decision, made by
+ * `decideStatus` over `status`, and this slice does not change it — but the ledger has
+ * to say the transient failure happened. A run that silently reported PASS would be
+ * true about now and misleading about the system.
+ */
+export type GateConclusion =
+  | 'PASS'
+  | 'FAIL'
+  | 'BLOCKED'
+  | 'INITIAL_FAIL_RETRY_PASS'
+  | 'INITIAL_FAIL_RETRY_FAIL';
+
 export interface GateResult {
   readonly id: string;
   readonly name: string;
@@ -118,7 +155,74 @@ export interface GateResult {
   readonly durationMs: number;
   readonly detail: string;
   readonly blockedBy?: string;
+
+  // ── Evidence ────────────────────────────────────────────────────────────
+  /** The command that ran, redacted. Absent for a gate that could not run at all. */
+  readonly command?: string;
+  readonly exitCode?: number | null;
+  readonly counts?: GateCounts;
+  /** Which subtests failed, named. Empty or absent for a passing gate. */
+  readonly failureSummary?: readonly FailureSummary[];
+  /** Bounded, redacted output around the failure. Absent for a passing gate. */
+  readonly evidenceExcerpt?: string;
+  readonly failuresOmitted?: number;
+  /** Present only when a gate was attempted more than once. */
+  readonly attempts?: readonly GateAttempt[];
+  readonly conclusion?: GateConclusion;
 }
+
+/**
+ * Fold a fresh attempt onto a gate's earlier one.
+ *
+ * The harness runs each gate once and owns no retry loop, so this is not called
+ * during a normal run. It exists because CI *does* re-run failed jobs, and when a
+ * re-run is given the previous attempt's report (`RAGERS_PREVIOUS_REPORT`) the
+ * evidence must carry forward rather than start clean. Deliberately a pure function
+ * over two results: adding an automatic retry here would change what certification
+ * means, and that is not this slice's decision to make.
+ */
+export const mergeAttempt = (previous: GateResult, current: GateResult): GateResult => {
+  const history: GateAttempt[] = [
+    ...(previous.attempts ?? [
+      {
+        attempt: 1,
+        status: previous.status,
+        durationMs: previous.durationMs,
+        detail: previous.detail,
+        ...(previous.exitCode === undefined ? {} : { exitCode: previous.exitCode }),
+        ...(previous.failureSummary === undefined ? {} : { failureSummary: previous.failureSummary }),
+        ...(previous.evidenceExcerpt === undefined ? {} : { evidenceExcerpt: previous.evidenceExcerpt }),
+      },
+    ]),
+  ];
+  history.push({
+    attempt: history.length + 1,
+    status: current.status,
+    durationMs: current.durationMs,
+    detail: current.detail,
+    ...(current.exitCode === undefined ? {} : { exitCode: current.exitCode }),
+    ...(current.failureSummary === undefined ? {} : { failureSummary: current.failureSummary }),
+    ...(current.evidenceExcerpt === undefined ? {} : { evidenceExcerpt: current.evidenceExcerpt }),
+  });
+
+  const firstFailed = history[0]?.status === 'failed';
+  const conclusion: GateConclusion =
+    current.status === 'blocked'
+      ? 'BLOCKED'
+      : firstFailed
+        ? current.status === 'passed'
+          ? 'INITIAL_FAIL_RETRY_PASS'
+          : 'INITIAL_FAIL_RETRY_FAIL'
+        : current.status === 'passed'
+          ? 'PASS'
+          : 'FAIL';
+
+  return { ...current, attempts: history, conclusion };
+};
+
+/** The conclusion of a gate that was attempted once. */
+export const conclusionOf = (status: GateStatus): GateConclusion =>
+  status === 'passed' ? 'PASS' : status === 'blocked' ? 'BLOCKED' : 'FAIL';
 
 /** The required gate list, in the order docs/ROADMAP.md §P20 states them. */
 export const GATES: readonly GateDefinition[] = [
@@ -763,10 +867,68 @@ export const renderLedger = (report: CertificationReport): string => {
   if (failed.length > 0) {
     lines.push('## Failing gates');
     lines.push('');
-    for (const result of failed) {
-      lines.push(`- **${result.name}** — ${result.detail}`);
-    }
+    lines.push(
+      'Named, with what failed and where. A gate that recorded only a count would leave the next reader with no option but a blind re-run — and a re-run that passes says nothing about what failed the first time.',
+    );
     lines.push('');
+    for (const result of failed) {
+      lines.push(`### ${result.name}`);
+      lines.push('');
+      lines.push(`- **Result** — ${result.detail}`);
+      if (result.command !== undefined) lines.push(`- **Command** — \`${result.command}\``);
+      if (result.exitCode !== undefined) {
+        lines.push(`- **Exit code** — ${result.exitCode === null ? 'killed by a signal' : result.exitCode}`);
+      }
+      for (const failure of result.failureSummary ?? []) {
+        const where = failure.location === undefined ? '' : ` (${failure.location})`;
+        lines.push(`- **Failed** — ${failure.test}${where}`);
+        if (failure.assertion !== undefined) lines.push(`  - ${failure.assertion}`);
+      }
+      if (result.failuresOmitted !== undefined) {
+        lines.push(`- ${result.failuresOmitted} further failure(s) not listed here.`);
+      }
+      if (result.evidenceExcerpt !== undefined) {
+        lines.push('');
+        lines.push('<details><summary>Output excerpt</summary>');
+        lines.push('');
+        lines.push('```');
+        lines.push(result.evidenceExcerpt);
+        lines.push('```');
+        lines.push('');
+        lines.push('</details>');
+      }
+      lines.push('');
+    }
+  }
+
+  /**
+   * Gates that failed and then passed.
+   *
+   * Reported even though the run is green, because that is the only reason this
+   * section exists: a transient failure that leaves no trace is one nobody
+   * investigates, and the second time it happens the evidence is gone again.
+   */
+  const transient = report.results.filter(
+    (result) => result.conclusion === 'INITIAL_FAIL_RETRY_PASS' || result.conclusion === 'INITIAL_FAIL_RETRY_FAIL',
+  );
+  if (transient.length > 0) {
+    lines.push('## Gates that did not pass first time');
+    lines.push('');
+    lines.push(
+      'These reached their final state across more than one attempt. The status above reflects the final attempt; this section is here so the earlier one is not erased.',
+    );
+    lines.push('');
+    for (const result of transient) {
+      lines.push(`### ${result.name} — \`${result.conclusion}\``);
+      lines.push('');
+      for (const attempt of result.attempts ?? []) {
+        lines.push(`- **Attempt ${attempt.attempt}** (${attempt.status}) — ${attempt.detail}`);
+        for (const failure of attempt.failureSummary ?? []) {
+          lines.push(`  - ${failure.test}${failure.assertion === undefined ? '' : `: ${failure.assertion}`}`);
+        }
+      }
+      lines.push('');
+    }
   }
 
   lines.push('## Reproducing this ledger');
