@@ -7,6 +7,8 @@ import type { RecommendationRow } from '../ports/store.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import type { EngineDeps } from './deps.ts';
 import { clusterLifecycleFor } from './lifecycle.engine.ts';
+import { recurrenceCountFor, responseQualityBand, responseQualityFor } from './quality.engine.ts';
+import { explainQuality } from '../domain/quality.ts';
 import { patternHistoryFor } from './history.engine.ts';
 
 /**
@@ -276,3 +278,87 @@ export const createRecommendationErasureConsumer = (deps: EngineDeps): Consumer 
  * table, the test that calls this is where the argument happens.
  */
 export const recommendationMutatesGovernedState = (): false => false;
+
+/**
+ * Conclusions drawn from the quality measures — Phase 88.
+ *
+ * The objective is narrow on purpose: **the quality measures are inputs to the proposal
+ * contract that already exists.** Nothing here writes to an E1–E11 table, nothing carries a
+ * `proposedCommand`, and the output goes through the same `recommend` → `proposal.create`
+ * path as every other conclusion, so it faces the same review and the same refusal.
+ * `recommendationMutatesGovernedState()` already states that and is asserted; this phase adds
+ * two sources, not a second path.
+ *
+ * Both refuse to be drawn on a withheld measure. That is the whole reason the measures are
+ * `Measure<T>` rather than numbers: a band withheld for too small a sample is withheld because
+ * saying it would describe too few people, and laundering it through a conclusion would publish
+ * exactly what the floor refused. Phase 58's `responseConclusionsFor` established the pattern
+ * and this follows it rather than inventing a second treatment.
+ */
+export const qualityConclusionsFor = async (
+  deps: EngineDeps,
+  organizationId: string,
+): Promise<readonly Conclusion[]> => {
+  const profile = await deps.store.organizationProfiles.get(organizationId);
+  if (!profile) return [];
+
+  const experiences = await deps.store.experiences.query([
+    eq('entityId', profile.entityId),
+    eq('status', 'published'),
+  ]);
+  if (experiences.length === 0) return [];
+  const basis = experiences.map((experience) => ({ kind: 'experience' as const, id: experience.id }));
+  const distinctPeople = new Set(experiences.map((experience) => experience.actorId)).size;
+
+  const drawn: Conclusion[] = [];
+
+  // ── response quality ──────────────────────────────────────────────────
+  const quality = await responseQualityFor(deps, organizationId);
+  const band = responseQualityBand(quality);
+  if (band.withheld === false && band.value === 'poor') {
+    const conclusion = drawConclusion({
+      kind: 'response_quality_low',
+      subjectId: organizationId,
+      acrossExperienceIds: experiences.map((experience) => experience.id),
+      distinctPeople,
+      basis,
+      lifecycleState: 'active',
+      summary: 'This organization answers, and the answers do not describe anything being done',
+      // The dimensions that lowered it, in their own words. A rationale that only said
+      // "quality is poor" would be the score this band exists not to produce.
+      rationale: explainQuality(quality),
+      confidence: 0.6,
+    });
+    if (conclusion.ok) drawn.push(conclusion.value);
+  }
+
+  // ── recurrence after a claimed fix ────────────────────────────────────
+  //
+  // Counted per experience and summed, because a recurrence is a fact about one claimed
+  // resolution rather than about the organization. Two experiences each recurring once is a
+  // pattern; one experience recurring twice is one failure, and `MINIMUM_EXPERIENCES` is what
+  // tells them apart.
+  const recurred: string[] = [];
+  for (const experience of experiences) {
+    if ((await recurrenceCountFor(deps, experience.id)) > 0) recurred.push(experience.id);
+  }
+  if (recurred.length >= MINIMUM_EXPERIENCES) {
+    const recurredPeople = new Set(
+      experiences.filter((row) => recurred.includes(row.id)).map((row) => row.actorId),
+    ).size;
+    const conclusion = drawConclusion({
+      kind: 'fix_did_not_hold',
+      subjectId: organizationId,
+      acrossExperienceIds: recurred,
+      distinctPeople: recurredPeople,
+      basis: recurred.map((id) => ({ kind: 'experience' as const, id })),
+      lifecycleState: 'active',
+      summary: 'Accounts of the same thing arrived after a resolution was claimed',
+      rationale: `${recurred.length} resolved experiences were followed by further accounts of the same thing from ${recurredPeople} different people.`,
+      confidence: 0.75,
+    });
+    if (conclusion.ok) drawn.push(conclusion.value);
+  }
+
+  return drawn;
+};

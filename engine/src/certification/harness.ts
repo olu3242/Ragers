@@ -133,6 +133,32 @@ export type DiscoveryNetworkStatus =
   | 'PHASES_71_80_READY_WITH_EXTERNAL_BLOCKERS'
   | 'PHASES_71_80_NOT_READY';
 
+/**
+ * The Trust, Quality & Personalization band (Phases 81–90) — Phase 90's own status.
+ *
+ * An eighth status, and the question is stronger than the seventh's. Phase 80 asked whether the
+ * product can grow more useful without its ranking becoming a popularity contest. This one asks
+ * whether it can become **personally relevant** without three specific things happening:
+ * without learning to reward outrage, without exposing trust internals, and without
+ * constructing a hidden profile of anybody.
+ *
+ * What it certifies: that a count of people is a count of people and confidence is a separate
+ * measure over it; that no per-person trust figure enters any confidence, reliability or
+ * quality read; that `resolved != well resolved`, carried as two facts rather than one score;
+ * that there is no leaderboard of contributors, which is worse than one of organizations;
+ * that **eligibility runs before personalization**, so a preference can never become a
+ * permission; that a quality measure withheld below its floor is not laundered into a
+ * conclusion; and that an approval covers the steps it was given and not the ones added after —
+ * `decision != effect`, asserted at the step where an approval produces a refusal.
+ *
+ * No `DATA_BLOCKED` variant, for the same reason as the seventh: every phase here is provable
+ * with the deterministic path and a handful of seeded people.
+ */
+export type TrustQualityStatus =
+  | 'PHASES_81_90_READY'
+  | 'PHASES_81_90_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_81_90_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
 export type GateScope =
   | 'engine'
@@ -141,7 +167,8 @@ export type GateScope =
   | 'experience_os'
   | 'experience_loop'
   | 'operational_integrity'
-  | 'discovery_network';
+  | 'discovery_network'
+  | 'trust_quality';
 
 export interface GateDefinition {
   readonly id: string;
@@ -796,6 +823,37 @@ export const GATES: readonly GateDefinition[] = [
     command: ['node', '--test', 'tests/integration/discovery.certification.test.ts'],
   },
   {
+    id: 'phases_81_85_rules',
+    name: 'P81–85: confidence counts people, and a fast non-answer is not a good one',
+    scope: 'trust_quality',
+    requirement: 'phases/81-85',
+    command: ['node', '--test', 'tests/unit/confidence.quality.test.ts'],
+  },
+  {
+    id: 'phases_81_85_rows',
+    name: 'P81–85 through the store: six rows from one account are one person',
+    scope: 'trust_quality',
+    requirement: 'phases/81-85',
+    command: ['node', '--test', 'tests/integration/confidence.quality.test.ts'],
+  },
+  {
+    id: 'phases_86_90',
+    name: 'P86–90: eligibility before personalization, and approval is not standing',
+    scope: 'trust_quality',
+    requirement: 'phases/86-90',
+    command: ['node', '--test', 'tests/integration/personalization.certification.test.ts'],
+  },
+  {
+    id: 'trust_quality_live',
+    name: 'P81–85 against a live database: the series is append-only and staff-only',
+    scope: 'trust_quality',
+    requirement: 'phases/81-85/live',
+    command: ['node', '--test', 'tests/live/confidence.history.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. The append-only trigger, the one-point-per-boundary constraint and the two recommendation-memory check constraints are database guarantees; asserting them in memory would assert something about a Map.',
+  },
+  {
     id: 'command_boundaries',
     name: 'Command boundaries: bad input is refused, never reported as a defect',
     scope: 'experience_os',
@@ -915,6 +973,14 @@ export const decideDiscoveryNetworkStatus = (
   return 'PHASES_71_80_READY';
 };
 
+export const decideTrustQualityStatus = (results: readonly GateResult[]): TrustQualityStatus => {
+  const own = results.filter((result) => result.scope === 'trust_quality');
+  if (own.length === 0) return 'PHASES_81_90_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_81_90_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'PHASES_81_90_READY_WITH_EXTERNAL_BLOCKERS';
+  return 'PHASES_81_90_READY';
+};
+
 export const decideOperationalIntegrityStatus = (
   results: readonly GateResult[],
   objectStorageBlocked: boolean,
@@ -936,6 +1002,7 @@ export interface CertificationReport {
   readonly experienceLoopStatus: ExperienceLoopStatus;
   readonly operationalIntegrityStatus: OperationalIntegrityStatus;
   readonly discoveryNetworkStatus: DiscoveryNetworkStatus;
+  readonly trustQualityStatus: TrustQualityStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -953,6 +1020,7 @@ export const buildReport = (
   experienceLoopStatus: decideExperienceLoopStatus(results),
   operationalIntegrityStatus: decideOperationalIntegrityStatus(results, options.objectStorageBlocked ?? true),
   discoveryNetworkStatus: decideDiscoveryNetworkStatus(results),
+  trustQualityStatus: decideTrustQualityStatus(results),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -990,8 +1058,10 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 71–80 status: \`${report.discoveryNetworkStatus}\``);
   lines.push('');
+  lines.push(`## Phases 81–90 status: \`${report.trustQualityStatus}\``);
+  lines.push('');
   lines.push(
-    'Seven statuses, because they answer different questions. The engine status is about ' +
+    'Eight statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
@@ -1021,7 +1091,16 @@ export const renderLedger = (report: CertificationReport): string => {
       'amplification and never ranks; reach counts people and a share is not reach; an emerging ' +
       'pattern is never described as established; a watcher is invisible in both directions; ' +
       'and nothing removed, hidden or unpublished reaches a discovery read, a search hit or a ' +
-      'notification payload.',
+      'notification payload. The Phases 81–90 status asks the stronger version of that ' +
+      'question: whether the product can become *personally relevant* without learning to ' +
+      'reward outrage, exposing trust internals, or constructing a hidden profile of anybody. ' +
+      'A count of people stays a count of people and confidence is a separate measure over ' +
+      'it; no per-person trust figure enters any confidence, reliability or quality read; ' +
+      'resolved and well resolved are two facts rather than one score; there is no ' +
+      'leaderboard of contributors, which would be worse than one of organizations; ' +
+      'eligibility runs before personalization, so a preference can never become a ' +
+      'permission; a measure withheld below its floor is not laundered into a conclusion; ' +
+      'and an approval covers the steps it was given and not the ones added afterwards.',
   );
   lines.push('');
   lines.push(

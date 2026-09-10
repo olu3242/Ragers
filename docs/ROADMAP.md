@@ -2307,3 +2307,78 @@ corroborations, which `experience_corroborations` already is with more detail, a
 would become a proxy for activity — so a busy pattern would look like a moving one. The daily
 boundary also makes replay free rather than merely safe: every delivery inside the same day
 derives the identical id, so the second is absorbed on absence with no comparison of contents.
+
+### 11.6 What Batch B found by executing
+
+Two defects, and both are the same shape: **a rule that was stated in a comment and enforced
+nowhere.**
+
+**1. `isBlockedBetween` carried the comment "Consulted on every read path" and was consulted on
+exactly one.** Notifications. Not discovery, not search, not personalized discovery.
+
+So somebody blocked an account and went on being served that account's experiences in their own
+feed, and found them by typing a word into search. Not reachable by an anonymous visitor —
+`discover` has no viewer, and a guest has blocked nobody — and reachable by every signed-in
+reader who had ever used the feature. The eligibility stage existed and had no viewer, which is
+why the gap read as complete: `isDiscoverable` answers *may anybody read this*, and nothing
+answered *may this person read this*.
+
+Phase 86 was supposed to be "the existing reads narrowed by the existing profile, with the
+ordering made explicit". Writing the ordering down is what found the hole — the stage that was
+supposed to run first turned out to be missing half its job.
+
+`eligibleForViewer` now runs inside `discover` and `searchContextually`, before the context
+match and before ranking, so nothing a viewer may not see reaches personalization or an ordering
+position. The viewer travels through every arm of `discoverForActor` **including both
+fallbacks**, which is where it matters most: the empty-profile fallback is the arm almost
+everybody takes.
+
+Three things about the fix worth stating, because each was a decision:
+
+- **The block is symmetric as a consequence** even though the act is one-sided. If I blocked
+  you I do not want to see you; if you blocked me you do not want me reading your accounts. One
+  predicate for both, so neither side can be implemented and the other forgotten.
+- **The public read is unchanged.** One person's block is not a moderation decision, and
+  applying it to the anonymous feed would let anybody hide anybody from everybody.
+- **The author exemption is narrow.** An author reads their own unpublished experience; an
+  author does not read past a block. Writing the exemption against `published` alone rather
+  than against the whole decision is what keeps that true.
+
+**2. `executePlan` never compared the steps it found to the ones the approval covered.**
+`createPlan` records `stepCount`; `executePlan` read `action_plan_steps` at execution time and
+ran whatever was there. So a row inserted after approval was simply executed.
+
+This is not privilege escalation, and saying so precisely matters: every step dispatches **as
+the reviewer**, so an appended step faces exactly the authorization the reviewer would. It is
+*scope* escalation — a step the reviewer never saw, run under their name, inside their existing
+rights — and it is the failure the sentence "approval is not a standing authorization" is about.
+Phase 59 certified that a plan cannot launder privilege, which is a different claim and remained
+true; nothing certified that a plan executes the plan that was approved.
+
+The plan is now refused **whole**, before any dispatch, and left `pending`. Running the matching
+steps and refusing the rest would let the appended row decide that the earlier steps happened —
+the tampering having an effect. A count catches both directions, and removal is asserted
+separately: a plan whose steps were reduced would otherwise execute a subset and report
+`succeeded`, which is a plan reporting that it did something it did not do.
+
+**Two corrections to my own test fixtures, both worth keeping as warnings.**
+
+The response-quality floor is five cases (`responsiveness`), so a four-experience world can only
+ever produce a *withheld* band — correct behaviour, and useless as a fixture for the conclusion
+Phase 88 draws. The seed is five.
+
+And I seeded a cluster by hand in a world where `normalization.confirm` had already built one.
+`recurrenceCountFor` resolves membership with `queryOne`, so with two memberships it picked one
+arbitrarily and the recurrence count came out empty. The fix is to use the cluster the pipeline
+produced and confirm the recurrence into it the way a real one arrives — which is also the
+honest fixture, since a recurrence that never went through confirmation is not one the product
+would ever see.
+
+**What Phase 88 did not need.** The proposal contract already did everything: `recommend`
+claims the ledger row, dispatches `proposal.create` with `targetEngine: 'E9'` and no
+`proposedCommand`, and `recommendationMutatesGovernedState()` already stated the rule. So the
+phase added two conclusion *sources* — `response_quality_low` and `fix_did_not_hold` — and no
+second path. Both refuse to be drawn on a withheld measure, following Phase 58's
+`responseConclusionsFor` rather than inventing a second treatment of the same hazard: a band
+withheld because saying it would describe too few people, laundered through a conclusion,
+publishes exactly what the floor refused.

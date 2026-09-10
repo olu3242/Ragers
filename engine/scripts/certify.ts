@@ -192,6 +192,7 @@ process.stdout.write(`Phases 41–50 status: ${report.experienceOsStatus}\n`);
 process.stdout.write(`Phases 51–60 status: ${report.experienceLoopStatus}\n`);
 process.stdout.write(`Phases 61–70 status: ${report.operationalIntegrityStatus}\n`);
 process.stdout.write(`Phases 71–80 status: ${report.discoveryNetworkStatus}\n`);
+process.stdout.write(`Phases 81–90 status: ${report.trustQualityStatus}\n`);
 // Either certification failing is a failure: a green platform with a broken
 // corroboration contract is not a shippable product.
 process.exit(
@@ -201,7 +202,8 @@ process.exit(
     report.experienceOsStatus === 'RAGERS_EXPERIENCE_OS_NOT_READY' ||
     report.experienceLoopStatus === 'PHASES_51_60_NOT_READY' ||
     report.operationalIntegrityStatus === 'PHASES_61_70_NOT_READY' ||
-    report.discoveryNetworkStatus === 'PHASES_71_80_NOT_READY'
+    report.discoveryNetworkStatus === 'PHASES_71_80_NOT_READY' ||
+    report.trustQualityStatus === 'PHASES_81_90_NOT_READY'
     ? 1
     : 0,
 );

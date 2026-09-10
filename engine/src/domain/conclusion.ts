@@ -30,13 +30,27 @@ export type ConclusionKind =
   | 'recurring_failure'
   | 'clusters_describe_one_thing'
   | 'response_pattern_changed'
-  | 'pattern_recovered';
+  | 'pattern_recovered'
+  /**
+   * Phase 88. The organization answers, and the answers do not describe anything being
+   * done. Distinct from `response_pattern_changed`, which is about *rate* — this one is
+   * about content, and an organization can be fast and say nothing.
+   */
+  | 'response_quality_low'
+  /**
+   * Phase 88. Accounts of the same thing arrived after a resolution was claimed. The one
+   * conclusion an organization's own reporting cannot contain, which is why it is worth
+   * drawing rather than waiting to be told.
+   */
+  | 'fix_did_not_hold';
 
 export const CONCLUSION_KINDS: readonly ConclusionKind[] = [
   'recurring_failure',
   'clusters_describe_one_thing',
   'response_pattern_changed',
   'pattern_recovered',
+  'response_quality_low',
+  'fix_did_not_hold',
 ];
 
 /** Distinct experiences a conclusion must span before it is a conclusion at all. */

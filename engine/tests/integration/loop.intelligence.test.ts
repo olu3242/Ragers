@@ -479,3 +479,83 @@ test('a plan writes to no governed table itself', async () => {
   assert.equal(executed.plan.status, 'failed');
   assert.match(executed.outcomes[0]?.error ?? '', /command_not_registered/);
 });
+
+// ── Phase 89: approval is not a standing authorization ───────────────────
+test('a step appended after approval is refused, and the plan runs nothing', async () => {
+  // **The assertion Phase 59 was missing.** `createPlan` records `stepCount`, and
+  // `executePlan` read the steps from the table at execution time without ever comparing the
+  // two — so a row inserted into `action_plan_steps` after approval was simply executed.
+  //
+  // Not privilege escalation: every step still dispatches as the reviewer, so an appended step
+  // faces the same authorization the reviewer would. It is *scope* escalation, which is the
+  // thing "approval is not a standing authorization" is a sentence about — a step the reviewer
+  // never saw, run under their name, inside their existing rights.
+  const world = await seed();
+  const { h } = world;
+  const proposalId = await approvedProposal(world);
+  const plan = expect(
+    await createPlan(
+      h.engine,
+      {
+        proposalId,
+        steps: [
+          { command: 'case.open', targetEngine: 'E9', input: { organizationId: 'org_1', experienceId: world.experienceIds[0] } },
+        ],
+      },
+      world.staff.actor,
+    ),
+    'create',
+  );
+  assert.equal(plan.stepCount, 1, 'the approval covered one step');
+
+  await h.engine.store.actionPlanSteps.put({
+    id: `${plan.id}:2`,
+    planId: plan.id,
+    stepOrder: 2,
+    command: 'organization.respond',
+    input: { organizationId: 'org_1', experienceId: world.experienceIds[0], kind: 'acknowledge', body: 'Appended.' },
+    targetEngine: 'E9',
+    dispatched: false,
+  });
+
+  const executed = await executePlan(h.engine, plan.id, world.staff.actor);
+  assert.equal(executed.ok, false, 'the plan is refused whole');
+  assert.equal(!executed.ok && executed.error.code, 'plan_steps_changed');
+
+  // Refused *whole*, not partially: running step one and refusing step two would mean the
+  // appended row decided that step one happened, which is the tampering having an effect.
+  assert.equal(await h.engine.store.organizationCases.count(), 0, 'nothing was dispatched at all');
+  const after = await h.engine.store.actionPlans.get(plan.id);
+  assert.equal(after?.status, 'pending', 'and the plan is still awaiting a legitimate execution');
+});
+
+test('a step removed after approval is refused too, for the same reason', async () => {
+  // The count is what is pinned, so removal is caught by the same check. Worth asserting
+  // separately: a plan whose steps were *reduced* would otherwise execute a subset and report
+  // `succeeded`, which is a plan reporting that it did something it did not do.
+  const world = await seed();
+  const { h } = world;
+  const proposalId = await approvedProposal(world);
+  const plan = expect(
+    await createPlan(
+      h.engine,
+      {
+        proposalId,
+        steps: [
+          { command: 'case.open', targetEngine: 'E9', input: { organizationId: 'org_1', experienceId: world.experienceIds[0] } },
+          { command: 'case.assign', targetEngine: 'E9', input: { caseId: 'case_absent', assigneeId: world.staff.actorId } },
+        ],
+      },
+      world.staff.actor,
+    ),
+    'create',
+  );
+  assert.equal(plan.stepCount, 2);
+
+  await h.engine.store.actionPlanSteps.remove(`${plan.id}:2`);
+
+  const executed = await executePlan(h.engine, plan.id, world.staff.actor);
+  assert.equal(executed.ok, false);
+  assert.equal(!executed.ok && executed.error.code, 'plan_steps_changed');
+  assert.equal(await h.engine.store.organizationCases.count(), 0);
+});

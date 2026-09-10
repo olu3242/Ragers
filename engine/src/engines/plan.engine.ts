@@ -121,6 +121,31 @@ export const executePlan = async (
   const rows = await deps.store.actionPlanSteps.query([eq<ActionPlanStepRow>('planId', planId)], {
     orderBy: { field: 'stepOrder', direction: 'asc' },
   });
+  // Phase 89 — **approval is not a standing authorization.**
+  //
+  // `createPlan` records `stepCount` at approval, and until this check existed nothing
+  // compared it to what was in the table at execution time. A row inserted into
+  // `action_plan_steps` afterwards was simply executed.
+  //
+  // Not privilege escalation: each step below dispatches as the reviewer, so an appended step
+  // faces exactly the authorization the reviewer would. It is **scope** escalation — a step the
+  // reviewer never saw, run under their name, inside their existing rights — and it is the
+  // failure the sentence "approval is not a standing authorization" is about.
+  //
+  // Refused **whole**, before any dispatch, and the plan is left `pending`. Running the steps
+  // that match and refusing the rest would let the appended row decide that the earlier steps
+  // happened, which is the tampering having an effect. A count catches both directions:
+  // removal would otherwise execute a subset and report `succeeded`, which is a plan reporting
+  // that it did something it did not do.
+  if (rows.length !== plan.stepCount) {
+    return err(
+      preconditionError(
+        'plan_steps_changed',
+        `this plan was approved with ${plan.stepCount} step(s) and now has ${rows.length}; approval does not extend to steps added since`,
+      ),
+    );
+  }
+
   const steps: readonly PlanStep[] = rows.map((row) => ({
     order: row.stepOrder,
     command: row.command,

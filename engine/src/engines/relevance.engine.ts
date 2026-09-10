@@ -79,7 +79,11 @@ export const discoverForActor = async (
   query: DiscoveryQuery = {},
 ): Promise<readonly DiscoveryResult[]> => {
   const profile = await profileFor(deps, actorId);
-  if (profileIsEmpty(profile)) return discover(deps, query);
+  // Phase 86: the viewer travels with every arm, the fallbacks included. A fallback that
+  // dropped it would be precisely the path a block leaks through — and it is the path taken
+  // most often, because most profiles are empty.
+  const scoped: DiscoveryQuery = { ...query, viewerId: actorId };
+  if (profileIsEmpty(profile)) return discover(deps, scoped);
 
   // A union across the profile's declared interests, deduplicated. Each arm is an ordinary
   // discovery read, so every result has already been status-checked and has its factors.
@@ -95,10 +99,10 @@ export const discoverForActor = async (
   };
 
   for (const subjectId of profile.followedSubjectIds) {
-    take(await discover(deps, { ...query, subjectId }));
+    take(await discover(deps, { ...scoped, subjectId }));
   }
   for (const category of profile.authoredCategories) {
-    take(await discover(deps, { ...query, category }));
+    take(await discover(deps, { ...scoped, category }));
   }
 
   // Watched experiences are included as themselves — somebody who asked to follow an
@@ -108,12 +112,12 @@ export const discoverForActor = async (
     const links = await deps.store.experienceSubjects.query([
       eq<ExperienceSubject>('experienceId', experienceId),
     ]);
-    for (const link of links) take(await discover(deps, { ...query, subjectId: link.subjectId }));
+    for (const link of links) take(await discover(deps, { ...scoped, subjectId: link.subjectId }));
   }
 
   // A profile that matched nothing is not a reason to show nothing. Somebody who follows a
   // subject that has gone quiet still gets a feed.
-  if (results.length === 0) return discover(deps, query);
+  if (results.length === 0) return discover(deps, scoped);
 
   return results.slice(0, query.limit ?? 25);
 };

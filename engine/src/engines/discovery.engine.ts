@@ -8,6 +8,8 @@ import {
   type RelevanceFactors,
 } from '../domain/relevance.ts';
 import { confirmedValue } from '../domain/normalization.ts';
+import { decideEligibility } from '../domain/personalization.ts';
+import { isBlockedBetween } from './graph.engine.ts';
 import { decideEmergence, reachOf, type Reach } from '../domain/reach.ts';
 import { lifecycleOf, type SignalLifecycleInput } from '../domain/signal-lifecycle.ts';
 import type {
@@ -63,6 +65,19 @@ export interface DiscoveryQuery {
   /** A subject term — what came up in it. */
   readonly subjectId?: string;
   readonly limit?: number;
+  /**
+   * Who is asking, when somebody is.
+   *
+   * Phase 86's addition, and it is the eligibility stage rather than a filter: a viewer-less
+   * read can check whether an experience is *published* and cannot check whether **this**
+   * person is permitted to see it. Absent for the public page, which is correct — a guest has
+   * blocked nobody — and present for every signed-in read.
+   *
+   * Deliberately not in `FORBIDDEN_DISCOVERY_FILTERS` and deliberately not a filter at all:
+   * it narrows nothing by preference, it applies a floor. The difference is the whole of
+   * `relevant != permitted`.
+   */
+  readonly viewerId?: string;
 }
 
 /**
@@ -115,6 +130,40 @@ export interface DiscoveryResult {
  */
 export const isDiscoverable = (experience: Experience | undefined): experience is Experience =>
   experience !== undefined && experience.status === 'published';
+
+/**
+ * The eligibility stage — Phase 86.
+ *
+ * `isDiscoverable` answers "may anybody read this". This answers "may **this person** read
+ * this", which is a different question and the one that was never asked. It runs before the
+ * context match and before ranking, so nothing a viewer may not see reaches personalization or
+ * an ordering position.
+ *
+ * **What writing this found.** `isBlockedBetween` carries the comment "Consulted on every read
+ * path" and was consulted on exactly one — notifications. So a blocked author's accounts were
+ * served straight into the blocker's personalized feed. Not reachable by an anonymous visitor,
+ * because a guest has blocked nobody; reachable by every signed-in reader who had ever used
+ * the feature.
+ *
+ * A guest passes trivially, which is correct rather than a shortcut: eligibility for somebody
+ * with no identity is exactly `isDiscoverable`, and pretending otherwise would mean inventing a
+ * viewer to check a floor against.
+ */
+export const eligibleForViewer = async (
+  deps: EngineDeps,
+  viewerId: string | undefined,
+  experience: Experience,
+): Promise<boolean> => {
+  const eligibility = decideEligibility({
+    published: experience.status === 'published',
+    viewerIsAuthor: viewerId !== undefined && viewerId === experience.actorId,
+    blockedEitherWay:
+      viewerId === undefined
+        ? false
+        : await isBlockedBetween(deps, viewerId, experience.actorId),
+  });
+  return eligibility.permitted;
+};
 
 /**
  * Build the relevance factors for one experience, from rows.
@@ -216,6 +265,9 @@ export const discover = async (
     // window where the row has changed and the consumer has not run.
     const experience = await deps.store.experiences.get(entry.experienceId);
     if (!isDiscoverable(experience)) continue;
+    // The eligibility stage. Runs before the context match and before ranking, so nothing a
+    // viewer may not see can reach personalization or an ordering position.
+    if (!(await eligibleForViewer(deps, query.viewerId, experience))) continue;
     const match = await contextMatchFor(deps, experience, query);
     if (match === 'none') continue;
     candidates.push({ entry, factors: await factorsFor(deps, experience, match) });
@@ -291,6 +343,9 @@ export const searchContextually = async (
   for (const document of matched) {
     const experience = await deps.store.experiences.get(document.experienceId);
     if (!isDiscoverable(experience)) continue;
+    // Search runs the same eligibility stage, for the same reason: a hit is a read. A block
+    // honoured in the feed and not in search is a block that fails the moment somebody types.
+    if (!(await eligibleForViewer(deps, query.viewerId, experience))) continue;
     const match = await contextMatchFor(deps, experience, query);
     if (match === 'none') continue;
     candidates.push({ document, factors: await factorsFor(deps, experience, match) });
