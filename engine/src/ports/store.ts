@@ -797,6 +797,26 @@ export interface PriorityRow {
   readonly computedAt: number;
 }
 
+/**
+ * One agent run — Phases 44–46.
+ *
+ * A ledger of what an agent did, including when it *declined* to act. The outcomes matter
+ * as much as the proposals: `escalated` means it was not confident enough,
+ * `provider_unavailable` means no model answered, and `refused` means it asked for
+ * something outside its own declaration. All three are recorded rather than swallowed,
+ * because an agent that quietly does nothing is indistinguishable from one that is working.
+ */
+export interface AgentRunRow {
+  readonly id: string;
+  readonly agentId: string;
+  readonly subjectId: string;
+  readonly proposalType: string;
+  readonly outcome: string;
+  readonly proposalId?: string;
+  readonly detail?: string;
+  readonly createdAt: number;
+}
+
 export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
@@ -870,4 +890,7 @@ export interface EngineStore {
 
   // ── Phases 41–43: urgency, impact and explainable priority ──────────────
   readonly priorities: Table<PriorityRow>;
+
+  // ── Phases 44–46: governed agent runs ───────────────────────────────────
+  readonly agentRuns: Table<AgentRunRow>;
 }

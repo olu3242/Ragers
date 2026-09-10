@@ -15,6 +15,7 @@ import { severityFor } from '../../src/engines/severity.engine.ts';
 import { evaluateEscalations, openEscalations } from '../../src/engines/escalation.engine.ts';
 import { handOff } from '../../src/engines/handoff.engine.ts';
 import { priorityKey, recomputePriority } from '../../src/engines/priority.engine.ts';
+import { runAgent } from '../../src/engines/agent.engine.ts';
 import type { ActorContext } from '../../src/runtime/authz.ts';
 import type { AuthResult } from '../../src/engines/identity.engine.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
@@ -282,6 +283,56 @@ describe(
         [experienceId],
       );
       assert.equal(rows[0]?.count, '1');
+    });
+
+    test('the agent ledger refuses an incoherent row, application bypassed', async () => {
+      // A run whose outcome is `proposed` with no proposal id would mean the ledger claims
+      // something the proposal table cannot corroborate.
+      await assert.rejects(
+        h.query(
+          `insert into agent_runs (id, agent_id, subject_id, proposal_type, outcome)
+           values ('agr_bad', 'resolution', 'exp_x', 'review_unresolved_critical', 'proposed')`,
+        ),
+        /agent_runs_proposal_coherent/,
+      );
+      // And the converse: a non-proposing outcome carrying a proposal id.
+      await assert.rejects(
+        h.query(
+          `insert into agent_runs (id, agent_id, subject_id, proposal_type, outcome, proposal_id)
+           values ('agr_bad2', 'resolution', 'exp_x', 'review_unresolved_critical', 'escalated', 'prp_x')`,
+        ),
+        /agent_runs_proposal_coherent|violates foreign key/,
+      );
+    });
+
+    test('one agent run per subject and type, enforced by the database', async () => {
+      const actor = await signUp('live-moe@example.com');
+      const experienceId = await publish(actor, 'the collection was missed for a third week running');
+      await h.query(`update actors set role = 'moderator' where id = $1`, [actor.actorId]);
+
+      // Six concurrent sweeps. Only the unique constraint can arbitrate this.
+      const runs = await Promise.all(
+        Array.from({ length: 6 }, async () =>
+          runAgent(
+            engine,
+            {
+              agentId: 'resolution',
+              subjectId: experienceId,
+              proposalType: 'review_unresolved_critical',
+              engine: 'E10',
+              targetEngine: 'E10',
+            },
+            { actorId: actor.actorId, role: 'moderator' },
+          ),
+        ),
+      );
+      assert.equal(new Set(runs.map((run) => run.runId)).size, 1, 'one run key');
+
+      const rows = await h.query<{ count: string }>(
+        `select count(*)::text as count from agent_runs where subject_id = $1`,
+        [experienceId],
+      );
+      assert.equal(rows[0]?.count, '1', 'a reviewer gets one suggestion, not six');
     });
 
     test('an idle connection dying does not take the process with it', async () => {

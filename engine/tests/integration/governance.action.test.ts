@@ -7,6 +7,9 @@ import { severityFor } from '../../src/engines/severity.engine.ts';
 import { escalationsOf, evaluateEscalations } from '../../src/engines/escalation.engine.ts';
 import { caseFor, openCasesFor } from '../../src/engines/case.engine.ts';
 import { handOff, handoffsFor } from '../../src/engines/handoff.engine.ts';
+import { runAgent, runOrganizationResolutionAgent, agentRunsFor } from '../../src/engines/agent.engine.ts';
+import { benchmarkDataReadiness, benchmarkFor } from '../../src/engines/benchmark.engine.ts';
+import { createDeterministicAssistanceProvider } from '../../src/adapters/fakes.ts';
 import {
   prioritisedQueue,
   priorityFor,
@@ -555,4 +558,254 @@ test('the queue is ordered by named dimensions and every position is answerable'
   assert.ok(top);
   assert.ok(top.reason.length > 0);
   assert.equal(/\d+\.\d/.test(top.reason), false, 'no decimal score in a reason');
+});
+
+// ── Phases 44–47, through the bus ────────────────────────────────────────
+test('an agent proposes through the governed contract and mutates nothing', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the delivery slot was missed for the third week');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const before = await h.engine.store.experiences.get(experienceId);
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'resolution',
+      subjectId: experienceId,
+      proposalType: 'review_unresolved_critical',
+      engine: 'E10',
+      targetEngine: 'E10',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  const after = await h.engine.store.experiences.get(experienceId);
+
+  assert.deepEqual(after, before, 'an agent run leaves governed state byte-identical');
+  // The resolution agent's floor is 0.5 and the deterministic provider answers 0.5, so it
+  // proposes — through `proposal.create`, which refuses anything untraceable.
+  assert.equal(run.outcome, 'proposed');
+  assert.ok(run.proposalId);
+  const proposal = await h.engine.store.proposals.get(run.proposalId ?? '');
+  assert.ok(proposal);
+  assert.ok(proposal.evidenceRefs.length > 0);
+  assert.equal(proposal.proposedCommand, undefined, 'an agent pre-authorises nothing');
+});
+
+test('an agent asking for an engine it did not declare is refused and recorded', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the appointment was moved twice without notice');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // The trust agent declares E4 only. Attempting the excess is how Phase 45 is certified.
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'trust',
+      subjectId: experienceId,
+      proposalType: 'review_contribution_pattern',
+      engine: 'E1',
+      targetEngine: 'E4',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'refused');
+  assert.match(run.detail ?? '', /may not read E1/);
+
+  // Recorded rather than swallowed: an agent that quietly does nothing is
+  // indistinguishable from one that is working.
+  const runs = await agentRunsFor(h.engine, experienceId);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.outcome, 'refused');
+  assert.equal(runs[0]?.proposalId, undefined);
+});
+
+test('a low-confidence agent escalates instead of proposing', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the parcel was marked delivered and never arrived');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // The moderation agent's floor is 0.7; the deterministic provider answers 0.5.
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'moderation',
+      subjectId: experienceId,
+      proposalType: 'review_content',
+      engine: 'E4',
+      targetEngine: 'E9',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'escalated');
+  assert.match(run.detail ?? '', /not confident enough/);
+  const proposals = await h.engine.store.proposals.all();
+  assert.equal(
+    proposals.filter((row) => row.subjectId === experienceId).length,
+    0,
+    'no proposal is created below the floor',
+  );
+});
+
+test('an unavailable provider produces nothing at all, not an empty proposal', async () => {
+  const h = createEngineHarness({
+    providers: { assistance: createDeterministicAssistanceProvider({ failing: true }) },
+  });
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the refund was promised and never arrived');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'resolution',
+      subjectId: experienceId,
+      proposalType: 'review_unresolved_critical',
+      engine: 'E10',
+      targetEngine: 'E10',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'provider_unavailable');
+  assert.equal(run.proposalId, undefined);
+  assert.equal((await h.engine.store.proposals.all()).length, 0, 'fail closed');
+});
+
+test('the organization resolution agent cannot delete, dispute or resolve', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the engineer never arrived for the booked slot');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // With no model configured the deterministic provider answers 0.5, which is below this
+  // agent's floor of 0.6 — so it escalates rather than drafting. That is the designed
+  // behaviour, not a failure: an unconfident draft sent to an organization is worse than
+  // asking a person to write one.
+  const withoutModel = await runOrganizationResolutionAgent(h.engine, experienceId, {
+    actorId: moderator.actorId,
+    role: 'moderator',
+  });
+  assert.equal(withoutModel.outcome, 'escalated');
+  assert.match(withoutModel.detail ?? '', /escalate to organization/);
+
+  // Given a confident provider it drafts — exercising the proposing path without
+  // pretending a live provider exists.
+  const confident = createEngineHarness({
+    providers: { assistance: createDeterministicAssistanceProvider({ confidence: 0.8 }) },
+  });
+  const { actor: theirs } = await confident.signUp('bo@example.com', 'Bo');
+  const otherId = await publish(confident, theirs, 'the engineer never arrived for the booked slot');
+  const otherMod = await confident.promote((await confident.signUp('mod2@example.com')).auth.actorId, 'moderator');
+  const drafted = await runOrganizationResolutionAgent(confident.engine, otherId, {
+    actorId: otherMod.actorId,
+    role: 'moderator',
+  });
+  assert.equal(drafted.outcome, 'proposed', 'it may draft a response');
+  assert.ok(drafted.proposalId);
+
+  // Each of the three prohibitions, attempted and refused.
+  for (const forbidden of ['remove_experience', 'dispute_claim', 'declare_resolved']) {
+    const refused = await runAgent(
+      h.engine,
+      {
+        agentId: 'organization_response',
+        subjectId: experienceId,
+        proposalType: forbidden,
+        engine: 'E9',
+        targetEngine: 'E9',
+      },
+      { actorId: moderator.actorId, role: 'moderator' },
+    );
+    assert.equal(refused.outcome, 'refused', `${forbidden} must be refused`);
+    assert.match(refused.detail ?? '', /may not propose/);
+  }
+
+  const experience = await h.engine.store.experiences.get(experienceId);
+  assert.equal(experience?.status, 'published', 'nothing was deleted');
+  assert.equal(experience?.resolutionStatus, undefined, 'nothing was resolved');
+});
+
+test('an agent run is idempotent, so a sweep does not repeat a suggestion', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the meter reading was wrong again this quarter');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const input = {
+    agentId: 'resolution' as const,
+    subjectId: experienceId,
+    proposalType: 'review_unresolved_critical',
+    engine: 'E10' as const,
+    targetEngine: 'E10' as const,
+  };
+  const first = await runAgent(h.engine, input, { actorId: moderator.actorId, role: 'moderator' });
+  const second = await runAgent(h.engine, input, { actorId: moderator.actorId, role: 'moderator' });
+  assert.equal(first.proposalId, second.proposalId, 'the same run, not a second suggestion');
+  assert.equal((await agentRunsFor(h.engine, experienceId)).length, 1);
+});
+
+test('an approved agent proposal can still be refused by the target engine', async () => {
+  const h = createEngineHarness();
+  const { actor: author } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: mod, auth: modAuth } = await h.signUp('mod@example.com', 'Mod');
+  const moderator = await h.promote(modAuth.actorId, 'moderator');
+  // The moderator's *own* account: `moderation.action` forbids acting on your own content.
+  const mine = await publish(h, mod, 'the counter staff refused to take the return');
+
+  const created = expect(
+    await h.engine.bus.dispatch<unknown, { proposalId: string }>({
+      name: 'proposal.create',
+      input: {
+        proposalType: 'remove_content',
+        sourceEngine: 'E12',
+        targetEngine: 'E9',
+        subjectId: mine,
+        summary: 'Remove this account',
+        rationale: 'Filed for review; the account is the only basis.',
+        confidence: 0.9,
+        evidenceRefs: [{ kind: 'experience', id: mine }],
+        proposedCommand: 'safety.applyModerationAction',
+        proposedInput: { targetType: 'experience', targetId: mine, action: 'remove', reason: 'reviewed' },
+      },
+      actor: moderator,
+      idempotencyKey: h.nextKey(),
+    }),
+    'create',
+  );
+
+  const decided = expect(
+    await h.engine.bus.dispatch<unknown, { status: string; dispatched: boolean; dispatchError?: string }>({
+      name: 'proposal.decide',
+      input: { proposalId: created.proposalId, outcome: 'approved' },
+      actor: moderator,
+      idempotencyKey: h.nextKey(),
+    }),
+    'decide',
+  );
+
+  // Approved as a decision, refused as an action. The distinction the whole band rests on.
+  assert.equal(decided.status, 'approved');
+  assert.equal(decided.dispatched, false);
+  assert.ok(decided.dispatchError);
+  const still = await h.engine.store.experiences.get(mine);
+  assert.equal(still?.status, 'published', 'the account is still there');
+  assert.ok(author.actorId);
+});
+
+test('a benchmark over too few people is suppressed and says why', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  await publish(h, actor, 'the queue was not moving at all this morning');
+
+  const report = await benchmarkFor(h.engine, 'category', 'response_rate');
+  // Code-ready, data-blocked: the engine is correct and the output is empty.
+  assert.ok(report.groups.every((group) => group.result.suppressed) || report.groups.length === 0);
+  assert.match(report.explanation, /Not enough different people|recovered by subtracting/);
+  assert.ok(report.window.label.length > 0, 'a benchmark states its window');
+
+  const readiness = await benchmarkDataReadiness(h.engine);
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.floor, 20);
 });

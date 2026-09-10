@@ -9,7 +9,12 @@ import type { DeadLetterStore } from '../runtime/deadletter.ts';
 import type { Authorizer } from '../runtime/authz.ts';
 import type { RetryPolicy } from '../runtime/retry.ts';
 import type { EngineStore } from '../ports/store.ts';
-import type { ObjectStore, PiiDetector, TranscriptionProvider } from '../ports/providers.ts';
+import type {
+  AssistanceProvider,
+  ObjectStore,
+  PiiDetector,
+  TranscriptionProvider,
+} from '../ports/providers.ts';
 
 export interface EngineConfig {
   /** Window in which an author may still edit a published experience. */
@@ -33,6 +38,12 @@ export interface EngineProviders {
   readonly transcription: TranscriptionProvider;
   readonly pii: PiiDetector;
   readonly objectStore: ObjectStore;
+  /**
+   * Phase 44. Defaults to the deterministic provider, which reports `live: false` — so the
+   * Copilot works modestly rather than being absent, and the harness can tell that
+   * live-provider behaviour is untested rather than passing.
+   */
+  readonly assistance: AssistanceProvider;
 }
 
 export interface EngineDeps {

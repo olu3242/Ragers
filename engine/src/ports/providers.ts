@@ -47,3 +47,51 @@ export interface ObjectStore {
   remove(key: string): Promise<Result<void, EngineError>>;
   keys(): Promise<readonly string[]>;
 }
+
+/**
+ * Assistance provider — Phase 44, the Copilot's boundary.
+ *
+ * A port rather than a client, for the same reason transcription is one: no vendor is
+ * load-bearing in the domain, and the failure path is exercised without network access.
+ *
+ * The shape is deliberately narrow. A provider is handed **governed state that has already
+ * been read** and returns a *suggestion with references* — it is never handed a query to
+ * run, a table to read, or a command to call. So a provider cannot reach into the engine
+ * even if it wanted to, and the worst a compromised or hallucinating one can do is produce
+ * a suggestion a person then declines.
+ *
+ * Every suggestion must carry at least one reference to a durable row. That is not a
+ * courtesy to reviewers: `proposal.create` refuses a proposal without traceable evidence,
+ * so a suggestion with no references cannot become a proposal and is never shown.
+ */
+export interface AssistanceReference {
+  readonly kind: 'experience' | 'corroboration' | 'evidence' | 'cluster' | 'signal_snapshot' | 'risk_event';
+  readonly id: string;
+}
+
+export interface AssistanceInput {
+  /** What kind of help is wanted, e.g. 'summarise_pattern'. */
+  readonly task: string;
+  /**
+   * The governed state to reason over, already read and already redacted by the caller.
+   * A provider never fetches anything itself.
+   */
+  readonly context: readonly { readonly label: string; readonly text: string }[];
+  readonly references: readonly AssistanceReference[];
+}
+
+export interface AssistanceOutput {
+  readonly summary: string;
+  readonly rationale: string;
+  /** The provider's own estimate of its own suggestion. Never treated as a finding. */
+  readonly confidence: number;
+  /** Must be a subset of the references it was given. Nothing invented. */
+  readonly references: readonly AssistanceReference[];
+}
+
+export interface AssistanceProvider {
+  readonly name: string;
+  /** True when a real provider is configured. False for the deterministic fallback. */
+  readonly live: boolean;
+  assist(input: AssistanceInput): Promise<Result<AssistanceOutput, EngineError>>;
+}

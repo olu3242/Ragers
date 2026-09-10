@@ -17,6 +17,7 @@ import {
   createMemoryWorkerRegistry,
 } from './adapters/memory/runtime-stores.ts';
 import {
+  createDeterministicAssistanceProvider,
   createFakeObjectStore,
   createFakePiiDetector,
   createFakeTranscriptionProvider,
@@ -189,6 +190,10 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     transcription: options.providers?.transcription ?? createFakeTranscriptionProvider(),
     pii: options.providers?.pii ?? createFakePiiDetector(),
     objectStore: options.providers?.objectStore ?? createFakeObjectStore(),
+    // Phase 44: the deterministic provider is the *default*, not a test double. With no
+    // model configured the Copilot still works — modestly, and honestly, reporting
+    // `live: false` so the harness knows live-provider behaviour is untested.
+    assistance: options.providers?.assistance ?? createDeterministicAssistanceProvider(),
   };
 
   const deps: EngineDeps = {

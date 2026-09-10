@@ -1,6 +1,12 @@
 import { err, ok } from '../runtime/result.ts';
-import { transientError, internalError } from '../runtime/errors.ts';
-import type { ObjectStore, PiiDetector, PiiFinding, TranscriptionProvider } from '../ports/providers.ts';
+import { transientError, internalError, preconditionError } from '../runtime/errors.ts';
+import type {
+  AssistanceProvider,
+  ObjectStore,
+  PiiDetector,
+  PiiFinding,
+  TranscriptionProvider,
+} from '../ports/providers.ts';
 
 /**
  * Deterministic provider fakes.
@@ -115,3 +121,73 @@ export const applyRedactions = (text: string, findings: readonly PiiFinding[]): 
   }
   return out;
 };
+
+/**
+ * The deterministic assistance provider — Phase 44's fallback.
+ *
+ * Not a stub, and not a stand-in for a model. It is a *real* provider that summarises the
+ * governed state it was handed, deterministically, without inventing anything: every
+ * sentence it produces is assembled from the context labels it was given, and its
+ * references are a subset of the references it received.
+ *
+ * That matters because it is what ships when no model provider is configured. The Copilot
+ * therefore works — modestly — rather than being absent, and `live: false` is what tells
+ * the certification harness the live-provider behaviour is untested rather than passing.
+ *
+ * `failing` exists so the fail-closed path is exercised: a provider that is down must
+ * produce no proposal at all, not a proposal with an empty rationale.
+ */
+export const createDeterministicAssistanceProvider = (
+  options: {
+    readonly failing?: boolean;
+    /**
+     * Override the reported confidence.
+     *
+     * For exercising the *shape* of a confident provider without pretending one is
+     * configured — `live` stays false, so nothing reads this as live-provider evidence.
+     * Agents whose floor sits above 0.5 otherwise escalate on every run, which is correct
+     * behaviour and also means their proposing path would never be tested at all.
+     */
+    readonly confidence?: number;
+  } = {},
+): AssistanceProvider => ({
+  name: 'deterministic',
+  // The honest answer, and the one the harness reads: this is not a model.
+  live: false,
+  assist: async (input) => {
+    if (options.failing) {
+      // Transient, not internal: a provider being down is a condition to retry and to
+      // report, never a reason to produce a suggestion with nothing behind it.
+      return err(transientError('assistance_unavailable', 'no assistance provider is configured'));
+    }
+    if (input.references.length === 0) {
+      // Refused rather than answered. A suggestion with nothing to check cannot become a
+      // proposal — `proposal.create` would refuse it — so producing one would only waste
+      // a reviewer's attention.
+      return err(
+        preconditionError('assistance_needs_references', 'a suggestion must point at rows a reviewer can open'),
+      );
+    }
+
+    const labels = input.context.map((entry) => entry.label);
+    const summary =
+      labels.length === 0
+        ? `Nothing to summarise for ${input.task}.`
+        : `${input.task.replaceAll('_', ' ')}: ${labels.join(', ')}.`;
+
+    return ok({
+      summary,
+      // Assembled from what it was given, and it says so — a reader must be able to tell
+      // this apart from a model's reading of the same rows.
+      rationale:
+        `Assembled from ${input.references.length} referenced ` +
+        `${input.references.length === 1 ? 'row' : 'rows'} without interpretation. ` +
+        'No model is configured, so nothing here is inferred.',
+      // Deliberately modest. A deterministic restatement is not a confident reading, and
+      // several agents' confidence floors are above this — so they escalate instead of
+      // proposing, which is the correct behaviour when no model is available.
+      confidence: options.confidence ?? 0.5,
+      references: input.references,
+    });
+  },
+});
