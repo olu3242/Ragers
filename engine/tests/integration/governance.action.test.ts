@@ -10,6 +10,10 @@ import { handOff, handoffsFor } from '../../src/engines/handoff.engine.ts';
 import { runAgent, runOrganizationResolutionAgent, agentRunsFor } from '../../src/engines/agent.engine.ts';
 import { benchmarkDataReadiness, benchmarkFor } from '../../src/engines/benchmark.engine.ts';
 import { createDeterministicAssistanceProvider } from '../../src/adapters/fakes.ts';
+import { deliveriesFor, setEntitlement } from '../../src/engines/integration.engine.ts';
+import { mayUse } from '../../src/domain/entitlement.ts';
+import { verify } from '../../src/domain/integration.ts';
+import { ok } from '../../src/runtime/result.ts';
 import {
   prioritisedQueue,
   priorityFor,
@@ -808,4 +812,261 @@ test('a benchmark over too few people is suppressed and says why', async () => {
   const readiness = await benchmarkDataReadiness(h.engine);
   assert.equal(readiness.ready, false);
   assert.equal(readiness.floor, 20);
+});
+
+// ── Phases 48–50: entitlement blindness, delivery, and replay ────────────
+test('the same content is treated identically whether the organization pays or not', async () => {
+  // The Phase 48 certification, run rather than asserted: two identical accounts about two
+  // organizations, one on the top plan and one on none, and every integrity output compared.
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+
+  const setUp = async (suffix: string): Promise<{ organizationId: string; experienceId: string }> => {
+    await h.engine.store.entities.put({
+      id: `ent_${suffix}`,
+      name: `Entity ${suffix}`,
+      slug: `entity-${suffix}`,
+      kind: 'organization',
+    });
+    await h.engine.store.organizationProfiles.put({
+      id: `org_${suffix}`,
+      entityId: `ent_${suffix}`,
+      displayName: `Entity ${suffix}`,
+      status: 'claimed',
+    });
+    const experienceId = await publish(h, actor, `the same thing went wrong in the same way (${suffix})`);
+    const row = await h.engine.store.experiences.get(experienceId);
+    if (row) await h.engine.store.experiences.put({ ...row, entityId: `ent_${suffix}` });
+    expect(await assertDim(h, actor, experienceId, { dimension: 'money_lost', amount: 700, currency: 'GBP' }), 'money');
+    return { organizationId: `org_${suffix}`, experienceId };
+  };
+
+  const paid = await setUp('paid');
+  const unpaid = await setUp('unpaid');
+  await setEntitlement(h.engine, paid.organizationId, 'professional');
+  await setEntitlement(h.engine, unpaid.organizationId, 'none');
+  await h.settle();
+
+  const compare = async (id: string) => {
+    const severity = await h.engine.store.severities.get(`sev:${id}`);
+    const priority = await h.engine.store.priorities.get(`pri:${id}`);
+    const feed = await h.engine.store.feedEntries.get(id);
+    return {
+      band: severity?.band,
+      unassessed: severity?.unassessed,
+      priorityBand: priority?.band,
+      urgency: priority?.urgency,
+      suppressed: feed?.suppressed,
+    };
+  };
+
+  assert.deepEqual(
+    await compare(paid.experienceId),
+    await compare(unpaid.experienceId),
+    'paying changed nothing about severity, priority, urgency or visibility',
+  );
+
+  // And the plan does unlock a read, so the test is not passing because entitlement does
+  // nothing at all.
+  assert.equal(mayUse(await h.engine.store.entitlements.get(paid.organizationId), 'benchmark_reports'), true);
+  assert.equal(mayUse(await h.engine.store.entitlements.get(unpaid.organizationId), 'benchmark_reports'), false);
+});
+
+test('a webhook is delivered once, and a replay of the same event delivers nothing', async () => {
+  const sent: { body: string; signature: string }[] = [];
+  const h = createEngineHarness({
+    providers: {
+      webhookTransport: {
+        name: 'recording',
+        send: async (request) => {
+          sent.push({ body: request.body, signature: request.signature });
+          return ok({ status: 200 });
+        },
+      },
+    },
+  });
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+
+  await h.engine.store.entities.put({ id: 'ent_w', name: 'Entity W', slug: 'entity-w', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_w',
+    entityId: 'ent_w',
+    displayName: 'Entity W',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_w',
+    organizationId: 'org_w',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+  await setEntitlement(h.engine, 'org_w', 'basic');
+
+  const subscribed = expect(
+    await h.engine.bus.dispatch<unknown, { subscriptionId: string }>({
+      name: 'integration.subscribe',
+      input: {
+        organizationId: 'org_w',
+        endpointUrl: 'https://example.test/hook',
+        events: ['resolution.reported'],
+        secret: 's'.repeat(40),
+      },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'subscribe',
+  );
+  await h.settle();
+
+  const experienceId = await publish(h, ada, 'the repair was booked and nobody came');
+  const row = await h.engine.store.experiences.get(experienceId);
+  if (row) await h.engine.store.experiences.put({ ...row, entityId: 'ent_w' });
+
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved', note: 'nothing changed' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  assert.equal(sent.length, 1, 'delivered once');
+  const payload = JSON.parse(sent[0]?.body ?? '{}') as { data: Record<string, unknown>; organizationId: string };
+  assert.equal(payload.organizationId, 'org_w');
+  // Ids only: no body, no author.
+  for (const forbidden of ['bodyText', 'actorId', 'text']) {
+    assert.equal(forbidden in payload.data, false, `a payload must not carry ${forbidden}`);
+  }
+  // Signed over the exact bytes sent.
+  assert.equal(verify('s'.repeat(40), sent[0]?.body ?? '', sent[0]?.signature ?? ''), true);
+
+  // The hardest clause in the Phase 50 scenario, asserted by replaying rather than by
+  // inspecting keys: drain the whole orchestrator again and prove nothing is sent twice.
+  await h.engine.orchestrator.drain();
+  await h.settle();
+  assert.equal(sent.length, 1, 'a replay delivers nothing');
+
+  const deliveries = await deliveriesFor(h.engine, 'org_w');
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0]?.state, 'sent');
+  assert.equal(deliveries[0]?.subscriptionId, subscribed.subscriptionId);
+});
+
+test('an organization with no plan cannot hold a subscription', async () => {
+  const h = createEngineHarness();
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+  await h.engine.store.entities.put({ id: 'ent_n', name: 'Entity N', slug: 'entity-n', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_n',
+    entityId: 'ent_n',
+    displayName: 'Entity N',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_n',
+    organizationId: 'org_n',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'integration.subscribe',
+    input: {
+      organizationId: 'org_n',
+      endpointUrl: 'https://example.test/hook',
+      events: ['resolution.reported'],
+      secret: 's'.repeat(40),
+    },
+    actor: staff,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false, 'told why, rather than delivered nothing and left to debug silence');
+});
+
+test('a non-member cannot subscribe on an organization’s behalf', async () => {
+  const h = createEngineHarness();
+  const { actor: stranger } = await h.signUp('stranger@example.com', 'Stranger');
+  await h.engine.store.entities.put({ id: 'ent_s', name: 'Entity S', slug: 'entity-s', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_s',
+    entityId: 'ent_s',
+    displayName: 'Entity S',
+    status: 'claimed',
+  });
+  await setEntitlement(h.engine, 'org_s', 'professional');
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'integration.subscribe',
+    input: {
+      organizationId: 'org_s',
+      endpointUrl: 'https://example.test/hook',
+      events: ['resolution.reported'],
+      secret: 's'.repeat(40),
+    },
+    actor: stranger,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false);
+});
+
+test('no delivery is claimed as sent when no transport is configured', async () => {
+  // With no transport the delivery stays pending and is retried, rather than being marked
+  // sent. Claiming a send that never happened would make the audit trail a fiction.
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+  await h.engine.store.entities.put({ id: 'ent_t', name: 'Entity T', slug: 'entity-t', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_t',
+    entityId: 'ent_t',
+    displayName: 'Entity T',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_t',
+    organizationId: 'org_t',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+  await setEntitlement(h.engine, 'org_t', 'basic');
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'integration.subscribe',
+      input: {
+        organizationId: 'org_t',
+        endpointUrl: 'https://example.test/hook',
+        events: ['resolution.reported'],
+        secret: 's'.repeat(40),
+      },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'subscribe',
+  );
+
+  const experienceId = await publish(h, ada, 'the collection was missed twice this month');
+  const row = await h.engine.store.experiences.get(experienceId);
+  if (row) await h.engine.store.experiences.put({ ...row, entityId: 'ent_t' });
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  const deliveries = await deliveriesFor(h.engine, 'org_t');
+  assert.ok(deliveries.length > 0, 'the delivery is recorded');
+  assert.equal(deliveries[0]?.state, 'pending', 'never sent, and never claimed as sent');
+  assert.equal(deliveries[0]?.sentAt, undefined);
 });

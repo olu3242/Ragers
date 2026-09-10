@@ -40,8 +40,28 @@ export type GovernanceActionStatus =
   | 'PHASES_31_40_READY_WITH_EXTERNAL_BLOCKERS'
   | 'PHASES_31_40_NOT_READY';
 
+/**
+ * The Agentic Experience OS band (Phases 41–50) — Phase 50's own status.
+ *
+ * A fourth status, and the last one, for the reason the others exist: it answers a question
+ * none of them do. This one is *does AI stay downstream of governance?* — that an agent's
+ * only output is a proposal, that a person decides, that the target engine can still refuse,
+ * that a measure without enough data says so rather than guessing, and that payment reaches
+ * nothing which decides an outcome.
+ *
+ * `CODE_READY_DATA_BLOCKED` is a real value rather than a euphemism. Phase 47's benchmarking
+ * is built and certified against the Phase 39 aggregation, and produces nothing until enough
+ * different people have contributed — which is the engine being correct, not failing. A
+ * `READY` there would be a lie and a `NOT_READY` would be wrong about which thing is missing.
+ */
+export type ExperienceOsStatus =
+  | 'RAGERS_EXPERIENCE_OS_READY'
+  | 'RAGERS_EXPERIENCE_OS_CODE_READY_DATA_BLOCKED'
+  | 'RAGERS_EXPERIENCE_OS_READY_WITH_BLOCKERS'
+  | 'RAGERS_EXPERIENCE_OS_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
-export type GateScope = 'engine' | 'experience_signal_engine' | 'governance_action';
+export type GateScope = 'engine' | 'experience_signal_engine' | 'governance_action' | 'experience_os';
 
 export interface GateDefinition {
   readonly id: string;
@@ -425,6 +445,45 @@ export const GATES: readonly GateDefinition[] = [
     requirement: 'phases/31-40/surfaces',
     command: ['npx', 'playwright', 'test', '--project=governance-action'],
   },
+  // ── Phases 41–50: Agentic Experience OS ─────────────────────────────────
+  {
+    id: 'phases_41_43_domain',
+    name: 'P41–43: severity, urgency and priority stay three questions',
+    scope: 'experience_os',
+    requirement: 'phases/41-43',
+    command: ['node', '--test', 'tests/unit/urgency.impact.priority.test.ts'],
+  },
+  {
+    id: 'phases_44_47_domain',
+    name: 'P44–47: an agent has no write verb, and a benchmark names nobody',
+    scope: 'experience_os',
+    requirement: 'phases/44-47',
+    command: ['node', '--test', 'tests/unit/agent.benchmark.test.ts'],
+  },
+  {
+    id: 'phases_48_49_domain',
+    name: 'P48–49: the integrity layer is blind to payment; a webhook is signed and isolated',
+    scope: 'experience_os',
+    requirement: 'phases/48-49',
+    command: ['node', '--test', 'tests/unit/entitlement.integration.test.ts'],
+  },
+  {
+    id: 'phases_41_50_bus',
+    name: 'P41–50 end to end through the bus, including replay',
+    scope: 'experience_os',
+    requirement: 'phases/41-50',
+    command: ['node', '--test', 'tests/integration/governance.action.test.ts'],
+  },
+  {
+    id: 'phases_41_50_live',
+    name: 'P41–50 against a live database: constraints, races and coherence',
+    scope: 'experience_os',
+    requirement: 'phases/41-50/live',
+    command: ['node', '--test', 'tests/live/governance.action.live.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. The unique and coherence constraints that arbitrate concurrent agent runs and deliveries cannot be certified without one.',
+  },
   {
     id: 'deployment',
     name: 'Deployment to a target environment',
@@ -482,19 +541,44 @@ export const decideGovernanceActionStatus = (results: readonly GateResult[]): Go
   return 'PHASES_31_40_READY';
 };
 
+/**
+ * The Experience OS status.
+ *
+ * `dataBlocked` is passed in rather than inferred from a gate, because it is a fact about the
+ * *data* and every gate here passes: the code is certified and the sample is absent. Folding
+ * it into a gate result would mean either failing a working gate or hiding the gap.
+ */
+export const decideExperienceOsStatus = (
+  results: readonly GateResult[],
+  dataBlocked: boolean,
+): ExperienceOsStatus => {
+  const own = results.filter((result) => result.scope === 'experience_os');
+  if (own.length === 0) return 'RAGERS_EXPERIENCE_OS_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'RAGERS_EXPERIENCE_OS_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'RAGERS_EXPERIENCE_OS_READY_WITH_BLOCKERS';
+  if (dataBlocked) return 'RAGERS_EXPERIENCE_OS_CODE_READY_DATA_BLOCKED';
+  return 'RAGERS_EXPERIENCE_OS_READY';
+};
+
 export interface CertificationReport {
   readonly status: CertificationStatus;
   readonly experienceSignalEngineStatus: ExperienceSignalEngineStatus;
   readonly governanceActionStatus: GovernanceActionStatus;
+  readonly experienceOsStatus: ExperienceOsStatus;
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
 }
 
-export const buildReport = (results: readonly GateResult[], generatedAt: string): CertificationReport => ({
+export const buildReport = (
+  results: readonly GateResult[],
+  generatedAt: string,
+  options: { readonly benchmarkDataBlocked?: boolean } = {},
+): CertificationReport => ({
   status: decideStatus(results),
   experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
   governanceActionStatus: decideGovernanceActionStatus(results),
+  experienceOsStatus: decideExperienceOsStatus(results, options.benchmarkDataBlocked ?? false),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -524,14 +608,20 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 31–40 status: \`${report.governanceActionStatus}\``);
   lines.push('');
+  lines.push(`## Phases 41–50 status: \`${report.experienceOsStatus}\``);
+  lines.push('');
   lines.push(
-    'Three statuses, because they answer different questions. The engine status is about ' +
+    'Four statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +
       'status is about whether measuring is kept apart from deciding: severity from what people ' +
       'asserted, a measure withheld rather than invented below its floor, an escalation that ' +
-      'opens a review and nothing more, and a handoff that proposes without mutating anything.',
+      'opens a review and nothing more, and a handoff that proposes without mutating anything. ' +
+      'The Phases 41–50 status is about whether AI stays downstream of governance: an agent ' +
+      'whose only output is a proposal, a person who decides, a target engine that can still ' +
+      'refuse, a measure that says so when the data is absent, and payment that reaches ' +
+      'nothing deciding an outcome.',
   );
   lines.push('');
   lines.push(

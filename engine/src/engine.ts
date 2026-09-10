@@ -89,6 +89,7 @@ import { createSeverityConsumer } from './engines/severity.engine.ts';
 import { createEscalationConsumer } from './engines/escalation.engine.ts';
 import { createHandoffConsumer } from './engines/handoff.engine.ts';
 import { createPriorityConsumer } from './engines/priority.engine.ts';
+import { createDeliveryConsumer, registerIntegrationEngine } from './engines/integration.engine.ts';
 import { createResponsivenessConsumer } from './engines/responsiveness.engine.ts';
 import {
   createAbuseDetectionConsumer,
@@ -194,6 +195,11 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     // model configured the Copilot still works — modestly, and honestly, reporting
     // `live: false` so the harness knows live-provider behaviour is untested.
     assistance: options.providers?.assistance ?? createDeterministicAssistanceProvider(),
+    // Optional and deliberately undefaulted: with no transport a delivery stays pending and
+    // is retried, rather than being marked sent against a fake that always succeeds.
+    ...(options.providers?.webhookTransport === undefined
+      ? {}
+      : { webhookTransport: options.providers.webhookTransport }),
   };
 
   const deps: EngineDeps = {
@@ -233,6 +239,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   registerProposalEngine(deps);
   registerEnrichmentEngine(deps);
   registerCaseEngine(deps);
+  registerIntegrationEngine(deps);
 
   // Consumers, in dependency order: protect -> ready/transcribe -> screen -> project
   orchestrator.subscribe(createMediaProtectionConsumer(deps));
@@ -277,6 +284,9 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // severity and escalation have written the inputs it reads.
   orchestrator.subscribe(createPriorityConsumer(deps));
   orchestrator.subscribe(createHandoffConsumer(deps));
+  // Phase 49: outbound delivery is a consumer over the same outbox, so a webhook inherits
+  // the leased-job runtime's retries and dead-letter queue rather than getting its own.
+  orchestrator.subscribe(createDeliveryConsumer(deps));
   orchestrator.subscribe(createSignalStatusConsumer(deps));
   orchestrator.subscribe(createResponsivenessConsumer(deps));
 

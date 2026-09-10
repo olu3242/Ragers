@@ -14,6 +14,7 @@ import type {
   ObjectStore,
   PiiDetector,
   TranscriptionProvider,
+  WebhookTransport,
 } from '../ports/providers.ts';
 
 export interface EngineConfig {
@@ -44,6 +45,11 @@ export interface EngineProviders {
    * live-provider behaviour is untested rather than passing.
    */
   readonly assistance: AssistanceProvider;
+  /**
+   * Phase 49. Optional: with none configured a delivery stays pending and is retried rather
+   * than being marked sent, so the audit trail never claims something that did not happen.
+   */
+  readonly webhookTransport?: WebhookTransport;
 }
 
 export interface EngineDeps {

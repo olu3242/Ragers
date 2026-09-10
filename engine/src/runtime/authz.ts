@@ -144,7 +144,10 @@ export type PolicyAction =
   | 'severity.read'
   | 'escalation.read'
   | 'case.read'
-  | 'case.manage';
+  | 'case.manage'
+  // ── Phases 48–49 ──────────────────────────────────────────────────────
+  | 'integration.manage'
+  | 'entitlement.manage';
 
 export interface ActorContext {
   readonly actorId: string;

@@ -17,6 +17,8 @@ import type { ExperienceEnrichment } from '../domain/enrichment.ts';
 import type { OrganizationCase } from '../domain/case.ts';
 import type { SeverityBand } from '../domain/severity.ts';
 import type { UrgencyLevel } from '../domain/urgency.ts';
+import type { EntitledFeature, PlanTier } from '../domain/entitlement.ts';
+import type { IntegrationEvent, Subscription } from '../domain/integration.ts';
 import type { PriorityBand, DominantFactor } from '../domain/priority.ts';
 import type { Dispute } from '../domain/dispute.ts';
 import type { ExperienceRelation } from '../domain/relation.ts';
@@ -817,6 +819,46 @@ export interface AgentRunRow {
   readonly createdAt: number;
 }
 
+/**
+ * An organization's plan — Phase 48.
+ *
+ * Note what is absent: no priority boost, no moderation tier, no visibility multiplier. Not
+ * set to zero — absent. A field that exists at zero is one edit away from being non-zero,
+ * and the integrity layer has no input for entitlement at all, so there is nothing to switch.
+ */
+export interface EntitlementRow {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly tier: PlanTier;
+  readonly features: readonly EntitledFeature[];
+  readonly updatedAt: number;
+}
+
+export type SubscriptionRow = Subscription & { readonly id: string };
+
+/**
+ * One outbound delivery attempt — Phase 49.
+ *
+ * Keyed on (subscription, outbox event), which is what makes replay safe: at-least-once
+ * delivery means the same event *will* be handled twice, and the second handling finds this
+ * row and sends nothing.
+ */
+export interface DeliveryRow {
+  readonly id: string;
+  readonly subscriptionId: string;
+  readonly organizationId: string;
+  readonly outboxId: string;
+  readonly event: IntegrationEvent;
+  readonly signature: string;
+  /** The exact bytes signed and sent, so a dispute about a delivery is settleable. */
+  readonly body: string;
+  readonly state: 'pending' | 'sent' | 'failed';
+  readonly attemptCount: number;
+  readonly sentAt?: number;
+  readonly lastError?: string;
+  readonly createdAt: number;
+}
+
 export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
@@ -893,4 +935,9 @@ export interface EngineStore {
 
   // ── Phases 44–46: governed agent runs ───────────────────────────────────
   readonly agentRuns: Table<AgentRunRow>;
+
+  // ── Phases 48–49: entitlements and governed outbound delivery ───────────
+  readonly entitlements: Table<EntitlementRow>;
+  readonly subscriptions: Table<SubscriptionRow>;
+  readonly deliveries: Table<DeliveryRow>;
 }

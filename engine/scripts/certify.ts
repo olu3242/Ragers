@@ -91,7 +91,21 @@ for (const gate of GATES) {
   process.stdout.write(`${passed ? '✅' : '❌'} ${gate.name} — ${detail}\n`);
 }
 
-const report = buildReport(results, new Date().toISOString());
+/**
+ * Phase 47 is data-blocked, and this is where that is declared.
+ *
+ * Not inferred from a gate, because every Phase 47 gate *passes*: the aggregation is
+ * certified, the floors are enforced, and the output is empty because no environment the
+ * harness runs in has twenty distinct contributors per comparison set. Folding that into a
+ * gate would mean either failing working code or hiding the gap.
+ *
+ * `RAGERS_BENCHMARK_DATA_READY=1` is how a deployment with real volume flips it. Until
+ * something sets it, the honest status is CODE_READY_DATA_BLOCKED — and a run that quietly
+ * reported READY here would be claiming a benchmark nobody could actually produce.
+ */
+const benchmarkDataBlocked = process.env['RAGERS_BENCHMARK_DATA_READY'] !== '1';
+
+const report = buildReport(results, new Date().toISOString(), { benchmarkDataBlocked });
 
 // Only a full run may rewrite the ledger; a partial run reports to stdout only.
 if (only.length === 0) {
@@ -106,12 +120,14 @@ if (only.length === 0) {
 process.stdout.write(`\nCertification status: ${report.status}\n`);
 process.stdout.write(`Experience Signal Engine status: ${report.experienceSignalEngineStatus}\n`);
 process.stdout.write(`Phases 31–40 status: ${report.governanceActionStatus}\n`);
+process.stdout.write(`Phases 41–50 status: ${report.experienceOsStatus}\n`);
 // Either certification failing is a failure: a green platform with a broken
 // corroboration contract is not a shippable product.
 process.exit(
   report.status === 'RAGERS_ENGINE_E2E_NO_GO' ||
     report.experienceSignalEngineStatus === 'EXPERIENCE_SIGNAL_ENGINE_NOT_READY' ||
-    report.governanceActionStatus === 'PHASES_31_40_NOT_READY'
+    report.governanceActionStatus === 'PHASES_31_40_NOT_READY' ||
+    report.experienceOsStatus === 'RAGERS_EXPERIENCE_OS_NOT_READY'
     ? 1
     : 0,
 );

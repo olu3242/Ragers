@@ -116,6 +116,16 @@ export const createPostgresStore = (db: Db): EngineStore => {
     handoffs: table(descriptor({ relation: 'intelligence_handoffs', idColumn: 'id' })),
     priorities: table(descriptor({ relation: 'experience_priorities', idColumn: 'id' })),
     agentRuns: table(descriptor({ relation: 'agent_runs', idColumn: 'id' })),
+    subscriptions: table(descriptor({ relation: 'integration_subscriptions', idColumn: 'id' })),
+    deliveries: table(descriptor({ relation: 'integration_deliveries', idColumn: 'id' })),
+    // Keyed by the organization it describes: one plan per organization.
+    entitlements: table(
+      descriptor({
+        relation: 'organization_entitlements',
+        idColumn: 'organization_id',
+        derivedId: (row) => String(row['organizationId'] ?? ''),
+      }),
+    ),
     // Keyed by the organization it describes.
     responsiveness: table(
       descriptor({

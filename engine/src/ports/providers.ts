@@ -95,3 +95,23 @@ export interface AssistanceProvider {
   readonly live: boolean;
   assist(input: AssistanceInput): Promise<Result<AssistanceOutput, EngineError>>;
 }
+
+/**
+ * Webhook transport — Phase 49.
+ *
+ * A port, and optional. Outbound HTTP is the one thing in this engine that cannot be
+ * exercised without a network, so it is isolated behind the smallest possible interface:
+ * given a url, a body and a signature, either it went or it did not.
+ *
+ * When no transport is configured a delivery stays `pending` and is retried, rather than
+ * being marked sent. Claiming a send that never happened would make the audit trail a
+ * fiction, which is worse than an undelivered webhook.
+ */
+export interface WebhookTransport {
+  readonly name: string;
+  send(request: {
+    readonly url: string;
+    readonly body: string;
+    readonly signature: string;
+  }): Promise<Result<{ readonly status: number }, EngineError>>;
+}

@@ -5,6 +5,7 @@ import {
   decideStatus,
   decideExperienceSignalEngineStatus,
   decideGovernanceActionStatus,
+  decideExperienceOsStatus,
   GATES,
   renderLedger,
   type GateResult,
@@ -242,4 +243,50 @@ test('a band status is decided by the band’s own gates and nothing else', () =
   );
   // No gates at all is not ready. An empty band cannot certify itself.
   assert.equal(decideGovernanceActionStatus([]), 'PHASES_31_40_NOT_READY');
+});
+
+test('the Experience OS band has its own gates, covering every layer', () => {
+  const band = GATES.filter((gate) => gate.scope === 'experience_os');
+  assert.ok(band.length >= 5, 'the band is certified by its own gates');
+  const requirements = band.map((gate) => gate.requirement);
+  assert.ok(requirements.some((r) => r.includes('41-43')));
+  assert.ok(requirements.some((r) => r.includes('44-47')));
+  assert.ok(requirements.some((r) => r.includes('48-49')));
+  assert.ok(requirements.some((r) => r === 'phases/41-50'));
+  assert.ok(requirements.some((r) => r.endsWith('/live')));
+});
+
+test('data-blocked is a distinct status from ready and from not-ready', () => {
+  const passing = [
+    {
+      id: 'a',
+      name: 'a',
+      scope: 'experience_os' as const,
+      requirement: 'r',
+      status: 'passed' as const,
+      durationMs: 1,
+      detail: '',
+    },
+  ];
+  // Every gate passes and the sample is absent: the code is certified and the benchmark is
+  // empty. Reporting READY would claim a benchmark nobody could produce; reporting NOT_READY
+  // would be wrong about which thing is missing.
+  assert.equal(decideExperienceOsStatus(passing, true), 'RAGERS_EXPERIENCE_OS_CODE_READY_DATA_BLOCKED');
+  assert.equal(decideExperienceOsStatus(passing, false), 'RAGERS_EXPERIENCE_OS_READY');
+  assert.equal(
+    decideExperienceOsStatus(
+      [...passing, { id: 'b', name: 'b', scope: 'experience_os' as const, requirement: 'r', status: 'failed' as const, durationMs: 1, detail: '' }],
+      false,
+    ),
+    'RAGERS_EXPERIENCE_OS_NOT_READY',
+  );
+  // A failing gate outranks a data gap: broken code is not "data-blocked".
+  assert.equal(
+    decideExperienceOsStatus(
+      [...passing, { id: 'c', name: 'c', scope: 'experience_os' as const, requirement: 'r', status: 'failed' as const, durationMs: 1, detail: '' }],
+      true,
+    ),
+    'RAGERS_EXPERIENCE_OS_NOT_READY',
+  );
+  assert.equal(decideExperienceOsStatus([], true), 'RAGERS_EXPERIENCE_OS_NOT_READY');
 });

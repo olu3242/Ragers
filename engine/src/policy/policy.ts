@@ -159,6 +159,12 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   // against a live, unrevoked row; the matrix cannot express that.
   'case.read': { role: 'member' },
   'case.manage': { role: 'member' },
+
+  // ── Phases 48–49 ──────────────────────────────────────────────────────
+  // Membership is checked in the engine against a live row, as with cases.
+  'integration.manage': { role: 'member' },
+  // A plan is set by an operator, never by the organization that benefits from it.
+  'entitlement.manage': { role: 'admin' },
 };
 
 /** Statuses that only a moderator or admin may read. */
