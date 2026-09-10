@@ -492,6 +492,23 @@ export const GATES: readonly GateDefinition[] = [
     command: ['node', '--test', 'tests/integration/convergence.circular.test.ts'],
   },
   {
+    id: 'command_boundaries',
+    name: 'Command boundaries: bad input is refused, never reported as a defect',
+    scope: 'experience_os',
+    requirement: 'boundaries/commands',
+    command: ['node', '--test', 'tests/integration/command.boundaries.test.ts'],
+  },
+  {
+    id: 'command_boundaries_live',
+    name: 'Command boundaries against a live database: the refusal precedes the write',
+    scope: 'experience_os',
+    requirement: 'boundaries/commands/live',
+    command: ['node', '--test', 'tests/live/command.boundaries.live.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. Whether a missing refusal costs a bad row, a driver error or a silent coercion depends on the column type, and only Postgres has column types.',
+  },
+  {
     id: 'deployment',
     name: 'Deployment to a target environment',
     requirement: 'deployment',

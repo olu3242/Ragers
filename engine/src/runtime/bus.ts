@@ -1,5 +1,5 @@
 import { err, ok, type Result } from './result.ts';
-import { internalError, unauthorizedError, type EngineError } from './errors.ts';
+import { internalError, unauthorizedError, validationError, type EngineError } from './errors.ts';
 import type { ActorContext, Authorizer, PolicyAction, ResourceRef } from './authz.ts';
 import type { IdempotencyStore } from './idempotency.ts';
 import type { NewDomainEvent, Outbox } from './outbox.ts';
@@ -76,6 +76,56 @@ export interface CommandBus {
 }
 
 /**
+ * Every registered command takes an object of named fields. A caller that sends
+ * `undefined`, `null`, a primitive or an array has sent something that is not a
+ * command input at all, and a handler asked to destructure it throws — which the
+ * catch below would report as `command_threw`, an internal defect. It is not one:
+ * the caller is wrong, and the boundary that knows every command shares this
+ * precondition is this one. Checking it here rather than in eighty handlers is
+ * what keeps the refusal identical across commands and keeps the check ahead of
+ * every reservation, resolve, authorize and write.
+ *
+ * This is a shape check and nothing more. Field-level validity stays with the
+ * domain that owns the field — a bus that started interpreting values would be
+ * a second, weaker copy of every domain's rules.
+ */
+const inputIsCommandShaped = (input: unknown): boolean =>
+  typeof input === 'object' && input !== null && !Array.isArray(input);
+
+/**
+ * The envelope is the runtime's own contract rather than a user's, so a
+ * malformed one is a caller defect too — but an actor that is absent must never
+ * reach the authorizer, and `actor.actorId` is read while building the logger,
+ * before the catch below exists. An uncaught throw there takes the worker down.
+ * Refusing here keeps a malformed envelope a rejection instead of an outage.
+ */
+const envelopeFault = (envelope: {
+  readonly input: unknown;
+  readonly actor: unknown;
+  readonly idempotencyKey: unknown;
+}): EngineError | undefined => {
+  const actor = envelope.actor;
+  if (typeof actor !== 'object' || actor === null || Array.isArray(actor)) {
+    return validationError('actor_required', 'A command requires an actor context');
+  }
+  const actorId = (actor as { actorId?: unknown }).actorId;
+  if (typeof actorId !== 'string' || actorId.length === 0) {
+    return validationError('actor_id_required', 'A command requires an actor with an actorId');
+  }
+  if (typeof envelope.idempotencyKey !== 'string' || envelope.idempotencyKey.length === 0) {
+    return validationError('idempotency_key_required', 'A command requires a non-empty idempotency key');
+  }
+  if (!inputIsCommandShaped(envelope.input)) {
+    return validationError(
+      'input_required',
+      'A command takes an object of named fields; received ' +
+        (envelope.input === null ? 'null' : Array.isArray(envelope.input) ? 'an array' : typeof envelope.input),
+    );
+  }
+  return undefined;
+};
+
+/**
  * The single write path. Order is fixed and not negotiable:
  *   idempotency → resolve → authorize → domain transition → persist+outbox → complete.
  * Handlers are held privately, so no caller can skip the authorize step by
@@ -91,6 +141,15 @@ export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
     const handler = handlers.get(envelope.name) as CommandHandler<TInput, TOutput> | undefined;
     if (!handler) {
       return err(internalError('command_not_registered', `No handler for command ${envelope.name}`));
+    }
+
+    // 0. Shape. Ahead of the reservation on purpose: a refusal that reserved
+    // nothing writes nothing, and re-sending the same malformed command returns
+    // the same refusal from the same check rather than from a recorded one.
+    const fault = envelopeFault(envelope);
+    if (fault) {
+      deps.metrics.increment('command.malformed', { command: envelope.name, code: fault.code });
+      return err(fault);
     }
 
     const correlationId = envelope.correlationId ?? deps.ids.next('corr');

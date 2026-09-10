@@ -172,3 +172,58 @@ approve button for normalization suggestions.
 | read / create / decide proposals | — | — | — | ✅ |
 
 Server-side authorization is authoritative. UI visibility is never authorization.
+
+---
+
+## Command boundaries — what a caller gets back
+
+**The rule.** Every command refuses bad input in the caller's terms. `internal` is
+reserved for defects, so `command_threw` in a metric or a log means something is
+actually broken — not that somebody sent the wrong field name.
+
+The failure classes a caller may receive, and what each means:
+
+| `kind` | Meaning | Retryable |
+|---|---|---|
+| `validation` | the request is malformed or a value is out of range | no |
+| `unauthorized` | authenticated but not permitted, or not authenticated | no |
+| `not_found` | the named object does not exist | no |
+| `conflict` | it already happened, or somebody else won the race | no |
+| `precondition` | the object exists but is in the wrong state for this | no |
+| `rate_limited` | too many, too fast | yes |
+| `transient` | a dependency was briefly unavailable | yes |
+| `internal` | **a defect** — never the caller's doing | no |
+
+**Shape is checked once, at the bus.** Every command takes an object of named
+fields, so `undefined`, `null`, a primitive or an array is refused as
+`validation/input_required` before the idempotency reservation, before
+`resolveResource`, and before any authorization or write. A malformed envelope —
+no actor, an actor with no id, an empty idempotency key — is refused the same way,
+because `actor.actorId` is read while building the command logger and an
+uncaught throw there is a dead worker rather than a failed command.
+
+Field *validity* is not checked there. The bus does not interpret values, because a
+bus that did would be a second, weaker copy of every domain's rules. `dimension`,
+`visibility`, `reason` and the rest are each checked by the module that owns them.
+
+**A refusal costs nothing.** No row is written, no outbox event is appended, no
+counter moves, and the idempotency key stays free — so a caller who sent one bad
+field can correct it and retry under the same key.
+
+**What a refusal never carries.** No stack trace, no wrapped `cause`, no internal
+identifier a caller has no business seeing. The message says what was wrong with
+the request.
+
+**Coverage is structural, not listed.** `tests/integration/command.boundaries.test.ts`
+sweeps `bus.registeredCommands()` — every command, eleven malformed payloads, three
+actor roles — so a command registered tomorrow is covered tomorrow with no list to
+update. Two further passes go deeper: one dispatches valid identifiers with invalid
+field values, so garbage reaches handler bodies rather than stopping at the resolve
+stage; and a table of named cases each carry exactly one bad field, since a command
+that refuses an invalid `to` never looks at the malformed `note` beside it. The
+sweep's own assertion is on `command.threw` staying at zero.
+
+**Notes are one rule.** A closure note, a rejection note and a review note are
+checked by `checkNote` in `src/domain/types.ts` — text, trimmed, at most
+`REVIEW_NOTE_MAX_LENGTH` (2,000) characters — and each caller turns the outcome
+into its own message, because *why* a note is required differs in each of the three.

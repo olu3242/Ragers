@@ -299,6 +299,14 @@ export const changeVisibility = (
   aliasId: string | undefined,
   now: number,
 ): Result<AggregateChange, EngineError> => {
+  // Before the strength comparison, not after: a value outside the enum has no
+  // strength at all, so `undefined < 0` is false and the tighten-only rule below
+  // waves it through — writing an unknown visibility onto the row and leaving the
+  // next change comparing against nothing. A privacy invariant with a hole in it
+  // for one unrecognised string is not an invariant.
+  if (!isVisibility(to)) {
+    return err(validationError('invalid_visibility', 'visibility must be public, alias or anonymous'));
+  }
   if (to === experience.visibility) return ok({ experience, events: [] });
   if (VISIBILITY_STRENGTH[to] < VISIBILITY_STRENGTH[experience.visibility]) {
     return err(

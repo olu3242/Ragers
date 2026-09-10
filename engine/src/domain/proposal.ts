@@ -1,5 +1,6 @@
 import { err, ok, type Result } from '../runtime/result.ts';
 import { preconditionError, validationError, type EngineError } from '../runtime/errors.ts';
+import { checkNote, REVIEW_NOTE_MAX_LENGTH } from './types.ts';
 
 /**
  * Intelligence proposals — E12.
@@ -245,7 +246,15 @@ export const decideProposal = (
   }
   // Rejecting requires saying why. An unexplained rejection teaches the proposing
   // engine nothing and leaves the subject with no account of what happened.
-  if (input.to === 'rejected' && (input.note === undefined || input.note.trim().length === 0)) {
+  const note = checkNote(input.note);
+  if (!note.ok) {
+    return err(
+      note.code === 'note_not_text'
+        ? validationError('note_not_text', 'a review note is text')
+        : validationError('note_too_long', `a review note is at most ${REVIEW_NOTE_MAX_LENGTH} characters`),
+    );
+  }
+  if (input.to === 'rejected' && note.note.length === 0) {
     return err(validationError('note_required', 'say why the proposal was rejected'));
   }
 
@@ -254,7 +263,7 @@ export const decideProposal = (
     status: input.to,
     reviewedBy: input.reviewerId,
     reviewedAt: now,
-    ...(input.note === undefined || input.note.trim().length === 0 ? {} : { reviewNote: input.note.trim() }),
+    ...(note.note.length === 0 ? {} : { reviewNote: note.note }),
   });
 };
 

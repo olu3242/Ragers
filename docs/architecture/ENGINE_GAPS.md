@@ -36,6 +36,7 @@ evidence.
 | Entitlement guard by discovery | — | `INTEGRITY_SCAN_ROOTS` + `COMMERCIAL_SURFACES` in `src/domain/entitlement.ts` | `entitlement.integration` (4) — all three failure modes verified by introducing each |
 | Dead subscription: `ReportResolved` | E4/E9 | emitted per resolved report in `safety.engine.ts` | `convergence.circular` · enumeration now reports zero dead subscriptions |
 | 1–50 convergence | — | `docs/architecture/CONVERGENCE_1_50.md`, `tests/integration/convergence.circular.test.ts` | `convergence.circular` (3) — one lap for Rage and one for Rave |
+| Command boundary refusals | all | shape guard in `src/runtime/bus.ts`; `checkNote` in `src/domain/types.ts`; per-field guards in the seven modules that lacked them | `command.boundaries` (11) · `command.boundaries.live` (6) — nine defects, each verified red before the fix |
 
 ## Open
 
@@ -49,6 +50,8 @@ evidence.
 | Autonomous agents | E12 | ABSENT by choice | The framework exists (P45) and agents may read, propose and escalate. `AgentAction` has no write verb, so autonomy in the sense of *acting* is not expressible; nothing here is a gap to close. |
 | Real model provider | E12 | BLOCKED | Needs credentials. The port and the deterministic fallback are certified; live-provider behaviour is not, and `live: false` is what says so. |
 | Benchmark sample volume | E11 | DATA-BLOCKED | The code is certified. Twenty distinct contributors per comparison set do not exist in any environment the harness runs in, which is the engine being correct rather than failing. |
+| Rate limits on request-shaped commands | E17/E12 | ABSENT | Surfaced by the boundary sweep rather than caused by it: `creator.requestExport` accepted 21 successive requests, since nothing dedupes or throttles one. Not an input-validation defect — the input was valid every time — so it is recorded here rather than fixed under a boundary slice. `export_requests` has no partial unique index, so memory and Postgres agree. |
+| Reply moderation | E4 | ABSENT | `safety.applyModerationAction` on a reply target loads an *experience* and so can never act. The boundary fix stops a report against a nonexistent reply being written and queued; actioning a real reply remains unimplemented, and is a feature rather than a gap in the refusal contract. |
 | SLA thresholds | E11 | ABSENT by choice | No service-level agreement exists. Responsiveness is measured; nothing is called an SLA and no overdue indicator is shown, because there is nothing to be overdue against. |
 
 ## Deliberate non-gaps

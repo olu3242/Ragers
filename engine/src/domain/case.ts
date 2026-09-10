@@ -1,5 +1,6 @@
 import { err, ok, type Result } from '../runtime/result.ts';
 import { preconditionError, validationError, type EngineError } from '../runtime/errors.ts';
+import { checkNote, REVIEW_NOTE_MAX_LENGTH } from './types.ts';
 
 /**
  * Organization case management — Phase 35, E9.
@@ -103,7 +104,15 @@ export const transitionCase = (
   }
   // Closing requires saying why. A case closed with no account of what was done
   // leaves the person it happened to nothing to read.
-  if (input.to === 'closed' && (input.note === undefined || input.note.trim().length === 0)) {
+  const note = checkNote(input.note);
+  if (!note.ok) {
+    return err(
+      note.code === 'note_not_text'
+        ? validationError('note_not_text', 'a closure note is text')
+        : validationError('note_too_long', `a closure note is at most ${REVIEW_NOTE_MAX_LENGTH} characters`),
+    );
+  }
+  if (input.to === 'closed' && note.note.length === 0) {
     return err(validationError('closure_note_required', 'say what was done before closing the case'));
   }
 
@@ -116,7 +125,7 @@ export const transitionCase = (
     ...withoutClosure,
     state: input.to,
     updatedAt: now,
-    ...(input.to === 'closed' ? { closedAt: now, closureNote: (input.note ?? '').trim() } : {}),
+    ...(input.to === 'closed' ? { closedAt: now, closureNote: note.note } : {}),
   });
 };
 

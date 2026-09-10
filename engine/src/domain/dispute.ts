@@ -1,5 +1,6 @@
 import { err, ok, type Result } from '../runtime/result.ts';
 import { preconditionError, validationError, type EngineError } from '../runtime/errors.ts';
+import { checkNote, REVIEW_NOTE_MAX_LENGTH } from './types.ts';
 
 /**
  * Formal dispute — E10.
@@ -226,6 +227,15 @@ export const reviewDispute = (
     );
   }
 
+  const note = checkNote(input.note);
+  if (!note.ok) {
+    return err(
+      note.code === 'note_not_text'
+        ? validationError('note_not_text', 'a review note is text')
+        : validationError('note_too_long', `a review note is at most ${REVIEW_NOTE_MAX_LENGTH} characters`),
+    );
+  }
+
   // `under_review` is a holding state, so it is not a reviewed decision and must
   // not be dated as one.
   if (input.to === 'under_review') {
@@ -237,7 +247,7 @@ export const reviewDispute = (
     status: input.to,
     reviewedBy: input.reviewerId,
     reviewedAt: now,
-    ...(input.note === undefined || input.note.trim().length === 0 ? {} : { reviewNote: input.note.trim() }),
+    ...(note.note.length === 0 ? {} : { reviewNote: note.note }),
     updatedAt: now,
   });
 };

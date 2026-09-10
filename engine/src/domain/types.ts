@@ -118,3 +118,40 @@ export const isVisibility = (value: unknown): value is Visibility =>
 
 export const isReactionType = (value: unknown): value is ReactionType =>
   typeof value === 'string' && (REACTION_TYPES as readonly string[]).includes(value);
+
+export const MODERATION_ACTION_KINDS: readonly ModerationActionKind[] = [
+  'warn',
+  'remove',
+  'restore',
+  'no_action',
+];
+
+export const isModerationActionKind = (value: unknown): value is ModerationActionKind =>
+  typeof value === 'string' && (MODERATION_ACTION_KINDS as readonly string[]).includes(value);
+
+export const isReportReason = (value: unknown): value is ReportReason =>
+  typeof value === 'string' && (REPORT_REASONS as readonly string[]).includes(value);
+
+/**
+ * A decision note — why a case was closed, a proposal rejected, a dispute declined.
+ *
+ * Three domains take one of these and every one of them had the same two holes: a
+ * `note` typed `string | undefined` was trimmed without checking it was a string, so
+ * a caller sending a number crashed the handler, and nothing bounded its length, so
+ * one command could store an arbitrarily large note. Checked in one place because it
+ * is one rule; the caller turns the outcome into its own message, because *why* a
+ * note is required differs in each of the three.
+ */
+export const REVIEW_NOTE_MAX_LENGTH = 2_000;
+
+export type NoteCheck =
+  | { readonly ok: true; readonly note: string }
+  | { readonly ok: false; readonly code: 'note_not_text' | 'note_too_long' };
+
+export const checkNote = (value: unknown): NoteCheck => {
+  if (value === undefined || value === null) return { ok: true, note: '' };
+  if (typeof value !== 'string') return { ok: false, code: 'note_not_text' };
+  const trimmed = value.trim();
+  if (trimmed.length > REVIEW_NOTE_MAX_LENGTH) return { ok: false, code: 'note_too_long' };
+  return { ok: true, note: trimmed };
+};

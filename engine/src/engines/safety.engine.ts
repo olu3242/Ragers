@@ -1,13 +1,19 @@
 import { err, ok } from '../runtime/result.ts';
-import { notFoundError, preconditionError } from '../runtime/errors.ts';
+import { notFoundError, preconditionError, validationError } from '../runtime/errors.ts';
 import { publishExperience, removeExperience, restoreExperience } from '../domain/experience.ts';
-import { REPORT_REASONS, type ModerationActionKind, type ReportReason } from '../domain/types.ts';
+import {
+  isModerationActionKind,
+  REPORT_REASONS,
+  REVIEW_NOTE_MAX_LENGTH,
+  type ModerationActionKind,
+  type ReportReason,
+} from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
-import { eq } from '../ports/store.ts';
+import { eq, isTargetType } from '../ports/store.ts';
 import type { QueueItem, Report, TargetType } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
-import { experienceResource, loadExperience, writeAudit } from './support.ts';
+import { experienceResource, loadExperience, replyResource, writeAudit } from './support.ts';
 
 /**
  * P9 Trust & Safety Engine.
@@ -166,11 +172,24 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
   > = {
     name: 'safety.fileReport',
     action: 'report.file',
-    resolveResource: async (input) =>
-      input.targetType === 'experience'
+    resolveResource: async (input) => {
+      // An unchecked target type fell through to the reply branch, so a report naming
+      // something that is neither reached the row — and `reports.target_type` is an
+      // enum, so the insert failed and a bad request read as an internal defect.
+      if (!isTargetType(input.targetType)) {
+        return err(validationError('invalid_target_type', 'a report is about an experience or a reply'));
+      }
+      // Resolved, not assumed: a report against a reply id that does not exist used to
+      // be written and queued, and a queue item whose target cannot be loaded is one no
+      // moderator can ever clear.
+      return input.targetType === 'experience'
         ? experienceResource(deps.store, input.targetId)
-        : ok({ type: 'reply', id: input.targetId }),
+        : replyResource(deps.store, input.targetId);
+    },
     handle: async (input, ctx) => {
+      if (!isTargetType(input.targetType)) {
+        return err(validationError('invalid_target_type', 'a report is about an experience or a reply'));
+      }
       if (!REPORT_REASONS.includes(input.reasonCode)) {
         return err(preconditionError('invalid_reason', 'that is not a valid report reason'));
       }
@@ -227,17 +246,43 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
   > = {
     name: 'safety.applyModerationAction',
     action: 'moderation.action',
-    resolveResource: async (input) =>
-      input.targetType === 'experience'
+    resolveResource: async (input) => {
+      if (!isTargetType(input.targetType)) {
+        return err(validationError('invalid_target_type', 'a moderation action targets an experience or a reply'));
+      }
+      return input.targetType === 'experience'
         ? experienceResource(deps.store, input.targetId)
-        : ok({ type: 'reply', id: input.targetId }),
+        : replyResource(deps.store, input.targetId);
+    },
     handle: async (input, ctx) => {
+      // Checked before anything is written. An action outside the enum used to take
+      // neither the remove nor the restore branch and then carry on: it recorded a
+      // moderation action naming an action that does not exist, marked the queue item
+      // actioned, closed every open report on the target and emitted `ReportResolved`
+      // with a nonsense outcome — all while leaving the content exactly as it was.
+      // A moderator reading the queue would see the item handled.
+      if (!isTargetType(input.targetType)) {
+        return err(validationError('invalid_target_type', 'a moderation action targets an experience or a reply'));
+      }
+      if (!isModerationActionKind(input.action)) {
+        return err(validationError('invalid_moderation_action', 'an action warns, removes, restores, or does nothing'));
+      }
+      const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+      if (reason.length === 0) {
+        // The reason is written into the audit trail and into the report outcome. An
+        // action with no stated reason is unreviewable by the next moderator.
+        return err(validationError('reason_required', 'say why the action was taken'));
+      }
+      if (reason.length > REVIEW_NOTE_MAX_LENGTH) {
+        return err(validationError('reason_too_long', `a reason is at most ${REVIEW_NOTE_MAX_LENGTH} characters`));
+      }
+
       const loaded = await loadExperience(deps.store, input.targetId);
       if (!loaded.ok) return loaded;
 
       const events = [];
       if (input.action === 'remove') {
-        const removed = removeExperience(loaded.value, input.reason, ctx.clock.now());
+        const removed = removeExperience(loaded.value, reason, ctx.clock.now());
         if (!removed.ok) return removed;
         await deps.store.experiences.put(removed.value.experience);
         events.push(...removed.value.events);
@@ -254,7 +299,7 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
         targetId: input.targetId,
         moderatorId: ctx.actor.actorId,
         action: input.action,
-        reason: input.reason,
+        reason,
         correlationId: ctx.correlationId,
         createdAt: ctx.clock.now(),
       });

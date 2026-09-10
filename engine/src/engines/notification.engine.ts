@@ -1,9 +1,9 @@
 import { err, ok } from '../runtime/result.ts';
-import { notFoundError } from '../runtime/errors.ts';
+import { notFoundError, validationError } from '../runtime/errors.ts';
 import { resolveIdentity } from '../domain/projection.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
-import { eq } from '../ports/store.ts';
+import { eq, isNotificationKind } from '../ports/store.ts';
 import type { Notification, NotificationKind, NotificationPreference, TargetType } from '../ports/store.ts';
 import type { EngineDeps } from './deps.ts';
 import { isBlockedBetween, isMutedBy } from './graph.engine.ts';
@@ -157,6 +157,15 @@ export const registerNotificationEngine = (deps: EngineDeps): void => {
     action: 'notification.set_preference',
     resolveResource: async (_input, ctx) => ok({ type: 'notification', ownerActorId: ctx.actor.actorId }),
     handle: async (input, ctx) => {
+      // The row's id is `actorId:kind`, so an unchecked kind is an unbounded number
+      // of rows one caller can write — none of which suppresses anything, because no
+      // notification is ever of that kind.
+      if (!isNotificationKind(input.kind)) {
+        return err(validationError('unknown_notification_kind', 'that is not a notification you can turn off'));
+      }
+      if (typeof input.enabled !== 'boolean') {
+        return err(validationError('enabled_must_be_boolean', 'a preference is on or off'));
+      }
       await deps.store.notificationPreferences.put({
         id: `${ctx.actor.actorId}:${input.kind}`,
         actorId: ctx.actor.actorId,

@@ -10,6 +10,9 @@ import type {
 import type { EngineDeps } from './deps.ts';
 import { recordResolution } from './resolution.engine.ts';
 
+/** An organization's own display name for itself. Longer than a person's. */
+export const ORGANIZATION_NAME_MAX_LENGTH = 120;
+
 /**
  * Organization Response Engine.
  *
@@ -212,7 +215,10 @@ export const registerOrganizationEngine = (deps: EngineDeps): void => {
     },
   };
 
-  const claim: CommandHandler<{ entityId: string; displayName: string }, { organizationId: string; status: string }> = {
+  const claim: CommandHandler<
+    { entityId: string; displayName?: unknown },
+    { organizationId: string; status: string }
+  > = {
     name: 'organization.claim',
     action: 'entity.claim',
     resolveResource: async (input) => ok({ type: 'entity', id: input.entityId }),
@@ -227,6 +233,22 @@ export const registerOrganizationEngine = (deps: EngineDeps): void => {
         return err(preconditionError('already_claimed', 'that organization has already been claimed'));
       }
 
+      // A display name is optional — the entity already has one — but if it is sent
+      // it has to be text. Trimming whatever arrived is how this threw on a number.
+      const requestedName = input.displayName === undefined ? '' : input.displayName;
+      if (typeof requestedName !== 'string') {
+        return err(validationError('display_name_not_text', 'a display name is text'));
+      }
+      const displayName = requestedName.trim();
+      if (displayName.length > ORGANIZATION_NAME_MAX_LENGTH) {
+        return err(
+          validationError(
+            'display_name_too_long',
+            `a display name is at most ${ORGANIZATION_NAME_MAX_LENGTH} characters`,
+          ),
+        );
+      }
+
       // A claim is a request, not a grant. Verifying that someone speaks for an
       // organization is not something this engine can decide, so the profile
       // stays `pending` until a human acts on it — and a pending profile has no
@@ -234,7 +256,7 @@ export const registerOrganizationEngine = (deps: EngineDeps): void => {
       const profile: OrganizationProfile = {
         id: existing?.id ?? deps.ids.next('org'),
         entityId: input.entityId,
-        displayName: input.displayName.trim() || entity.name,
+        displayName: displayName || entity.name,
         claimedBy: ctx.actor.actorId,
         claimedAt: ctx.clock.now(),
         status: 'pending',

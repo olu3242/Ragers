@@ -280,6 +280,9 @@ export interface Transcript {
 
 // ── P9 Trust & safety ─────────────────────────────────────────────────────
 export type TargetType = 'experience' | 'reply';
+export const TARGET_TYPES: readonly TargetType[] = ['experience', 'reply'];
+export const isTargetType = (value: unknown): value is TargetType =>
+  typeof value === 'string' && (TARGET_TYPES as readonly string[]).includes(value);
 
 export interface Report {
   readonly id: string;
@@ -374,6 +377,21 @@ export type NotificationKind =
   | 'fair_vote_received'
   | 'reply_received'
   | 'moderation_outcome';
+
+/**
+ * Enumerated as data, not only as a type, because a preference row is keyed on the
+ * kind: an unchecked string let one caller write an unbounded number of preference
+ * rows, each one silencing nothing.
+ */
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = [
+  'reaction_received',
+  'fair_vote_received',
+  'reply_received',
+  'moderation_outcome',
+];
+
+export const isNotificationKind = (value: unknown): value is NotificationKind =>
+  typeof value === 'string' && (NOTIFICATION_KINDS as readonly string[]).includes(value);
 
 export interface Notification {
   readonly id: string;
