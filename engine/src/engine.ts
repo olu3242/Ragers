@@ -89,6 +89,7 @@ import { registerCaseEngine } from './engines/case.engine.ts';
 import { createSeverityConsumer } from './engines/severity.engine.ts';
 import { createEscalationConsumer } from './engines/escalation.engine.ts';
 import { createHandoffConsumer } from './engines/handoff.engine.ts';
+import { createRecommendationErasureConsumer } from './engines/conclusion.engine.ts';
 import { createPriorityConsumer } from './engines/priority.engine.ts';
 import { createDeliveryConsumer, registerIntegrationEngine } from './engines/integration.engine.ts';
 import { createResponsivenessConsumer } from './engines/responsiveness.engine.ts';
@@ -301,6 +302,8 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // severity and escalation have written the inputs it reads.
   orchestrator.subscribe(createPriorityConsumer(deps));
   orchestrator.subscribe(createHandoffConsumer(deps));
+  // Phase 64: a deleted experience stops being cited by the recommendation ledger.
+  orchestrator.subscribe(createRecommendationErasureConsumer(deps));
   // Phase 49: outbound delivery is a consumer over the same outbox, so a webhook inherits
   // the leased-job runtime's retries and dead-letter queue rather than getting its own.
   orchestrator.subscribe(createDeliveryConsumer(deps));

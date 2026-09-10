@@ -33,12 +33,38 @@ import type { Table } from '../ports/store.ts';
  * the attempt count does not fix it — N racers need O(N) attempts, which in Postgres is
  * N round trips.
  *
- * So a caller that cannot claim a slot is refused. A real person does not issue eight
- * simultaneous requests; something that does is what a quota is for, and telling it to
- * come back is the correct answer. What is *allowed* through is a throttle store that
- * throws — an unavailable counter must not lock everybody out, because a quota is a
- * convenience and authorization is what actually protects the system.
+ * Two intermediate designs failed here and both failures are worth recording, because
+ * each looked reasonable:
+ *
+ * *Allow after a few lost races.* A burst of thirty-two against a limit of twenty
+ * admitted all thirty-two — every racer read the same empty row, lost its five attempts,
+ * and took the permissive branch. Worse than the overshoot: those requests were never
+ * counted, so the trick repeats indefinitely and the limit means nothing.
+ *
+ * *Refuse after a few lost races, unless the window is nearly empty.* Same result, for a
+ * subtler reason. With every racer starting together the count cannot climb past the
+ * attempt count before they all give up, so "nearly empty" is always true and everybody
+ * is allowed through uncounted again.
+ *
+ * The fix is to let the loop actually fill the window: `limit + 8` attempts rather than a
+ * small constant. Then a burst of any size drives the count to the limit, and every
+ * racer beyond it meets the ordinary in-loop refusal — exactly at the limit, with no
+ * overshoot and nothing uncounted. Normal traffic wins on its first attempt and pays
+ * nothing for this; only a genuine burst from one account does the extra round trips,
+ * which is the right party to charge.
+ *
+ * What is always allowed through is a throttle store that *throws* — an unavailable
+ * counter must not lock everybody out, because a quota is a convenience and
+ * authorization is what actually protects the system.
  */
+
+/**
+ * Attempts beyond the limit itself, so a burst can drive the window to full rather than
+ * exhausting first. Small: it only has to cover the racers that arrive after the window
+ * is already full.
+ */
+export const CONTENTION_HEADROOM = 8;
+
 export interface QuotaGuardDeps {
   readonly windows: Table<QuotaWindow>;
   readonly clock: Clock;
@@ -57,7 +83,9 @@ export const createQuotaGuard = (deps: QuotaGuardDeps): QuotaGuard => ({
     // per-actor window cannot express "this caller", only "this account".
     if (!actor.authenticated) return undefined;
 
-    const attempts = Math.max(1, deps.maxAttempts ?? 5);
+    // Proportional to the limit, so the loop can fill the window under a burst instead
+    // of giving up while the count is still low.
+    const attempts = Math.max(1, deps.maxAttempts ?? QUOTA_LIMITS[quotaClass].limit + CONTENTION_HEADROOM);
     const id = quotaWindowKey(actor.actorId, quotaClass);
 
     /** The refusal, built from a decision so the retry-after is the store's, not invented. */
@@ -92,9 +120,11 @@ export const createQuotaGuard = (deps: QuotaGuardDeps): QuotaGuard => ({
       if (won) return undefined;
     }
 
-    // Every attempt lost the race. Refused rather than waved through: this caller never
-    // claimed a slot, and something issuing five simultaneous requests is the shape a
-    // quota exists to answer. The retry-after comes from the window as it now stands.
+    // Exhausted every attempt without either claiming a slot or seeing the window fill.
+    // With `limit + headroom` attempts this needs more simultaneous racers than the limit
+    // to reach, and by then the in-loop check has refused them — so getting here means
+    // something unusual. Refused rather than waved through, because an uncounted request
+    // is a hole in the limit rather than a favour to a caller.
     const settled = decideQuota(quotaClass, await deps.windows.get(id), actor.actorId, deps.clock.now());
     const policy = QUOTA_LIMITS[quotaClass];
     return settled.allowed

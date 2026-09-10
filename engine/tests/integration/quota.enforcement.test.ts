@@ -184,12 +184,11 @@ test('a simultaneous burst never admits more than the limit', async () => {
   // because each read the same empty row and then took a permissive branch after losing
   // its races.
   //
-  // It now admits *fewer* than the limit under true simultaneity, because a
-  // compare-and-set loop serialises poorly when every racer starts together. That is the
-  // deliberate side of the trade: never more than the limit, sometimes fewer, and every
-  // refusal retryable with a stated retry-after. Sequential requests — which is what a
-  // person produces — get the full limit, as the first test in this file shows. Twenty
-  // parallel requests from one account is not a person.
+  // Two intermediate designs let all thirty-two through, for different reasons — see the
+  // note in `src/runtime/quota.ts`. Both left the extra requests *uncounted*, which is
+  // the part that mattered: a limit with an uncounted path is not a limit. Giving the
+  // retry loop `limit + headroom` attempts lets a burst drive the window to full, so the
+  // racers beyond the limit meet the ordinary refusal. The bound is exact.
   const h = createEngineHarness();
   const { actor } = await h.signUp('burst@example.com', 'Burst');
   const limit = QUOTA_LIMITS.authoring.limit;
@@ -198,8 +197,7 @@ test('a simultaneous burst never admits more than the limit', async () => {
     Array.from({ length: limit + 12 }, (_, index) => create(h, actor, `Concurrent account ${index}`)),
   );
   const accepted = results.filter((result) => result.ok).length;
-  assert.ok(accepted > 0, 'some got through');
-  assert.ok(accepted <= limit, `never more than the limit, got ${accepted}`);
+  assert.equal(accepted, limit, 'exactly the limit got through — no overshoot, and nothing uncounted');
   for (const result of results.filter((candidate) => !candidate.ok)) {
     assert.equal(result.ok === false && result.error.kind, 'rate_limited', 'and every refusal is a throttle');
     assert.equal(result.ok === false && result.error.retryable, true, 'and retryable');

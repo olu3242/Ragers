@@ -48,6 +48,10 @@ evidence.
 | Experience loop certification (P60) | — | 5 band gates + the fifth status | `loop.certification` (3) — one lap for Rage and one for Rave |
 | Public read of a removed experience through `relatedTo` | E6 | status re-checked on read in `relation.engine.ts` and `relationship.engine.ts` | `experience.loop` (1) — asserted by removing one and re-reading |
 | Certification evidence on failure | — | `src/certification/evidence.ts` (parsers, redaction, bounds), `GateAttempt`/`GateConclusion` in `harness.ts`, per-attempt CI artefacts | `certification.evidence` (19) — the failing-subtest path proved against `tests/fixtures/deliberate-failure.test.ts`, a real `node --test` run |
+| Request governance (P61) | runtime/E4 | `src/domain/quota.ts`, `src/runtime/quota.ts`, `quota_windows` — `rate_limited` finally has a producer | `quota.governance` (18) · `quota.enforcement` (8) |
+| Coordinated inauthenticity review (P62) | E4/E6 | `src/domain/coordination.ts`, `src/engines/coordination.engine.ts` — a queue item, never an action | `coordination.reply` (11) · `operational.integrity` (2) |
+| Reply moderation (P63) | E4 | `src/domain/reply-moderation.ts`, the reply branch of `safety.applyModerationAction` | `coordination.reply` (5) · `operational.integrity` (2) |
+| Erasure of stored references (P64) | E1/E12 | `createRecommendationErasureConsumer` | `operational.integrity` (3) — verified by deleting and by removing |
 | Command boundary refusals | all | shape guard in `src/runtime/bus.ts`; `checkNote` in `src/domain/types.ts`; per-field guards in the seven modules that lacked them | `command.boundaries` (11) · `command.boundaries.live` (6) — nine defects, each verified red before the fix |
 
 ## Open
@@ -63,8 +67,8 @@ evidence.
 | Real model provider | E12 | BLOCKED | Needs credentials. The port and the deterministic fallback are certified; live-provider behaviour is not, and `live: false` is what says so. |
 | Benchmark sample volume | E11 | DATA-BLOCKED | The code is certified. Twenty distinct contributors per comparison set do not exist in any environment the harness runs in, which is the engine being correct rather than failing. |
 | Cross-organization comparison | E11 | DATA-BLOCKED | P53 gives one organization its own history over time, deliberately. Ranking organizations against each other is P47's question and stays where it is. |
-| Rate limits on request-shaped commands | E17/E12 | ABSENT | Surfaced by the boundary sweep rather than caused by it: `creator.requestExport` accepted 21 successive requests, since nothing dedupes or throttles one. Not an input-validation defect — the input was valid every time — so it is recorded here rather than fixed under a boundary slice. `export_requests` has no partial unique index, so memory and Postgres agree. |
-| Reply moderation | E4 | ABSENT | `safety.applyModerationAction` on a reply target loads an *experience* and so can never act. The boundary fix stops a report against a nonexistent reply being written and queued; actioning a real reply remains unimplemented, and is a feature rather than a gap in the refusal contract. |
+| Guest rate limiting by address | runtime | ABSENT | Phase 61 counts per actor, and a guest has no identity to count against — `identity.register` and `identity.authenticate` are reachable before there is an actor. A per-actor window would throttle the shared `guest` identity for everybody at once, which is worse than not throttling. This belongs at the API layer, by address, and is recorded rather than faked. |
+| Export request throttling | E17 | PARTLY CLOSED | `creator.requestExport` is deliberately unthrottled — a data-subject request must always be possible — so the 21-successive-requests observation stands. What is missing is dedupe (one live export per person), not a quota. |
 | SLA thresholds | E11 | ABSENT by choice | No service-level agreement exists. Responsiveness is measured; nothing is called an SLA and no overdue indicator is shown, because there is nothing to be overdue against. |
 
 ## Deliberate non-gaps

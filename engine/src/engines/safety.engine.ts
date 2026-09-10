@@ -8,6 +8,7 @@ import {
   type ModerationActionKind,
   type ReportReason,
 } from '../domain/types.ts';
+import { moderateReply } from '../domain/reply-moderation.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { Consumer } from '../runtime/orchestrator.ts';
 import { eq, isTargetType } from '../ports/store.ts';
@@ -240,6 +241,79 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
     },
   };
 
+  /**
+   * The reply branch of `safety.applyModerationAction` — Phase 63.
+   *
+   * Everything the experience branch does, in the reply's own vocabulary: the action
+   * moves the reply through its own transition table, the queue item is cleared, every
+   * open report on it is resolved, and the audit trail records who did what and why.
+   * Nothing here reads or writes the parent experience.
+   */
+  const applyToReply = async (
+    deps2: EngineDeps,
+    input: { targetType: TargetType; targetId: string; action: ModerationActionKind; reason?: unknown },
+    ctx: Parameters<CommandHandler<unknown, unknown>['handle']>[1],
+    reason: string,
+  ) => {
+    const reply = await deps2.store.replies.get(input.targetId);
+    if (!reply) return err(notFoundError('reply_not_found', 'no such reply'));
+
+    const moderated = moderateReply(reply, input.action);
+    if (!moderated.ok) return moderated;
+    if (moderated.value.moved) await deps2.store.replies.put(moderated.value.reply);
+
+    await deps2.store.moderationActions.put({
+      id: deps2.ids.next('mod'),
+      targetType: 'reply',
+      targetId: reply.id,
+      moderatorId: ctx.actor.actorId,
+      action: input.action,
+      reason,
+      correlationId: ctx.correlationId,
+      createdAt: ctx.clock.now(),
+    });
+
+    const item = await deps2.store.queueItems.queryOne([
+      eq<QueueItem>('targetType', 'reply'),
+      eq<QueueItem>('targetId', reply.id),
+    ]);
+    if (item) await deps2.store.queueItems.put({ ...item, state: 'actioned' });
+
+    const events = [];
+    for (const report of await deps2.store.reports.query([
+      eq<Report>('targetType', 'reply'),
+      eq<Report>('targetId', reply.id),
+      eq<Report>('status', 'open'),
+    ])) {
+      await deps2.store.reports.put({ ...report, status: 'reviewed' });
+      events.push({
+        aggregateType: 'reply',
+        aggregateId: reply.id,
+        eventName: 'ReportResolved',
+        payload: {
+          reportId: report.id,
+          reporterActorId: report.reporterActorId,
+          targetType: 'reply',
+          targetId: reply.id,
+          // The experience the reply belongs to, so a consumer keyed on it still works.
+          // Read from the reply rather than passed in, because nothing above resolved it.
+          experienceId: reply.experienceId,
+          outcome: input.action,
+        },
+      });
+    }
+
+    await writeAudit(deps2, ctx, {
+      action: 'moderation.action',
+      resourceType: 'reply',
+      resourceId: reply.id,
+      before: { status: reply.status },
+      after: { status: moderated.value.reply.status },
+    });
+
+    return ok({ value: { applied: input.action }, events });
+  };
+
   const applyAction: CommandHandler<
     { targetType: TargetType; targetId: string; action: ModerationActionKind; reason: string },
     { applied: ModerationActionKind }
@@ -275,6 +349,14 @@ export const registerSafetyEngine = (deps: EngineDeps): void => {
       }
       if (reason.length > REVIEW_NOTE_MAX_LENGTH) {
         return err(validationError('reason_too_long', `a reason is at most ${REVIEW_NOTE_MAX_LENGTH} characters`));
+      }
+
+      // A reply is moderated as a reply — Phase 63. Until now this fell through to
+      // `loadExperience`, so a reported reply could be queued and never actioned, and
+      // the queue item was unclearable. Handled first and returned, because a reply and
+      // an experience share nothing below this point.
+      if (input.targetType === 'reply') {
+        return await applyToReply(deps, input, ctx, reason);
       }
 
       const loaded = await loadExperience(deps.store, input.targetId);

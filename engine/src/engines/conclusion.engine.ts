@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { ok } from '../runtime/result.ts';
 import { eq } from '../ports/store.ts';
-import { conclusionKeyOf, drawConclusion, type Conclusion } from '../domain/conclusion.ts';
+import { conclusionKeyOf, drawConclusion, MINIMUM_EXPERIENCES, type Conclusion } from '../domain/conclusion.ts';
 import type { ActorContext } from '../runtime/authz.ts';
 import type { RecommendationRow } from '../ports/store.ts';
+import type { Consumer } from '../runtime/orchestrator.ts';
 import type { EngineDeps } from './deps.ts';
 import { clusterLifecycleFor } from './lifecycle.engine.ts';
 import { patternHistoryFor } from './history.engine.ts';
@@ -219,6 +221,52 @@ export const recommendationsFor = async (
   subjectId: string,
 ): Promise<readonly RecommendationRow[]> =>
   deps.store.recommendations.query([eq<RecommendationRow>('subjectId', subjectId)]);
+
+/**
+ * Erasure — Phase 64.
+ *
+ * `recommendations.across_experience_ids` is a stored `text[]` with no foreign key, so
+ * the database cannot cascade it, and until this consumer existed nothing removed it
+ * either. An author deleting their account of something left an operator surface still
+ * citing it by id — the one stored reference in the whole 51–60 band, since the graph
+ * and the memory derive on read and re-check status.
+ *
+ * A recommendation that loses an experience is **rewritten, not filtered**: the row
+ * carries the ids, so filtering at read time would leave the deleted id in the
+ * database and rely on every future reader remembering to exclude it. When too few
+ * experiences remain for the conclusion to have been drawable at all, the
+ * recommendation goes entirely — a "pattern" over one account is not a pattern, and
+ * leaving a shrunken one would mean the ledger asserts something its own contract
+ * would have refused.
+ */
+export const createRecommendationErasureConsumer = (deps: EngineDeps): Consumer => ({
+  name: 'recommendation.erase',
+  // Both, because they are different acts with the same requirement here: content
+  // taken down by moderation must stop being cited too.
+  events: ['ExperienceDeleted', 'ContentRemoved'],
+  handle: async (event) => {
+    const experienceId = String(event.payload['experienceId'] ?? '');
+    if (!experienceId) return ok(undefined);
+
+    for (const row of await deps.store.recommendations.all()) {
+      if (!row.acrossExperienceIds.includes(experienceId)) continue;
+      const remaining = row.acrossExperienceIds.filter((id) => id !== experienceId);
+
+      if (remaining.length < MINIMUM_EXPERIENCES) {
+        // Below the floor its own contract sets. The recommendation is removed rather
+        // than shrunk, because a conclusion that could not be drawn now must not go on
+        // standing as one that was.
+        await deps.store.recommendations.remove(row.id);
+        deps.metrics.increment('recommendation.erased', { reason: 'below_minimum' });
+        continue;
+      }
+
+      await deps.store.recommendations.put({ ...row, acrossExperienceIds: remaining });
+      deps.metrics.increment('recommendation.erased', { reason: 'reference_removed' });
+    }
+    return ok(undefined);
+  },
+});
 
 /**
  * The guarantee, as code: concluding and recommending mutate no governed state.
