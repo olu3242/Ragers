@@ -359,21 +359,30 @@ jobs:
 
       # A re-run of this job starts from a clean checkout, so without this the report
       # it writes would show a green gate with no trace of the attempt that failed.
-      # Best-effort: the first attempt has nothing to download, and the harness runs
-      # perfectly well with no history.
+      #
+      # Downloaded *before* the run and uploaded with `overwrite: true` after it, so on
+      # attempt 2 this fetches what attempt 1 left behind. Deliberately one artifact name
+      # rather than one per attempt: naming them `…-attempt-N` would need `run_attempt`
+      # minus one, and GitHub Actions expressions have no arithmetic operators at all —
+      # which is not a syntax error you find out about gently. The whole workflow fails to
+      # parse, every job vanishes, and the run reports failure with no jobs in it.
+      #
+      # Nothing is lost by overwriting: the failed attempt's evidence is carried into the
+      # new report as `attempts[]`, which is the point of the mechanism.
       - name: Fetch the previous attempt's evidence, if this is a re-run
-        if: ${{ github.run_attempt != '1' }}
+        if: github.run_attempt != '1'
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: certification-evidence-attempt-${{ fromJSON(github.run_attempt) - 1 }}
+          name: certification-evidence
           path: previous-evidence
 
       - name: Run every certification gate
         working-directory: engine
         env:
-          # Read only if the download above actually produced it. The harness treats a
-          # missing or unparseable file as "no history" rather than as a failure.
+          # Set only on a re-run, and read only if the download actually produced a file.
+          # The harness treats a missing or unparseable path as "no history", never as a
+          # failure.
           RAGERS_PREVIOUS_REPORT: ${{ github.run_attempt != '1' && format('{0}/previous-evidence/certification-report.json', github.workspace) || '' }}
         run: npm run certify
 
@@ -462,9 +471,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          # Per attempt, so a re-run neither collides with nor overwrites the evidence
-          # from the attempt that failed — which is the attempt worth keeping.
-          name: certification-evidence-attempt-${{ github.run_attempt }}
+          name: certification-evidence
+          # Overwritten on a re-run, which is safe because the download step above has
+          # already read the previous attempt and folded it into `attempts[]`.
+          overwrite: true
           path: |
             docs/EVIDENCE.md
             docs/certification-report.json

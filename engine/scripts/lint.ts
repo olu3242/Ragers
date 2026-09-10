@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -170,6 +170,39 @@ for (const name of migrations) {
     if (/\bdrop\s+(table|column)\b/i.test(stripped)) {
       report('migrations-are-additive', join(engineRoot, 'supabase', 'migrations', name), index + 1,
         'dropping a table or column breaks the additive-migration rollback strategy');
+    }
+  }
+}
+
+// ── Workflow expressions ──────────────────────────────────────────────────
+//
+// A workflow GitHub cannot parse does not fail one job: the whole run reports failure
+// with *no jobs in it*, no annotation anybody reads, and the run's display name silently
+// changes to the file path. Every check on the pull request disappears at once, which
+// looks far more like an outage than like a typo. This shipped once, from
+// `fromJSON(github.run_attempt) - 1`.
+//
+// GitHub Actions expressions have **no arithmetic operators**. Not `-`, not `+`, not `*`,
+// not `/`. Checked here because nothing else in the local suite can see a workflow file,
+// so the alternative to this rule is finding out from a red pull request.
+const workflowsDir = join(repoRoot, '.github', 'workflows');
+const workflows = existsSync(workflowsDir)
+  ? readdirSync(workflowsDir).filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
+  : [];
+
+for (const name of workflows) {
+  const file = join(workflowsDir, name);
+  const lines = readFileSync(file, 'utf8').split('\n');
+  for (const [index, line] of lines.entries()) {
+    for (const match of line.matchAll(/\$\{\{([^}]*)\}\}/g)) {
+      const expression = match[1] ?? '';
+      // Only inside the expression, and only where an operand sits on each side, so a
+      // hyphenated literal like `certification-evidence` and a negative number are both
+      // left alone.
+      if (/[\w)'"\]]\s*[-+*/]\s*[\w('"[]/.test(expression.replace(/'[^']*'/g, "''"))) {
+        report('workflow-expressions-have-no-arithmetic', file, index + 1,
+          `GitHub Actions expressions support no arithmetic; the whole workflow fails to parse: ${expression.trim()}`);
+      }
     }
   }
 }
