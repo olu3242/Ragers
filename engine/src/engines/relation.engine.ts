@@ -165,6 +165,12 @@ export const registerRelationEngine = (deps: EngineDeps): void => {
  *
  * Reported with how many distinct people asserted each link and nothing else — no
  * score, and never folded into a corroboration or experiencer count.
+ *
+ * Filtered to what is published *now*. `createRelation` requires both experiences to
+ * be published at assertion time, which says nothing about later: one of them can be
+ * hidden or removed by moderation afterwards and the row survives. Without this
+ * filter a public page and a public route disclosed the id of content that had been
+ * taken down — found while building the Phase 51 graph over these same rows.
  */
 export interface RelatedExperience {
   readonly experienceId: string;
@@ -189,6 +195,11 @@ export const relatedTo = async (
   for (const row of [...outgoing, ...incoming]) {
     const other = row.fromExperienceId === experienceId ? row.toExperienceId : row.fromExperienceId;
     byOther.set(other, [...(byOther.get(other) ?? []), row]);
+  }
+
+  for (const other of [...byOther.keys()]) {
+    const row = await deps.store.experiences.get(other);
+    if (row?.status !== 'published') byOther.delete(other);
   }
 
   return [...byOther.entries()]
