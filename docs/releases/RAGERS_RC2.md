@@ -223,7 +223,10 @@ Verified in this environment:
 - **No sign-in exists.** See defect 7. The refusal is the correct state — an unauthenticated
   session issuer is worse than none — but a controlled validation can only create accounts, never
   return to one. A credential mechanism is the first thing a pilot needs, and it carries its own
-  migration and its own provider decision.
+  migration and its own provider decision. **Addressed in RC3 Batch 1** (migration 0020, password
+  with scrypt). `SECURITY_READY` stays `READY_WITH_CONDITIONS`, because no password-reset path exists
+  — that needs an email provider — and no sign-in has been observed against a hosted deployment. See
+  `docs/releases/RAGERS_RC3_DEPLOYMENT.md`.
 - **Persistence is now wired but has never run in a deployment.** `DATABASE_URL` reaches the store
   and the outbox as of this branch, and every proof of it is the live suite plus a static guard over
   the wiring. No process has served traffic against Postgres, because there is no target to serve it
@@ -232,10 +235,10 @@ Verified in this environment:
 
 ## Next
 
-1. Build a sign-in credential — a verified magic-link token or a password hash, with its migration
-   and its provider — then remove the `RAGERS_TEST_SEED` dependence from the browser suite's
-   sign-in → `SECURITY_READY` becomes plain `READY`. **This is first**: it is the only item on this
-   list that is a missing capability rather than a missing environment.
+1. ~~Build a sign-in credential~~ — **done in RC3 Batch 1.** What remains before `SECURITY_READY` is
+   plain `READY`: a password-reset path, and a hosted sign-in over HTTPS with the `Secure` cookie
+   observed. The reset needs an email provider, so this item turned out to be a missing *environment*
+   after all rather than the one missing capability.
 2. Provide a deployment target → drill deployment and rollback → `DEPLOYMENT_READY`,
    `ROLLBACK_READY`.
 3. Provide object storage → the retention sweep stops reporting `object_storage_blocked` →
