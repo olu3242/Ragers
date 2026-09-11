@@ -42,6 +42,22 @@ export interface PiiDetector {
 }
 
 export interface ObjectStore {
+  /** Which implementation this is, for the readiness surface to report. Never a credential. */
+  readonly name: string;
+  /**
+   * Whether bytes written here outlive the process — RC3.
+   *
+   * **The one fact readiness cannot infer.** Every method below succeeds against the in-process
+   * fake, so an instance holding media in a `Map` is indistinguishable from one holding it in a
+   * bucket by any call a probe could make: `put` returns ok, `exists` says yes, `remove` says
+   * done. The difference only appears on restart, when a person's recording is gone and the row
+   * that describes it is still there.
+   *
+   * So the provider states it, and `/api/readiness` reports it rather than guessing. A durable
+   * store is not the same as a *working* one — that is what `remove` returning
+   * `object_storage_blocked` is for — but a non-durable one must never read as ready.
+   */
+  readonly durable: boolean;
   put(key: string, bytes: Uint8Array): Promise<Result<void, EngineError>>;
   exists(key: string): Promise<boolean>;
   remove(key: string): Promise<Result<void, EngineError>>;

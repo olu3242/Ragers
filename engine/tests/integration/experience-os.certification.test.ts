@@ -505,8 +505,12 @@ test('every operator question is answered by something, and readiness is not hea
   await h.engine.workers.register({ id: 'w1', hostname: 'test', now: h.clock.now() });
   const ready = await readiness(h.engine);
   assert.equal(ready.ready, true);
+  // RC3 added four deployment checks. This call passes no deployment facts, which is how a local
+  // process and the test suite are treated — the checks that depend on being hosted report as
+  // satisfied while still saying what they found. The list is asserted in full so a check added
+  // later has to be considered here rather than appearing silently.
   assert.deepEqual(
     ready.checks.map((check) => check.name).sort(),
-    ['not_forced_degraded', 'store', 'worker'],
+    ['not_forced_degraded', 'object_storage', 'persistent_store', 'providers', 'sign_in', 'store', 'worker'],
   );
 });

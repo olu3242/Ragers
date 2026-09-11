@@ -97,6 +97,11 @@ export const createFakePiiDetector = (controls: FakeControls = {}): PiiDetector 
 export const createFakeObjectStore = (): ObjectStore & { size(): number } => {
   const objects = new Map<string, Uint8Array>();
   return {
+    name: 'in-process',
+    // Says so out loud. Every method here succeeds, so nothing a readiness probe could *call* would
+    // distinguish this from a bucket; the difference appears on restart, when somebody's recording
+    // is gone and the row describing it is not.
+    durable: false,
     put: async (key, bytes) => {
       objects.set(key, bytes);
       return ok(undefined);
