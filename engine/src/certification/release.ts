@@ -238,9 +238,16 @@ export const readDimensions = (inputs: ReleaseInputs): readonly DimensionReading
         }),
   });
 
-  // The credential mechanism conditions SECURITY_READY. The refusal means nothing can be
-  // impersonated today; what is absent is any way for a legitimate person to sign back in, which
-  // is a capability a pilot needs and this codebase does not have.
+  // The credential mechanism conditions SECURITY_READY.
+  //
+  // RC2's reading was that no credential existed at all. RC3 Batch 1 built one, and the condition
+  // **narrowed rather than cleared**: sign-in works and cannot be recovered from. A dimension whose
+  // text still said "no credential mechanism exists" would be the ledger asserting something false,
+  // which is the one failure mode this whole file is written to prevent.
+  //
+  // `RAGERS_SIGNIN_CREDENTIALS_READY=1` is how a deployment with a reset path and hosted proof
+  // clears it. It is deliberately not cleared by any local gate, because no local gate can see a
+  // deployment.
   if (!inputs.signInCredentialsReady) {
     const security = readings.find((reading) => reading.dimension === 'SECURITY_READY');
     if (security && security.value === 'READY') {
@@ -248,7 +255,12 @@ export const readDimensions = (inputs: ReleaseInputs): readonly DimensionReading
         ...security,
         value: 'READY_WITH_CONDITIONS',
         condition:
-          'No sign-in credential mechanism exists. `identity.authenticate` refuses by default, so nobody can be impersonated; equally, nobody can sign in. A verified magic link or a password is required before any pilot.',
+          'A sign-in credential exists as of RC3 Batch 1 (password, scrypt, migration 0020) and is '
+          + 'certified locally. Two things are still missing and neither is code: there is no '
+          + 'password-reset path, because a reset needs an email provider, so somebody who forgets '
+          + 'their password cannot recover their account; and no sign-in has been observed against a '
+          + 'hosted deployment over HTTPS with the Secure cookie. Per-caller rate limiting also '
+          + 'belongs at the edge. See docs/releases/RAGERS_RC3_DEPLOYMENT.md.',
       };
     }
   }
