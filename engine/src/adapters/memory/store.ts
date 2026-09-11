@@ -5,6 +5,7 @@ export const createMemoryStore = (): EngineStore => ({
   actors: createMemoryTable(),
   aliases: createMemoryTable(),
   sessions: createMemoryTable(),
+  actorCredentials: createMemoryTable(),
   experiences: createMemoryTable(),
   mediaAssets: createMemoryTable(),
   uploadTargets: createMemoryTable(),

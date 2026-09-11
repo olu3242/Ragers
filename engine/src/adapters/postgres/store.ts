@@ -19,6 +19,7 @@ export const createPostgresStore = (db: Db): EngineStore => {
     actors: table(descriptor({ relation: 'actors', idColumn: 'id' })),
     aliases: table(descriptor({ relation: 'aliases', idColumn: 'id' })),
     sessions: table(descriptor({ relation: 'sessions', idColumn: 'id' })),
+    actorCredentials: table(descriptor({ relation: 'actor_credentials', idColumn: 'actor_id' })),
     experiences: table(descriptor({ relation: 'experiences', idColumn: 'id' })),
     mediaAssets: table(descriptor({ relation: 'media_assets', idColumn: 'id' })),
     uploadTargets: table(descriptor({ relation: 'upload_targets', idColumn: 'id' })),

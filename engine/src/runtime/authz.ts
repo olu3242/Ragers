@@ -66,6 +66,7 @@ export type PolicyAction =
   | 'alias.create'
   | 'alias.retire'
   | 'actor.set_default_visibility'
+  | 'actor.set_password'
   // experience
   | 'experience.create'
   | 'experience.update'

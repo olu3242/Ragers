@@ -135,6 +135,15 @@ export const AUDITED_COMMANDS: Readonly<Record<string, AuditReason>> = {
   'control.resume': 'changes_what_another_may_do',
   'identity.revokeSession': 'changes_what_another_may_do',
   'identity.setDefaultVisibility': 'changes_what_another_may_do',
+  /**
+   * RC3. Clause 2, and the "another" is the subtle part: only you may write your own credential —
+   * the policy matrix requires ownership, so not even an admin can — which makes this look like a
+   * clause-1 action on yourself. It is classified here because a written credential decides who may
+   * *be* you from that moment on, and an account takeover is the one incident where the first
+   * question is when the password last changed. The trail records that one was written and carries
+   * no part of it.
+   */
+  'identity.setPassword': 'changes_what_another_may_do',
   'creator.changeVisibility': 'changes_what_another_may_do',
 
   // ── Clause 3: irreversible, or an export of personal data ─────────────────
@@ -253,6 +262,7 @@ export const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'governance.grantRole': 'role.grant',
   'identity.revokeSession': 'session.revoke',
   'identity.setDefaultVisibility': 'actor.set_default_visibility',
+  'identity.setPassword': 'actor.set_password',
   'creator.changeVisibility': 'experience.change_visibility',
   'creator.deleteExperience': 'experience.delete',
   'conversation.deleteReply': 'reply.delete',

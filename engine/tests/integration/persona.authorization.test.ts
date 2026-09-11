@@ -282,16 +282,18 @@ test('a guest can read what is public and write nothing', async () => {
 });
 
 // ── the credential hole, found by a review bot on PR #5 ──────────────────
-test('sign-in is refused when no credential mechanism is configured', async () => {
+test('sign-in with an address and no credential is refused', async () => {
   // **How this survived a hundred phases: `identity.authenticate` had no test at all.** It is
   // reachable only from `/api/session` with `mode: 'signin'`, and nothing exercised that path —
   // every harness signs up rather than signing in. So a handler that took `{ email }`, looked the
   // actor up and issued a session went unnoticed: knowing a moderator's or an admin's email
   // address was enough to become them.
   //
-  // The engine now refuses by default. A credential mechanism is a product decision with its own
-  // migration and provider; what this asserts is that the absence of one **fails closed** rather
-  // than falling open.
+  // RC2 refused every sign-in, because no credential existed. RC3 has one, so the refusal now
+  // means something narrower and stronger: an address **with no password proved against it** mints
+  // no session, whether or not the account exists. The generic code is `authentication_failed`
+  // rather than RC2's `credentials_required`, because the caller must not learn which of the four
+  // possible reasons applied.
   const h = createEngineHarness();
   const { auth } = await h.signUp('victim@example.com', 'Victim');
   const moderatorId = (await h.signUp('mod-target@example.com', 'Mod')).auth.actorId;
@@ -309,7 +311,7 @@ test('sign-in is refused when no credential mechanism is configured', async () =
       idempotencyKey: h.nextKey(),
     });
     assert.equal(attempt.ok, false, `${email} cannot be signed into with an address alone`);
-    assert.equal(!attempt.ok && attempt.error.code, 'credentials_required');
+    assert.equal(!attempt.ok && attempt.error.code, 'authentication_failed');
     assert.equal(!attempt.ok && attempt.error.kind, 'unauthorized');
   }
 
@@ -323,30 +325,67 @@ test('sign-in is refused when no credential mechanism is configured', async () =
   assert.ok(auth.sessionId, 'and the legitimate sign-up session is untouched');
 });
 
-test('the refusal precedes the lookup, so it cannot probe which emails exist', async () => {
-  // A refusal that differed between a known and an unknown address would be an existence oracle,
-  // which is the same class of leak Phase 69 closed at the database.
+test('every sign-in refusal is the same refusal, whatever was actually wrong', async () => {
+  /**
+   * **The mechanism changed in RC3 and the property did not, which is why this test is rewritten
+   * rather than deleted.**
+   *
+   * RC2 refused *before* looking the address up, so there was nothing to leak. RC3 has to look —
+   * it needs the actor to find the credential — so the guarantee is no longer "we never checked"
+   * but "you cannot tell what we found". Five distinct internal outcomes are exercised here: a
+   * real account with a real password, a real account with the wrong password, a real account with
+   * no credential at all, an address with no account, and input that is not an address. All five
+   * must produce one code.
+   *
+   * A refusal that differed between them would be an existence oracle, the same class of leak
+   * Phase 69 closed at the database — and on a product whose first promise is that you can speak
+   * without exposing yourself, the membership list is itself sensitive.
+   */
   const h = createEngineHarness();
-  await h.signUp('known@example.com', 'Known');
+  const { auth } = await h.signUp('known@example.com', 'Known');
+  await h.engine.bus.dispatch({
+    name: 'identity.setPassword',
+    input: { password: 'correct horse battery staple' },
+    actor: { actorId: auth.actorId, role: 'member', authenticated: true },
+    idempotencyKey: h.nextKey(),
+  });
+  // An account that exists and has never set a password: the "half set up" case.
+  await h.signUp('credential-less@example.com', 'Nocred');
 
+  const attempts: readonly { readonly email: string; readonly password?: string }[] = [
+    { email: 'known@example.com', password: 'wrong horse battery staple' },
+    { email: 'known@example.com' },
+    { email: 'credential-less@example.com', password: 'correct horse battery staple' },
+    { email: 'nobody@example.com', password: 'correct horse battery staple' },
+    { email: '', password: 'correct horse battery staple' },
+    { email: 'not-an-email', password: 'correct horse battery staple' },
+  ];
   const results = await Promise.all(
-    ['known@example.com', 'nobody@example.com', '', 'not-an-email'].map((email) =>
+    attempts.map((input) =>
       h.engine.bus.dispatch({
         name: 'identity.authenticate',
-        input: { email },
+        input,
         actor: GUEST,
         idempotencyKey: h.nextKey(),
       }),
     ),
   );
   const codes = new Set(results.map((result) => (result.ok ? 'ok' : result.error.code)));
-  assert.deepEqual([...codes], ['credentials_required'], 'every address gets the identical refusal');
+  assert.deepEqual([...codes], ['authentication_failed'], 'one refusal covers every internal reason');
+
+  // And the message is generic too: a code nobody reads is no protection if the prose says
+  // "no such account".
+  const messages = new Set(results.map((result) => (result.ok ? 'ok' : result.error.message)));
+  assert.equal(messages.size, 1, 'and the message does not distinguish them either');
 });
 
 test('an environment may opt in explicitly, and only then', async () => {
   // The `RAGERS_TEST_SEED` pattern: off by default, and a development environment says so out
   // loud. The flag lives in the engine config rather than the route, because a check at a surface
   // is bypassed by any caller reaching the bus directly — Phase 94's argument, applied here.
+  //
+  // In RC3 the flag means exactly one thing: skip the credential check. It is what lets the browser
+  // suite sign in as personas it registered earlier without every spec setting a password first.
   const permissive = createEngineHarness({ config: { allowPasswordlessSignIn: true } });
   await permissive.signUp('dev@example.com', 'Dev');
   const signedIn = await permissive.engine.bus.dispatch({
