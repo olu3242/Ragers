@@ -15,7 +15,7 @@ This repository is deliberately two things, kept separate:
 | `engine/` | **The Ragers Engine** — the product runtime. Next.js 15 + TypeScript, with a dependency-free domain core. |
 | `docs/` | Internal PRD, BRD, data model, engine roadmap, operations runbook and certification evidence. Never published. |
 
-The landing page stays framework-free on purpose (`AGENTS.md` #2). The engine lives in its own directory so the product can use a real stack without the marketing surface inheriting a build step.
+The landing page stays framework-free on purpose, and the engine's Next.js build is human-approved: both halves of that are recorded in [`AGENTS.md`](AGENTS.md) constraint 2. The engine lives in its own directory so the product can use a real stack without the marketing surface inheriting a build step, and so neither decision has to be re-litigated by whoever reads the tree next.
 
 ## The engine
 
