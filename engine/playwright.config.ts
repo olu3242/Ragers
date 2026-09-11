@@ -37,6 +37,14 @@ export default defineConfig({
    * posted — and the first symptom of that is a strict-mode violation, not a clear
    * failure. Separate ports keep both suites deterministic and let the golden path
    * legitimately assert an empty feed.
+   *
+   * **Which is why every server below pins `DATABASE_URL` empty.** Separate processes stop
+   * sharing state the moment they share a database, and the certification workflow sets
+   * `DATABASE_URL` at job level for the live gates — so without this the five servers would
+   * all reach the same Postgres and the isolation these ports exist for would be gone. It is
+   * not a hypothetical: it failed 23 of 30 browser tests. The browser gate certifies what the
+   * shipped UI does with the engine behind it; that the engine can be backed by Postgres is
+   * the live suite's job, against its own database, one process at a time.
    */
   projects: [
     {
@@ -75,6 +83,9 @@ export default defineConfig({
       url: 'http://127.0.0.1:3101',
       reuseExistingServer: false,
       timeout: 120_000,
+      // No RAGERS_TEST_SEED: this server is exactly what a deployment runs, which is what lets
+      // the golden path assert the fixture route is absent and that sign-in is refused.
+      env: { DATABASE_URL: '' },
     },
     {
       command: 'npx next start -p 3102',
@@ -83,28 +94,36 @@ export default defineConfig({
       timeout: 120_000,
       // Only this server has the fixture route at all, so the golden-path server
       // is exactly what a deployment runs.
-      env: { RAGERS_TEST_SEED: 'enabled' },
+      // RAGERS_TEST_SEED also permits passwordless sign-in, which four specs need and no
+      // deployment has. DATABASE_URL empty: see the comment above the project list.
+      env: { RAGERS_TEST_SEED: 'enabled', DATABASE_URL: '' },
     },
     {
       command: 'npx next start -p 3103',
       url: 'http://127.0.0.1:3103',
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { RAGERS_TEST_SEED: 'enabled' },
+      // RAGERS_TEST_SEED also permits passwordless sign-in, which four specs need and no
+      // deployment has. DATABASE_URL empty: see the comment above the project list.
+      env: { RAGERS_TEST_SEED: 'enabled', DATABASE_URL: '' },
     },
     {
       command: 'npx next start -p 3104',
       url: 'http://127.0.0.1:3104',
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { RAGERS_TEST_SEED: 'enabled' },
+      // RAGERS_TEST_SEED also permits passwordless sign-in, which four specs need and no
+      // deployment has. DATABASE_URL empty: see the comment above the project list.
+      env: { RAGERS_TEST_SEED: 'enabled', DATABASE_URL: '' },
     },
     {
       command: 'npx next start -p 3105',
       url: 'http://127.0.0.1:3105',
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { RAGERS_TEST_SEED: 'enabled' },
+      // RAGERS_TEST_SEED also permits passwordless sign-in, which four specs need and no
+      // deployment has. DATABASE_URL empty: see the comment above the project list.
+      env: { RAGERS_TEST_SEED: 'enabled', DATABASE_URL: '' },
     },
   ],
 });

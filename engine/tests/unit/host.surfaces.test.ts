@@ -165,3 +165,16 @@ test('passwordless sign-in rides the fixture gate and nothing else', () => {
     'the standalone worker is not given a sign-in permission it has no use for',
   );
 });
+
+test('every browser server is isolated from the others, which means pinning DATABASE_URL empty', () => {
+  // Separate ports stop isolating processes the moment those processes share a database, and the
+  // certification workflow sets DATABASE_URL at job level for the live gates. Without this pin the
+  // five servers all reach one Postgres and the suites contaminate each other — 23 of 30 browser
+  // tests failed that way, and the symptom was "the feed does not contain this text", which reads
+  // like a UI bug rather than a configuration one.
+  const config = code(read('playwright.config.ts'));
+  const servers = [...config.matchAll(/command:\s*'npx next start -p (\d+)'/g)].map((m) => m[1]);
+  assert.ok(servers.length >= 2, 'the browser gate runs a server per suite');
+  const pinned = [...config.matchAll(/DATABASE_URL:\s*''/g)].length;
+  assert.equal(pinned, servers.length, `each of ${servers.length} servers pins DATABASE_URL empty`);
+});
