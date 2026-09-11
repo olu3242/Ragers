@@ -105,3 +105,63 @@ test('no route reads an original media key or a raw transcript', () => {
     }
   }
 });
+
+/**
+ * The composition root.
+ *
+ * Two P1s on PR #5 were both *absences at the root* rather than faults in any engine: the engine
+ * was constructed with no arguments, so `DATABASE_URL` did nothing, and sign-in issued a session
+ * from an email address alone. Neither was reachable by a unit test of an engine, because both
+ * engines were correct. So they are asserted here, over the wiring itself.
+ */
+const libDir = join(here, '..', '..', 'lib');
+const read = (...parts: readonly string[]): string => readFileSync(join(here, '..', '..', ...parts), 'utf8');
+/** Comments describe the defect by name, so every sweep below reads the code and not the prose. */
+const code = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+test('both entry points build the engine from the configured database, and pass db rather than store', () => {
+  for (const entry of [['lib', 'engine-instance.ts'], ['scripts', 'worker.ts']] as const) {
+    const source = code(read(...entry));
+    const label = entry.join('/');
+    assert.match(source, /configuredDb\(\)/, `${label} reads the configured database`);
+    assert.equal(
+      /createEngine\(\)/.test(source),
+      false,
+      `${label} must not construct an engine with no arguments — that is the defect, exactly`,
+    );
+    // **`db`, not `store`.** A store alone persists the domain rows and leaves the outbox, the
+    // idempotency store, the delivery ledger and the transaction boundary in process memory, so a
+    // restart loses undelivered events and a separate worker drains nothing. The first fix for
+    // this defect did that, and it looked finished.
+    assert.match(source, /\{ db \}/, `${label} passes db, so the runtime stores are Postgres too`);
+  }
+});
+
+test('the application tier is configured by DATABASE_URL and never by a test variable', () => {
+  const codeOnly = code(readFileSync(join(libDir, 'engine-store.ts'), 'utf8'));
+  assert.match(codeOnly, /process\.env\['DATABASE_URL'\]/);
+  assert.equal(
+    /RAGERS_TEST_DATABASE_URL/.test(codeOnly),
+    false,
+    'the harness variable is exported whenever a live database is available; honouring it here would '
+      + 'change which backend the browser gate exercises depending on the environment',
+  );
+});
+
+test('passwordless sign-in rides the fixture gate and nothing else', () => {
+  const codeOnly = code(readFileSync(join(libDir, 'engine-store.ts'), 'utf8'));
+  // One switch, already asserted off by default above and already recorded as never-in-a-deployment.
+  // A variable of its own would be a second thing to leave on.
+  assert.match(codeOnly, /passwordlessSignInAllowed[\s\S]*RAGERS_TEST_SEED'\]\s*===\s*'enabled'/);
+  assert.equal(
+    /NODE_ENV|ALLOW_PASSWORDLESS|RAGERS_ALLOW/.test(codeOnly),
+    false,
+    'not NODE_ENV and not a second flag',
+  );
+  // The worker dispatches no sign-in, so the permissive setting must not reach it at all.
+  assert.equal(
+    /passwordlessSignInAllowed/.test(code(read('scripts', 'worker.ts'))),
+    false,
+    'the standalone worker is not given a sign-in permission it has no use for',
+  );
+});

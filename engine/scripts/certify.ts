@@ -186,10 +186,21 @@ const objectStorageBlocked = process.env['RAGERS_OBJECT_STORAGE_READY'] !== '1';
  */
 const liveProvidersBlocked = process.env['RAGERS_LIVE_PROVIDERS_READY'] !== '1';
 
+/**
+ * Whether a sign-in credential mechanism exists. Blocked by default, because none does.
+ *
+ * Found by a review bot on PR #5: `identity.authenticate` issued a session from an email address
+ * alone. The engine now refuses unless `allowPasswordlessSignIn` is explicitly set, so the hole
+ * cannot be deployed — and until a verified magic link or a password exists, `SECURITY_READY`
+ * carries the condition rather than reading plainly ready.
+ */
+const signInCredentialsBlocked = process.env['RAGERS_SIGNIN_CREDENTIALS_READY'] !== '1';
+
 const report = buildReport(results, new Date().toISOString(), {
   benchmarkDataBlocked,
   objectStorageBlocked,
   liveProvidersBlocked,
+  signInCredentialsBlocked,
 });
 
 // Only a full run may rewrite the ledger; a partial run reports to stdout only.

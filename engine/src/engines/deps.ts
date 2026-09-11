@@ -18,6 +18,25 @@ import type {
 } from '../ports/providers.ts';
 
 export interface EngineConfig {
+  /**
+   * Whether `identity.authenticate` may issue a session from an email address alone.
+   *
+   * **This exists because it found a real hole.** `identity.authenticate` took `{ email }`,
+   * looked the actor up and issued a session — no password, no token, no magic link — and
+   * `/api/session` exposes that path to anybody. So knowing a moderator's or an admin's email
+   * address was enough to become them.
+   *
+   * The proper fix is a credential mechanism (a verified magic-link token, or a password with a
+   * hash column) and it is a product decision with its own migration and its own provider. What
+   * this flag does in the meantime is make the hole **impossible to deploy by accident**: the
+   * default is `false`, the engine refuses, and a development or test environment has to say so
+   * out loud — the same pattern as the `RAGERS_TEST_SEED` fixture route.
+   *
+   * It lives in the engine config rather than in the route on purpose. A check in
+   * `app/api/session/route.ts` would be a control enforced at a surface, which is exactly what
+   * Phase 94 argues is not a control: a second caller reaching the bus directly would bypass it.
+   */
+  readonly allowPasswordlessSignIn: boolean;
   /** Window in which an author may still edit a published experience. */
   readonly editWindowMs: number;
   /** Minimum volume before a trend is shown at all. */
@@ -33,6 +52,9 @@ export const defaultConfig: EngineConfig = {
   trendMinVolume: 3,
   analyticsSalt: 'ragers-analytics-v1',
   targetRaveShare: 0.5,
+  // **Default deny.** See the field's own comment: no credential mechanism exists yet, so
+  // sign-in is refused unless an environment explicitly opts in for development.
+  allowPasswordlessSignIn: false,
 };
 
 export interface EngineProviders {

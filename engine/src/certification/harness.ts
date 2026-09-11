@@ -1096,6 +1096,8 @@ export const buildReport = (
     readonly objectStorageBlocked?: boolean;
     /** Phase 99. Whether any live transcription, PII or model provider is configured. */
     readonly liveProvidersBlocked?: boolean;
+    /** Whether a real sign-in credential mechanism exists. Absent by default. */
+    readonly signInCredentialsBlocked?: boolean;
   } = {},
 ): CertificationReport => ({
   status: decideStatus(results),
@@ -1114,6 +1116,7 @@ export const buildReport = (
     objectStorageReady: !(options.objectStorageBlocked ?? true),
     benchmarkDataReady: !(options.benchmarkDataBlocked ?? true),
     liveProvidersReady: !(options.liveProvidersBlocked ?? true),
+    signInCredentialsReady: !(options.signInCredentialsBlocked ?? true),
   }),
   generatedAt,
   totals: {

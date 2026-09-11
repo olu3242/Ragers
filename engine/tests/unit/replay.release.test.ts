@@ -120,6 +120,7 @@ test('a dimension with no evidence is BLOCKED, never READY', () => {
     objectStorageReady: false,
     benchmarkDataReady: false,
     liveProvidersReady: false,
+    signInCredentialsReady: false,
   });
   for (const value of readings) {
     assert.equal(value.value, 'BLOCKED', `${value.dimension} with no gates is blocked`);
@@ -133,6 +134,7 @@ test('a failed gate is NOT_READY and a blocked gate is BLOCKED, and they are dif
     objectStorageReady: true,
     benchmarkDataReady: true,
     liveProvidersReady: true,
+    signInCredentialsReady: true,
   });
   assert.equal(failed.find((value) => value.dimension === 'BROWSER_READY')?.value, 'NOT_READY');
 
@@ -141,6 +143,7 @@ test('a failed gate is NOT_READY and a blocked gate is BLOCKED, and they are dif
     objectStorageReady: true,
     benchmarkDataReady: true,
     liveProvidersReady: true,
+    signInCredentialsReady: true,
   });
   const deployment = blocked.find((value) => value.dimension === 'DEPLOYMENT_READY');
   assert.equal(deployment?.value, 'BLOCKED');
@@ -157,6 +160,7 @@ test('data and provider readiness come from the environment, not from a gate', (
     objectStorageReady: false,
     benchmarkDataReady: false,
     liveProvidersReady: false,
+    signInCredentialsReady: false,
   });
   assert.equal(withEveryGatePassing.find((value) => value.dimension === 'DATA_READY')?.value, 'BLOCKED');
   assert.equal(withEveryGatePassing.find((value) => value.dimension === 'PROVIDER_READY')?.value, 'BLOCKED');
@@ -166,6 +170,7 @@ test('data and provider readiness come from the environment, not from a gate', (
     objectStorageReady: true,
     benchmarkDataReady: true,
     liveProvidersReady: true,
+    signInCredentialsReady: true,
   });
   assert.equal(provided.find((value) => value.dimension === 'DATA_READY')?.value, 'READY');
   assert.equal(provided.find((value) => value.dimension === 'PROVIDER_READY')?.value, 'READY');
@@ -196,6 +201,7 @@ test('a missing external blocker cannot make code readiness anything it is not',
     objectStorageReady: true,
     benchmarkDataReady: false,
     liveProvidersReady: false,
+    signInCredentialsReady: true,
   });
   assert.equal(readings.find((value) => value.dimension === 'CODE_READY')?.value, 'READY');
   assert.equal(readings.find((value) => value.dimension === 'DEPLOYMENT_READY')?.value, 'BLOCKED');

@@ -33,7 +33,7 @@ PHASES_91_100_READY
 Nine statuses, because they answer nine different questions. The two that are deliberately not
 plain `READY` are named in the ledger with what each is waiting on; neither is a euphemism.
 
-**1,024 unit and integration tests · 132 live · 41 browser · 19 migrations · 82 tables, all with
+**1,030 unit and integration tests · 132 live · 41 browser · 19 migrations · 82 tables, all with
 RLS · 57 registered commands · 9 declared agents.**
 
 ## Readiness, by dimension
@@ -50,7 +50,7 @@ failed, and the fix for those two is not the same.
 | Dimension | Value | Waiting on |
 |---|---|---|
 | `CODE_READY` | **READY** | — (28 gates) |
-| `SECURITY_READY` | **READY** | — (15 gates) |
+| `SECURITY_READY` | **READY_WITH_CONDITIONS** | A sign-in credential. `identity.authenticate` refuses by default, so nobody can be impersonated; equally, nobody can sign back in. A verified magic link or a password hash is required before any pilot (see defect 7) |
 | `BROWSER_READY` | **READY** | — (3 gates, 41 browser tests) |
 | `OPERATIONS_READY` | **READY_WITH_CONDITIONS** | Object storage. Retention states its ceilings, enforces its holds, decides expiry and writes its ledger; deleting remote bytes reports `object_storage_blocked` until a bucket exists |
 | `DATA_READY` | **BLOCKED** | Twenty distinct contributors per comparison set. A gate that passed against seeded volume would be certifying the seed |
@@ -62,7 +62,7 @@ failed, and the fix for those two is not the same.
 
 | Decision | Verdict | Why |
 |---|---|---|
-| **Controlled validation** | **GO** | `CODE_READY`, `SECURITY_READY`, `BROWSER_READY` and `OPERATIONS_READY` are all satisfied. These four are about this codebase; requiring the other four would mean nothing could be validated before it was deployed, which is backwards |
+| **Controlled validation** | **GO** | `CODE_READY`, `SECURITY_READY`, `BROWSER_READY` and `OPERATIONS_READY` are all satisfied — the latter two with stated conditions, which is why they are named rather than rounded up. These four are about this codebase; requiring the other four would mean nothing could be validated before it was deployed, which is backwards |
 | **Production pilot** | **NO_GO** | `DATA_READY`, `PROVIDER_READY`, `DEPLOYMENT_READY` and `ROLLBACK_READY` are all `BLOCKED`. A pilot puts real people's accounts of real things into a system, and there is no subset of the eight that makes one responsible |
 
 `decide()` takes no override parameter. A function with a `force` argument would be called with
@@ -131,6 +131,51 @@ happened?** Almost every mechanism already existed; what did not exist was the c
    moderation input. The rule is that it never reaches a member or a stranger, including the person
    it is about. The test was corrected, not the code.
 
+### Found in review of this branch, after the band closed
+
+Both were reported on PR #5 by an automated reviewer, both were real, and both were **absences at
+the composition root** rather than faults in any engine — which is why a hundred phases of
+engine-level certification never touched them. Static guards over the wiring itself are now in
+`tests/unit/host.surfaces.test.ts`.
+
+7. **Sign-in issued a session from an email address alone.** `identity.authenticate` took
+   `{ email }`, looked the actor up and returned a session — no password, no token, no magic link —
+   and `/api/session` exposes that path to anybody. **Knowing a moderator's or an admin's email
+   address was enough to become them.** `grep` found exactly one caller and *zero* tests, which is
+   how it survived: every engine test constructed its actors directly.
+
+   Fixed by a default-deny config flag (`allowPasswordlessSignIn`, false in `defaultConfig`) with
+   the refusal placed **before** the actor lookup, so it is not an existence oracle. The flag lives
+   in the engine config rather than in the route, because a check at a surface is not a control: a
+   second caller reaching the bus would bypass it. Development and the browser suite opt in through
+   the existing `RAGERS_TEST_SEED=enabled` gate rather than a flag of their own — one switch that is
+   already asserted off by default and already recorded as never-in-a-deployment.
+
+   This is a **capability that does not exist**, not merely a hole that is closed: nobody can sign
+   back in. It is what conditions `SECURITY_READY`, and it is a pilot blocker.
+
+8. **The application never used its database.** `lib/engine-instance.ts` called `createEngine()`
+   with no arguments while its own comment said *"a deployment swaps the in-memory adapters for the
+   Postgres/Supabase ones by passing `store` here"*. Nothing passed it. So with `DATABASE_URL`
+   configured, every request still used the in-memory adapters: accounts and experiences vanished on
+   restart, two web processes saw different data, and `scripts/worker.ts` repeated the same
+   construction and drained its own empty outbox rather than the web tier's. The entire hexagonal
+   apparatus was correct, certified against Postgres by the live suite, and connected to nothing.
+
+   **My first fix for it was also wrong, and looked finished.** It passed `store`, which persists the
+   domain rows and leaves the idempotency store, the outbox, the delivery ledger, the dead-letter
+   store, the worker registry, the job history and the transaction boundary in process memory — so a
+   restart would still lose undelivered events and a separate worker would still drain nothing. The
+   option that makes all of it Postgres is `db`. Both entry points now go through
+   `configuredDb()` in `lib/engine-store.ts`, and a guard asserts both pass `db` and that neither
+   calls `createEngine()` with no arguments.
+
+   `configuredDb()` reads **`DATABASE_URL` only**. Reading `RAGERS_TEST_DATABASE_URL` as well — which
+   the first fix did — made the browser gate exercise a different backend depending on whether a live
+   database happened to be available, and it failed 22 browser tests before anyone chose it.
+   `/api/readiness` now reports whether this process persists anything, because an in-memory
+   instance is *healthy* by every dependency check.
+
 ## Release gap sweep
 
 Inspected for release-critical contradictions only. **Nothing found** in: dead event subscriptions
@@ -175,16 +220,28 @@ Verified in this environment:
 - **A client cannot read its own reaction state.** Phase 69 withheld `reactions.actor_id` from
   client roles, which closed a real leak and left a real need unmet. The answer is a `my_reactions`
   view scoped by `current_actor_id()`, deliberately not built because nothing reads it yet.
+- **No sign-in exists.** See defect 7. The refusal is the correct state — an unauthenticated
+  session issuer is worse than none — but a controlled validation can only create accounts, never
+  return to one. A credential mechanism is the first thing a pilot needs, and it carries its own
+  migration and its own provider decision.
+- **Persistence is now wired but has never run in a deployment.** `DATABASE_URL` reaches the store
+  and the outbox as of this branch, and every proof of it is the live suite plus a static guard over
+  the wiring. No process has served traffic against Postgres, because there is no target to serve it
+  from — the same blocker as `DEPLOYMENT_READY`.
 - **No load or soak evidence.** Every concurrency proof is a small-N race against a real database.
 
 ## Next
 
-1. Provide a deployment target → drill deployment and rollback → `DEPLOYMENT_READY`,
+1. Build a sign-in credential — a verified magic-link token or a password hash, with its migration
+   and its provider — then remove the `RAGERS_TEST_SEED` dependence from the browser suite's
+   sign-in → `SECURITY_READY` becomes plain `READY`. **This is first**: it is the only item on this
+   list that is a missing capability rather than a missing environment.
+2. Provide a deployment target → drill deployment and rollback → `DEPLOYMENT_READY`,
    `ROLLBACK_READY`.
-2. Provide object storage → the retention sweep stops reporting `object_storage_blocked` →
+3. Provide object storage → the retention sweep stops reporting `object_storage_blocked` →
    `OPERATIONS_READY` becomes plain `READY`.
-3. Provide provider credentials → `PROVIDER_READY`, and the proposing path meets a real model.
-4. Reach volume → `DATA_READY`.
+4. Provide provider credentials → `PROVIDER_READY`, and the proposing path meets a real model.
+5. Reach volume → `DATA_READY`.
 
 Until then the honest position is the one the ledger states: **controlled validation GO, production
 pilot NO_GO.**

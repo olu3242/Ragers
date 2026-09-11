@@ -87,6 +87,29 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
     action: 'actor.authenticate',
     resolveResource: async () => ok({ type: 'actor' }),
     handle: async (input, ctx) => {
+      /**
+       * **No credential is checked here, and that is the hole this refusal closes.**
+       *
+       * This handler receives `{ email }`, finds the actor and issues a session. There is no
+       * password, no verified token and no magic link, so knowing somebody's email address —
+       * a moderator's, an admin's — was enough to become them through `/api/session`.
+       *
+       * A credential mechanism is a product decision with its own migration and its own
+       * provider, and inventing one here would be worse than refusing. So the engine refuses
+       * by default and a development environment has to opt in out loud, which makes the hole
+       * impossible to deploy by accident. `SECURITY_READY` records it as a blocker.
+       *
+       * Refused *before* the lookup, so the refusal cannot be used to probe which emails exist.
+       */
+      if (!deps.config.allowPasswordlessSignIn) {
+        return err(
+          unauthorizedError(
+            'credentials_required',
+            'sign-in needs a credential, and no credential mechanism is configured',
+          ),
+        );
+      }
+
       const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
       const actor = await deps.store.actors.queryOne([eq('email', email)]);
       // A failed sign-in never reveals whether the account exists.

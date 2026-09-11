@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEngineHarness, type EngineHarness } from '../support/engine-harness.ts';
 import { expect } from '../../src/runtime/result.ts';
-import type { ActorContext } from '../../src/runtime/authz.ts';
+import { GUEST, type ActorContext } from '../../src/runtime/authz.ts';
 import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
 
 /**
@@ -279,4 +279,81 @@ test('a guest can read what is public and write nothing', async () => {
     idempotencyKey: h.nextKey(),
   });
   assert.equal(shared.ok, true, 'a guest may share');
+});
+
+// ── the credential hole, found by a review bot on PR #5 ──────────────────
+test('sign-in is refused when no credential mechanism is configured', async () => {
+  // **How this survived a hundred phases: `identity.authenticate` had no test at all.** It is
+  // reachable only from `/api/session` with `mode: 'signin'`, and nothing exercised that path —
+  // every harness signs up rather than signing in. So a handler that took `{ email }`, looked the
+  // actor up and issued a session went unnoticed: knowing a moderator's or an admin's email
+  // address was enough to become them.
+  //
+  // The engine now refuses by default. A credential mechanism is a product decision with its own
+  // migration and provider; what this asserts is that the absence of one **fails closed** rather
+  // than falling open.
+  const h = createEngineHarness();
+  const { auth } = await h.signUp('victim@example.com', 'Victim');
+  const moderatorId = (await h.signUp('mod-target@example.com', 'Mod')).auth.actorId;
+  await h.promote(moderatorId, 'moderator');
+
+  // Both actors already hold a session from signing up, legitimately. What must not change is
+  // the *count*: the attempts below must add nothing.
+  const before = (await h.engine.store.sessions.query([])).length;
+
+  for (const email of ['victim@example.com', 'mod-target@example.com']) {
+    const attempt = await h.engine.bus.dispatch({
+      name: 'identity.authenticate',
+      input: { email },
+      actor: GUEST,
+      idempotencyKey: h.nextKey(),
+    });
+    assert.equal(attempt.ok, false, `${email} cannot be signed into with an address alone`);
+    assert.equal(!attempt.ok && attempt.error.code, 'credentials_required');
+    assert.equal(!attempt.ok && attempt.error.kind, 'unauthorized');
+  }
+
+  // No session was minted by the attempts. The sign-up sessions stand, which is the point: the
+  // refusal closes the impersonation path without disturbing legitimate state.
+  assert.equal(
+    (await h.engine.store.sessions.query([])).length,
+    before,
+    'the attempts minted no session for anybody',
+  );
+  assert.ok(auth.sessionId, 'and the legitimate sign-up session is untouched');
+});
+
+test('the refusal precedes the lookup, so it cannot probe which emails exist', async () => {
+  // A refusal that differed between a known and an unknown address would be an existence oracle,
+  // which is the same class of leak Phase 69 closed at the database.
+  const h = createEngineHarness();
+  await h.signUp('known@example.com', 'Known');
+
+  const results = await Promise.all(
+    ['known@example.com', 'nobody@example.com', '', 'not-an-email'].map((email) =>
+      h.engine.bus.dispatch({
+        name: 'identity.authenticate',
+        input: { email },
+        actor: GUEST,
+        idempotencyKey: h.nextKey(),
+      }),
+    ),
+  );
+  const codes = new Set(results.map((result) => (result.ok ? 'ok' : result.error.code)));
+  assert.deepEqual([...codes], ['credentials_required'], 'every address gets the identical refusal');
+});
+
+test('an environment may opt in explicitly, and only then', async () => {
+  // The `RAGERS_TEST_SEED` pattern: off by default, and a development environment says so out
+  // loud. The flag lives in the engine config rather than the route, because a check at a surface
+  // is bypassed by any caller reaching the bus directly — Phase 94's argument, applied here.
+  const permissive = createEngineHarness({ config: { allowPasswordlessSignIn: true } });
+  await permissive.signUp('dev@example.com', 'Dev');
+  const signedIn = await permissive.engine.bus.dispatch({
+    name: 'identity.authenticate',
+    input: { email: 'dev@example.com' },
+    actor: GUEST,
+    idempotencyKey: permissive.nextKey(),
+  });
+  assert.equal(signedIn.ok, true, 'development sign-in still works when declared');
 });

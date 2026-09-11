@@ -2595,3 +2595,21 @@ default behaviour is correct without configuration.
 Migration drift is deliberately **not** among them: the runner already refuses to start against a
 drifted schema, and re-checking it per request would mean a readiness probe doing schema
 introspection on every poll.
+
+### 12.5 Found in review of this branch
+
+Two P1s reported on PR #5 after the band closed, both real, both **absences at the composition
+root** rather than faults in any engine — which is why engine-level certification never reached
+them:
+
+1. **`identity.authenticate` issued a session from an email address alone.** One caller, zero tests.
+   Knowing an admin's email was enough to become them. Fixed with a default-deny engine config flag
+   whose refusal precedes the actor lookup, so it is not an existence oracle. No credential
+   mechanism exists yet, so this now conditions `SECURITY_READY` and is a pilot blocker.
+2. **The composition root never passed its database.** `DATABASE_URL` did nothing; every request
+   used the in-memory adapters and the standalone worker drained its own empty outbox. The first fix
+   passed `store`, which left the outbox and every runtime store in memory — the option that makes
+   all of it Postgres is `db`. Both entry points now go through one function, and static guards in
+   `tests/unit/host.surfaces.test.ts` assert it.
+
+Recorded in full in `docs/releases/RAGERS_RC2.md` as defects 7 and 8.

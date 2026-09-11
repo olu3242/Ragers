@@ -151,6 +151,18 @@ export interface ReleaseInputs {
   readonly benchmarkDataReady: boolean;
   /** Whether a live model, transcription or PII provider is configured. */
   readonly liveProvidersReady: boolean;
+  /**
+   * Whether a real sign-in credential mechanism exists.
+   *
+   * Added after a P1 review finding on PR #5: `identity.authenticate` issued a session from an
+   * email address alone, so knowing a moderator's address was enough to become them. The engine
+   * now refuses by default, which closes the hole — and the *absence of a credential mechanism* is
+   * a product gap, not a fixed bug. It conditions `SECURITY_READY` for the same reason object
+   * storage conditions `OPERATIONS_READY`: every security gate passes, and one capability a
+   * deployment needs is missing, and a dimension that ignored that would be claiming an
+   * authentication story nothing implements.
+   */
+  readonly signInCredentialsReady: boolean;
 }
 
 /**
@@ -225,6 +237,21 @@ export const readDimensions = (inputs: ReleaseInputs): readonly DimensionReading
             'Credentials for a transcription/PII provider and a model provider. An interface is not a certified provider.',
         }),
   });
+
+  // The credential mechanism conditions SECURITY_READY. The refusal means nothing can be
+  // impersonated today; what is absent is any way for a legitimate person to sign back in, which
+  // is a capability a pilot needs and this codebase does not have.
+  if (!inputs.signInCredentialsReady) {
+    const security = readings.find((reading) => reading.dimension === 'SECURITY_READY');
+    if (security && security.value === 'READY') {
+      readings[readings.indexOf(security)] = {
+        ...security,
+        value: 'READY_WITH_CONDITIONS',
+        condition:
+          'No sign-in credential mechanism exists. `identity.authenticate` refuses by default, so nobody can be impersonated; equally, nobody can sign in. A verified magic link or a password is required before any pilot.',
+      };
+    }
+  }
 
   // Object storage is an operations fact rather than a dimension of its own, so it conditions
   // OPERATIONS_READY rather than adding a ninth. Retention decides, holds and records; only the
