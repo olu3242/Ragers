@@ -1,3 +1,4 @@
+import { readDimensions, type DimensionReading } from './release.ts';
 import type { FailureSummary, GateCounts } from './evidence.ts';
 
 /**
@@ -159,6 +160,30 @@ export type TrustQualityStatus =
   | 'PHASES_81_90_READY_WITH_EXTERNAL_BLOCKERS'
   | 'PHASES_81_90_NOT_READY';
 
+/**
+ * The Authority, Control & Release band (Phases 91–100) — Phase 100's own status.
+ *
+ * A ninth status, and the question is the last one before anybody can be asked to use this:
+ * **when the system does something, can a human see why, stop it, and prove what happened?**
+ *
+ * What it certifies: that every agent's authority is declared and default-denied, with target
+ * engines and forbidden commands distinct from what it reads; that every authoritative read can
+ * produce an explanation including *why it is withheld*; that the decision chain is readable end to
+ * end with refusals still in it; that six server-side controls exist, are audited in both
+ * directions and are consulted on the paths they govern; that each failure class states its blast
+ * radius and what still works; that a replay recomputes and never re-decides; that an operator can
+ * answer the nine questions from durable rows; that the twelve privacy rules hold against a live
+ * schema; and that the whole circle closes for a Rage and again for a Rave.
+ *
+ * The release *dimensions* are separate and deliberately so — see `src/certification/release.ts`.
+ * A band status says whether the code is certified; a release status says whether it may be run,
+ * and collapsing the two is what this band's Phase 99 exists to prevent.
+ */
+export type AuthorityReleaseStatus =
+  | 'PHASES_91_100_READY'
+  | 'PHASES_91_100_READY_WITH_EXTERNAL_BLOCKERS'
+  | 'PHASES_91_100_NOT_READY';
+
 /** Which certification a gate belongs to. Absent means the engine's. */
 export type GateScope =
   | 'engine'
@@ -168,7 +193,8 @@ export type GateScope =
   | 'experience_loop'
   | 'operational_integrity'
   | 'discovery_network'
-  | 'trust_quality';
+  | 'trust_quality'
+  | 'authority_release';
 
 export interface GateDefinition {
   readonly id: string;
@@ -225,6 +251,9 @@ export type GateConclusion =
   | 'BLOCKED'
   | 'INITIAL_FAIL_RETRY_PASS'
   | 'INITIAL_FAIL_RETRY_FAIL';
+
+// Phase 99. Re-exported so a caller reaching the report can name its own shape.
+export type { DimensionReading };
 
 export interface GateResult {
   readonly id: string;
@@ -854,6 +883,44 @@ export const GATES: readonly GateDefinition[] = [
       'No database is configured. The append-only trigger, the one-point-per-boundary constraint and the two recommendation-memory check constraints are database guarantees; asserting them in memory would assert something about a Map.',
   },
   {
+    id: 'phases_91_95_rules',
+    name: 'P91–95: default deny, an explanation that says why it is withheld, a stated blast radius',
+    scope: 'authority_release',
+    requirement: 'phases/91-95',
+    command: ['node', '--test', 'tests/unit/authority.explainability.test.ts'],
+  },
+  {
+    id: 'phases_96_99_rules',
+    name: 'P96, 99: replay recomputes and never re-decides; a release cannot claim more than its weakest dimension',
+    scope: 'authority_release',
+    requirement: 'phases/96-99',
+    command: ['node', '--test', 'tests/unit/replay.release.test.ts'],
+  },
+  {
+    id: 'authority_control_rows',
+    name: 'P91–95 through the bus: a control that nothing consults is a row, not a switch',
+    scope: 'authority_release',
+    requirement: 'phases/91-95',
+    command: ['node', '--test', 'tests/integration/authority.control.test.ts'],
+  },
+  {
+    id: 'experience_os_certification',
+    name: 'The whole Experience OS circle closes, for a Rage and again for a Rave',
+    scope: 'authority_release',
+    requirement: 'os/certification',
+    command: ['node', '--test', 'tests/integration/experience-os.certification.test.ts'],
+  },
+  {
+    id: 'privacy_certification',
+    name: 'P98: the twelve privacy rules against a live schema',
+    scope: 'authority_release',
+    requirement: 'privacy',
+    command: ['node', '--test', 'tests/live/privacy.certification.test.ts'],
+    requiresEnv: 'RAGERS_TEST_DATABASE_URL',
+    blockedWithoutEnv:
+      'No database is configured. Column grants, policies, definer functions and foreign-key refusals are all database facts; asserting them in memory would assert something about a Map.',
+  },
+  {
     id: 'command_boundaries',
     name: 'Command boundaries: bad input is refused, never reported as a defect',
     scope: 'experience_os',
@@ -981,6 +1048,16 @@ export const decideTrustQualityStatus = (results: readonly GateResult[]): TrustQ
   return 'PHASES_81_90_READY';
 };
 
+export const decideAuthorityReleaseStatus = (
+  results: readonly GateResult[],
+): AuthorityReleaseStatus => {
+  const own = results.filter((result) => result.scope === 'authority_release');
+  if (own.length === 0) return 'PHASES_91_100_NOT_READY';
+  if (own.some((result) => result.status === 'failed')) return 'PHASES_91_100_NOT_READY';
+  if (own.some((result) => result.status === 'blocked')) return 'PHASES_91_100_READY_WITH_EXTERNAL_BLOCKERS';
+  return 'PHASES_91_100_READY';
+};
+
 export const decideOperationalIntegrityStatus = (
   results: readonly GateResult[],
   objectStorageBlocked: boolean,
@@ -1003,6 +1080,9 @@ export interface CertificationReport {
   readonly operationalIntegrityStatus: OperationalIntegrityStatus;
   readonly discoveryNetworkStatus: DiscoveryNetworkStatus;
   readonly trustQualityStatus: TrustQualityStatus;
+  readonly authorityReleaseStatus: AuthorityReleaseStatus;
+  /** Phase 99. The eight release dimensions, each read independently. */
+  readonly release: readonly DimensionReading[];
   readonly generatedAt: string;
   readonly totals: { passed: number; failed: number; blocked: number };
   readonly results: readonly GateResult[];
@@ -1011,7 +1091,12 @@ export interface CertificationReport {
 export const buildReport = (
   results: readonly GateResult[],
   generatedAt: string,
-  options: { readonly benchmarkDataBlocked?: boolean; readonly objectStorageBlocked?: boolean } = {},
+  options: {
+    readonly benchmarkDataBlocked?: boolean;
+    readonly objectStorageBlocked?: boolean;
+    /** Phase 99. Whether any live transcription, PII or model provider is configured. */
+    readonly liveProvidersBlocked?: boolean;
+  } = {},
 ): CertificationReport => ({
   status: decideStatus(results),
   experienceSignalEngineStatus: decideExperienceSignalEngineStatus(results),
@@ -1021,6 +1106,15 @@ export const buildReport = (
   operationalIntegrityStatus: decideOperationalIntegrityStatus(results, options.objectStorageBlocked ?? true),
   discoveryNetworkStatus: decideDiscoveryNetworkStatus(results),
   trustQualityStatus: decideTrustQualityStatus(results),
+  authorityReleaseStatus: decideAuthorityReleaseStatus(results),
+  // Phase 99. Derived from the same gates plus what the environment actually provides, so a
+  // dimension cannot be set by hand — see `src/certification/release.ts`.
+  release: readDimensions({
+    results,
+    objectStorageReady: !(options.objectStorageBlocked ?? true),
+    benchmarkDataReady: !(options.benchmarkDataBlocked ?? true),
+    liveProvidersReady: !(options.liveProvidersBlocked ?? true),
+  }),
   generatedAt,
   totals: {
     passed: results.filter((r) => r.status === 'passed').length,
@@ -1060,8 +1154,28 @@ export const renderLedger = (report: CertificationReport): string => {
   lines.push('');
   lines.push(`## Phases 81–90 status: \`${report.trustQualityStatus}\``);
   lines.push('');
+  lines.push(`## Phases 91–100 status: \`${report.authorityReleaseStatus}\``);
+  lines.push('');
+  lines.push('## Release readiness');
+  lines.push('');
   lines.push(
-    'Eight statuses, because they answer different questions. The engine status is about ' +
+    'Eight dimensions, read independently. **`BLOCKED` and `NOT_READY` are different values:** ' +
+      '`NOT_READY` means a gate failed, and `BLOCKED` means the evidence needs something this ' +
+      'environment does not have. Collapsing them would make a deployment nobody can attempt read ' +
+      'as a deployment that failed, and the fix for those two is not the same. No dimension can be ' +
+      'set by hand — each is derived from the gates above and from what the environment provides.',
+  );
+  lines.push('');
+  lines.push('| Dimension | Value | Evidence | Missing or conditional on |');
+  lines.push('|---|---|---|---|');
+  for (const reading of report.release) {
+    lines.push(
+      `| \`${reading.dimension}\` | ${reading.value} | ${reading.evidence} | ${reading.missing ?? reading.condition ?? '—'} |`,
+    );
+  }
+  lines.push('');
+  lines.push(
+    'Nine statuses, because they answer different questions. The engine status is about ' +
       'whether the platform is operable; the Experience Signal Engine status is about whether ' +
       'the corroboration contract holds — that a count of people is a count of people, that a ' +
       'share is never a claim, and that a response is never a resolution. The Phases 31–40 ' +

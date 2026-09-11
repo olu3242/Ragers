@@ -2549,3 +2549,49 @@ Checked against the code at `20e2fc3`, not against the roadmap:
 
 **Batch A** — 91, 92, 93, 94, 95.
 **Batch B** — 96, 97, 98, 99, 100, then one full certification run, then RC2 convergence.
+
+### 12.4 What Batch B found, and the two sweeps that were wrong first
+
+**1. The release contract leaked an external blocker into `CODE_READY`.** `gatesFor` asked each
+dimension "which gates match me", and a gate could match several. `GateScope` is optional and
+defaults to `'engine'`, so the *deployment* and *rollback* gates — which declare a requirement and
+no scope — counted as engine-scoped and fed `CODE_READY`. Two blocked external gates turned it from
+`READY` into `READY_WITH_CONDITIONS`.
+
+That is the exact failure Phase 99 exists to prevent, committed inside the function written to
+prevent it. It would have been invisible: `READY_WITH_CONDITIONS` reads plausible, and it
+*understates* the code while overstating nothing — the direction nobody checks. Ownership is now
+single and explicit, and **requirement beats scope** because a requirement is the more specific
+claim: a gate that says it is about deployment is about deployment whatever scope it carries.
+
+**2. A privacy test of mine demanded a hole in moderation.** It asserted that no role could read a
+trust assessment, admin included. The policy is `is_staff()` and it is right: trust is a moderation
+*input*, and a moderator deciding whether a cohort is coordinated needs it. "Trust internals never
+leave the database" means they never reach a member or a public surface — **including the person
+they are about**, which is the assertion that matters and is now the one made. The stricter version
+would have been a test demanding a hole, and it read as rigour.
+
+**3. Two release-gap sweeps were wrong before they were right**, and both wrong versions looked
+authoritative:
+
+- The first treated `aggregateType` values (`experience`, `actor`, `cluster`) as event names and
+  reported them as dead subscriptions.
+- The second stripped `events:` arrays before searching for emissions — and `events:` is *also* the
+  key a command result uses to emit. It stripped exactly the evidence it was looking for, and
+  reported **52 dead subscriptions where there are none.**
+
+The lesson is specific: a sweep that reports a large number of problems in a codebase with a green
+suite is far more likely to be a broken sweep than a broken codebase, and the way to tell is to pick
+one finding and check it by hand. `OperatorControlApplied` was in that list of 52, and I had written
+its emission myself twenty minutes earlier.
+
+**And one thing built rather than found.** `/api/readiness` did not exist. `/api/health` answers
+"are my dependencies up"; readiness answers "may a load balancer send me traffic", and an instance
+whose store is unreachable or whose projections nothing advances is *healthy* by every dependency
+check. A balancer pointed at the health endpoint routes to it. Three checks — the store answers, a
+worker is registered, no operator has declared degraded mode — and 503 when not ready, so the
+default behaviour is correct without configuration.
+
+Migration drift is deliberately **not** among them: the runner already refuses to start against a
+drifted schema, and re-checking it per request would mean a readiness probe doing schema
+introspection on every poll.

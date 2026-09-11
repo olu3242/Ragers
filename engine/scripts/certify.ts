@@ -1,3 +1,9 @@
+import {
+  CONTROLLED_VALIDATION_REQUIRES,
+  PRODUCTION_PILOT_REQUIRES,
+  decide,
+  releaseStatus,
+} from '../src/certification/release.ts';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -170,9 +176,20 @@ const benchmarkDataBlocked = process.env['RAGERS_BENCHMARK_DATA_READY'] !== '1';
  */
 const objectStorageBlocked = process.env['RAGERS_OBJECT_STORAGE_READY'] !== '1';
 
+/**
+ * Phase 99. Whether any live provider is configured.
+ *
+ * Read from the environment because no gate can answer it: a gate that passed against a fake would
+ * be asserting the opposite of what `PROVIDER_READY` asks. `live: false` on the deterministic
+ * assistance provider is the honest in-code answer, and this is how a deployment with real
+ * credentials flips the dimension.
+ */
+const liveProvidersBlocked = process.env['RAGERS_LIVE_PROVIDERS_READY'] !== '1';
+
 const report = buildReport(results, new Date().toISOString(), {
   benchmarkDataBlocked,
   objectStorageBlocked,
+  liveProvidersBlocked,
 });
 
 // Only a full run may rewrite the ledger; a partial run reports to stdout only.
@@ -193,6 +210,18 @@ process.stdout.write(`Phases 51–60 status: ${report.experienceLoopStatus}\n`);
 process.stdout.write(`Phases 61–70 status: ${report.operationalIntegrityStatus}\n`);
 process.stdout.write(`Phases 71–80 status: ${report.discoveryNetworkStatus}\n`);
 process.stdout.write(`Phases 81–90 status: ${report.trustQualityStatus}\n`);
+process.stdout.write(`Phases 91–100 status: ${report.authorityReleaseStatus}\n`);
+process.stdout.write('\n');
+for (const reading of report.release) {
+  process.stdout.write(`${reading.dimension.padEnd(18)} ${reading.value}\n`);
+}
+process.stdout.write('\n');
+// Phase 99: the two decisions, each against its own required set. Neither can be forced.
+const controlled = decide(report.release, CONTROLLED_VALIDATION_REQUIRES);
+const pilot = decide(report.release, PRODUCTION_PILOT_REQUIRES);
+process.stdout.write(`Controlled validation: ${controlled.decision} — ${controlled.reason}\n`);
+process.stdout.write(`Production pilot:      ${pilot.decision} — ${pilot.reason}\n`);
+process.stdout.write(`Release candidate:     ${releaseStatus(controlled, pilot)}\n`);
 // Either certification failing is a failure: a green platform with a broken
 // corroboration contract is not a shippable product.
 process.exit(
@@ -203,7 +232,12 @@ process.exit(
     report.experienceLoopStatus === 'PHASES_51_60_NOT_READY' ||
     report.operationalIntegrityStatus === 'PHASES_61_70_NOT_READY' ||
     report.discoveryNetworkStatus === 'PHASES_71_80_NOT_READY' ||
-    report.trustQualityStatus === 'PHASES_81_90_NOT_READY'
+    report.trustQualityStatus === 'PHASES_81_90_NOT_READY' ||
+    report.authorityReleaseStatus === 'PHASES_91_100_NOT_READY' ||
+    // A release candidate that cannot even be validated in a controlled setting is a failed run.
+    // Deliberately *not* gated on the production pilot: a pilot blocked on an absent deployment
+    // target is the expected state and is not a certification failure.
+    releaseStatus(controlled, pilot) === 'RAGERS_RC2_NO_GO'
     ? 1
     : 0,
 );
