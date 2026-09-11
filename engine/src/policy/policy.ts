@@ -103,6 +103,9 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'dead_letter.replay': { role: 'admin' },
   'analytics.read': { role: 'admin' },
   'health.read': { role: 'admin' },
+  // Phase 94. Admin for every control: an override is outside the normal path by definition,
+  // and the normal path already has moderator-level actions for moderator work.
+  'control.apply': { role: 'admin' },
 
   // ── Experience Signal Engine ────────────────────────────────────────────
   // Corroborating is a claim about your own experience, so the author of the

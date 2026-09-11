@@ -12,6 +12,7 @@ import { eq } from '../ports/store.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { ProposalRow } from '../ports/store.ts';
 import { writeAudit } from './support.ts';
+import { isActionHeld, isProposalTypeDisabled } from './control.engine.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -64,6 +65,16 @@ export const registerProposalEngine = (deps: EngineDeps): void => {
     action: 'proposal.create',
     resolveResource: async () => ok({ type: 'proposal' }),
     handle: async (input, ctx) => {
+      // Phase 94: the control, read on the path it governs. A disabled proposal type is refused
+      // here rather than filtered from a surface — an agent calling this directly is the case
+      // the switch has to stop, and it is the only case that matters during an incident.
+      if (await isProposalTypeDisabled(deps, String(input?.proposalType ?? ''))) {
+        return err(
+          preconditionError('proposal_type_disabled', 'an operator has disabled this proposal type', {
+            proposalType: input.proposalType,
+          }),
+        );
+      }
       const created = createProposal(
         { ...input },
         { id: deps.ids.next('prp'), correlationId: ctx.correlationId, now: ctx.clock.now() },
@@ -105,6 +116,17 @@ export const registerProposalEngine = (deps: EngineDeps): void => {
     handle: async (input, ctx) => {
       const row = await deps.store.proposals.get(input.proposalId);
       if (!row) return err(notFoundError('proposal_not_found', 'no such proposal'));
+
+      // Phase 94: held, not decided. The proposal stays `proposed` — an operator holding
+      // something is not the reviewer rejecting it, and writing a rejection on their behalf would
+      // put a decision in the ledger nobody made.
+      if (await isActionHeld(deps, row.id)) {
+        return err(
+          preconditionError('action_held', 'an operator is holding this proposal; it cannot be decided', {
+            proposalId: row.id,
+          }),
+        );
+      }
 
       const decided = decideProposal(
         row,

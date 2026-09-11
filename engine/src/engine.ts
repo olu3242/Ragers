@@ -4,6 +4,7 @@ import { createOrchestrator } from './runtime/orchestrator.ts';
 import { createHealthRegistry } from './runtime/health.ts';
 import { createWatchErasureConsumer, registerWatchEngine } from './engines/watch.engine.ts';
 import { createConfidencePointConsumer } from './engines/confidence.engine.ts';
+import { registerControlEngine } from './engines/control.engine.ts';
 import { createWatchNotificationConsumer } from './engines/notification.engine.ts';
 import { createMetrics } from './runtime/metrics.ts';
 import { createRetryPolicy } from './runtime/retry.ts';
@@ -250,6 +251,9 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
   // Phase 78 — watching a thing. Separate from the social graph on purpose: a follow between
   // people raises a mutual-visibility question a watch does not.
   registerWatchEngine(deps);
+  // Phase 94: the six operator controls. Governed commands like everything else, so a kill
+  // switch is not the one unaudited action in a codebase whose audit rule exists to prevent that.
+  registerControlEngine(deps);
   registerNotificationEngine(deps);
   registerCreatorEngine(deps);
   registerGovernanceEngine(deps);

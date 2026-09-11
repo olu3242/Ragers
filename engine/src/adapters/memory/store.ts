@@ -77,4 +77,5 @@ export const createMemoryStore = (): EngineStore => ({
   watches: createMemoryTable(),
   confidencePoints: createMemoryTable(),
   recommendationMemory: createMemoryTable(),
+  operatorControls: createMemoryTable(),
 });

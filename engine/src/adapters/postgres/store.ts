@@ -125,6 +125,7 @@ export const createPostgresStore = (db: Db): EngineStore => {
     retentionSweeps: table(descriptor({ relation: 'retention_sweeps', idColumn: 'id' })),
     watches: table(descriptor({ relation: 'experience_watches', idColumn: 'id' })),
     confidencePoints: table(descriptor({ relation: 'confidence_points', idColumn: 'id' })),
+    operatorControls: table(descriptor({ relation: 'operator_controls', idColumn: 'id' })),
     // Keyed by the recommendation it remembers, so the memory cannot duplicate.
     recommendationMemory: table(
       descriptor({

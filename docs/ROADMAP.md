@@ -2382,3 +2382,170 @@ second path. Both refuse to be drawn on a withheld measure, following Phase 58's
 `responseConclusionsFor` rather than inventing a second treatment of the same hazard: a band
 withheld because saying it would describe too few people, laundered through a conclusion,
 publishes exactly what the floor refused.
+
+## 12. Phases 91–100 — authority, explainability, control and release
+
+### What this band is for
+
+Phases 1–90 built a system that is correct, operable, discoverable and personally relevant.
+This band asks a different question, and it is the last one before anybody can be asked to use
+it: **when this system does something, can a human see why, stop it, and prove what happened?**
+
+That is not a feature question. Every mechanism these ten phases need already exists somewhere
+in the codebase — agents declare themselves, eight `explain*` functions exist, proposals record
+their reviewer, the orchestrator leases and retries and dead-letters. What does not exist is the
+*contract*: a single place each of those is stated, so that a surface, an operator or an auditor
+can rely on it rather than discovering it.
+
+So the risk in this band is the opposite of the last one's. There the danger was building the
+wrong thing. Here it is **building a second thing** — a parallel logging architecture beside the
+outbox, a second authority model beside the policy matrix, a release status that reads the code
+instead of the evidence. Every phase below is written to compose what exists.
+
+### 12.1 What the audit found before implementation
+
+Checked against the code at `20e2fc3`, not against the roadmap:
+
+- **`AgentDeclaration` has seven fields and Phase 91 needs twelve.** Present: `purpose`,
+  `readsEngines`, `proposalTypes`, `confidenceFloor`, `escalatesTo`, `actions`, `maxAttempts`.
+  Absent: **forbidden commands**, **target engines** (distinct from what it reads),
+  **required authority**, an **evidence floor** (distinct from confidence — a model can be
+  confident about nothing), and **degraded behaviour**. `authorise` already default-denies by
+  returning a named refusal rather than a boolean, which is the right base to extend.
+- **Eight `explain*` functions exist and none of them share a shape.** `explainOrder`,
+  `explainRelevance`, `explainConfidence`, `explainQuality`, `explainResolutionQuality`,
+  `explainEligibility`, `explainProfile`, `explainDecision`. Each is correct and each returns a
+  different thing, so no surface can render "why" generically and no test can assert that a new
+  measure is explainable. Phase 92 is a *contract over these*, not a rewrite of them.
+- **Provenance is real and scattered.** `intelligence_proposals` holds `reviewed_by`,
+  `dispatched_at`, `dispatch_error`; `action_plans` and `action_plan_steps` hold the rest;
+  `audit_events` holds the decision. The chain exists and **nothing joins it**, so
+  "approved-but-refused" — the shape `decision != effect` is about — cannot be read out.
+- **There is no kill switch of any kind.** No pause, no disable, no suspend. `grep` for
+  `killSwitch|pauseAgent|suspendIntegration` returns nothing. This is the largest genuine gap in
+  the band, and it is an operator-safety gap rather than a correctness one: every fail-closed
+  path refuses correctly and none of them can be *made* to refuse on purpose.
+- **`/api/health` exists; readiness does not.** Health answers "are my dependencies up".
+  Readiness answers "may this instance serve traffic" — migrations applied, a worker registered,
+  the store reachable — and a load balancer that uses health for readiness will route to an
+  instance whose schema is behind.
+
+### 12.2 The contracts
+
+| Phase | Owner | Composes | New |
+|---|---|---|---|
+| 91 Agent authority registry | E12 | `AGENTS`, `authorise`, policy matrix | five declaration fields, command allowlist, authority pairing |
+| 92 Explainability contract | E12 + E4/E8/E10/E11 | the eight `explain*` | one `Explanation` shape, a discovery guard |
+| 93 Decision provenance | E12 + E9/E10 | proposals, plans, audit | the join, and a persisted chain |
+| 94 Human override | E12/operator | command bus, audit, degraded | `operator_controls` table, six governed commands |
+| 95 Failure containment | runtime | orchestrator, dead letters | containment classes, stated blast radius |
+| 96 Recovery + replay | runtime | leases, idempotency, outbox | `replay != re-decide`, asserted |
+| 97 Observability | runtime | `incidentReport`, health | the nine operator questions, readiness |
+| 98 Privacy certification | E4/all | Phase 69 sweep | twelve enumerated rules |
+| 99 Release readiness | cross-cutting | the ledger | eight independent dimensions |
+| 100 Final E2E | E1–E12 | every lap | one circle, Rage and Rave |
+
+### Phase 91 — Agent Authority Registry
+
+- **Objective:** every agent declares its full authority, and the declaration is the only source
+  of what it may do. Default deny.
+- **Design constraint:** **agent authority is not actor authority.** An agent's declaration can
+  only ever *narrow* what happens; the actor executing a resulting command still faces the
+  policy matrix. Neither substitutes for the other, and the pairing is asserted both ways — a
+  declaration cannot grant what the actor lacks, and an actor's rights cannot widen an agent's
+  declaration.
+- **Failure tests:** an undeclared capability is refused; a forbidden command is refused even
+  when the actor could run it; the evidence floor is enforced separately from confidence; a
+  declaration naming a target engine it may not reach fails validation.
+
+### Phase 92 — Explainability Contract
+
+- **Objective:** one shape — conclusion, named factors, evidence basis, confidence, sample basis,
+  staleness, withholding reason — that every authoritative read can produce.
+- **Design constraint:** **no authoritative opaque composite.** A read that cannot produce an
+  explanation is not allowed to decide anything. Enforced by discovery over `src/domain`.
+- **Failure tests:** a withheld measure explains *why* it is withheld rather than omitting
+  itself; a stale basis says so; explainability survives a refusal.
+
+### Phase 93 — Decision Provenance
+
+- **Objective:** persist `proposal → reviewer → decision → authority → command → target engine →
+  effect or refusal → outcome` as one readable chain.
+- **Design constraint:** append-only, and **approved-but-refused stays visible**. A chain that
+  dropped refusals would make `decision != effect` unobservable, which is the same as untrue.
+- **Failure tests:** a refused dispatch appears in the chain with its reason; the chain survives
+  the proposal being decided twice; no row can be edited.
+
+### Phase 94 — Human Override / Kill Switch
+
+- **Objective:** six governed, server-side controls — pause an agent, disable a proposal type,
+  refuse a pending action, suspend an integration, enter degraded mode, resume.
+- **Design constraint:** **server-side, audited, scoped, reversible, authorized.** A control
+  enforced in a UI is not a control. Each is a command through the bus, so it faces the policy
+  matrix and writes an audit row like everything else.
+- **Failure tests:** an unauthorized override is refused; a paused agent's proposal is refused at
+  the engine and not merely hidden; resume restores exactly what pause removed.
+
+### Phase 95 — Failure Containment
+
+- **Objective:** state the blast radius of each failure class, and certify it.
+- **Design constraint:** one failing consumer, provider, worker or malformed event must not stop
+  anything else. The per-(event, consumer) delivery record already gives this; the phase states
+  it as classes and tests each.
+- **Failure tests:** a malformed event dead-letters without blocking its siblings; a provider
+  outage refuses one path and no other; a partial plan stays partial.
+
+### Phase 96 — Recovery + Replay Certification
+
+- **Objective:** certify lease recovery, restart, retry, replay idempotence and duplicate-effect
+  prevention.
+- **Design constraint:** **`replay != re-decide`.** Re-delivering an event may recompute a
+  projection and must never re-make a human decision or re-apply an effect.
+- **Failure tests:** a replayed approval does not dispatch twice; a replayed confidence boundary
+  writes nothing; a reclaimed lease does not double-run a consumer.
+
+### Phase 97 — Operational Observability
+
+- **Objective:** the nine questions an operator must be able to answer — what failed, which
+  engine, which correlation, was it retried, was the effect applied or refused, what is stuck or
+  dead-lettered, which provider or agent is degraded, is human action required.
+- **Design constraint:** **reuse the durable records.** No parallel logging architecture: every
+  answer comes from the outbox, the delivery records, the audit trail or the health registry.
+- **Failure tests:** each question is answered from rows; readiness is distinct from health.
+
+### Phase 98 — Privacy + Data Control Certification
+
+- **Objective:** enumerate and certify twelve rules — RLS, public grants, definer functions,
+  tenant isolation, removed/private leakage, blocked relationships, watcher identity, trust
+  internals, small populations, retention, service identities, entitlement separation.
+- **Design constraint:** **anonymous is not private**, and no sensitive inference. Structural,
+  by enumeration over `pg_catalog`, extending Phase 69 rather than replacing it.
+
+### Phase 99 — Release Readiness Contract
+
+- **Objective:** eight dimensions tracked independently — CODE, SECURITY, BROWSER, OPERATIONS,
+  DATA, PROVIDER, DEPLOYMENT, ROLLBACK — each `READY`, `READY_WITH_CONDITIONS`, `BLOCKED` or
+  `NOT_READY`.
+- **Design constraint:** **never collapse missing external evidence into code readiness.** A
+  dimension with no evidence is `BLOCKED`, not `READY`, and the aggregate cannot be `READY` while
+  a required dimension is not. This is the phase that makes the ledger unable to lie.
+
+### Phase 100 — Final Experience OS E2E Certification
+
+- **Required scenario, run twice — Rage and Rave.** The whole circle, plus blocked-user,
+  moderation removal, provider unavailable, degraded mode, approved-but-refused, partial plan
+  failure, restart/replay and duplicate-effect prevention.
+- **Decision values:** `PHASES_91_100_READY`, `PHASES_91_100_READY_WITH_EXTERNAL_BLOCKERS`,
+  `PHASES_91_100_NOT_READY`.
+
+### 12.3 Order
+
+```
+91 authority ─┬─ 92 explainability ─┬─ 97 observability ─┬─ 99 release ─── 100
+              ├─ 93 provenance ─────┤                    │
+              └─ 94 human control ──┴─ 95 containment ── 96 recovery ──────┤
+                                         98 privacy ─────────────────────┘
+```
+
+**Batch A** — 91, 92, 93, 94, 95.
+**Batch B** — 96, 97, 98, 99, 100, then one full certification run, then RC2 convergence.

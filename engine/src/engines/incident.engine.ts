@@ -2,6 +2,7 @@ import { heartbeatDeadline, type WorkerRecord } from '../runtime/jobs.ts';
 import type { HealthReport } from '../runtime/health.ts';
 import type { DeadLetterRecord } from '../runtime/deadletter.ts';
 import type { OutboxRecord } from '../runtime/outbox.ts';
+import { degradedModeForced } from './control.engine.ts';
 import type { Engine } from '../engine.ts';
 
 /**
@@ -65,6 +66,14 @@ export interface IncidentReport {
    * the same instant as everything else on the page.
    */
   readonly health: HealthReport;
+  /**
+   * Phase 94. Whether an operator has declared degraded mode.
+   *
+   * A boolean rather than a derived reading, for the same reason `health` is raw: this module
+   * still may not import `degraded.ts`. The surface derives the lens and this supplies the one
+   * fact the lens cannot read for itself — that a person decided something the checks cannot see.
+   */
+  readonly degradedForced: boolean;
   /** Exhausted work, newest first. Each carries its full failure history. */
   readonly deadLetters: readonly DeadLetterRecord[];
   /** Events still retrying, worst first. Empty is the normal state. */
@@ -155,7 +164,12 @@ export const incidentReport = async (deps: Engine): Promise<IncidentReport> => {
     .sort((left, right) => right.createdAt - left.createdAt)
     .slice(0, INCIDENT_LIST_LIMIT);
 
-  return {
+    // Phase 94. Carried as a boolean rather than by calling `degradedStateFrom` here, because
+  // Phase 67's guard forbids this module importing `degraded.ts` at all — the surface derives the
+  // lens and this supplies the one fact the lens cannot read for itself.
+  const degradedForced = await degradedModeForced(deps);
+return {
+    degradedForced,
     health: await deps.health.report(),
     deadLetters,
     struggling: strugglingEvents(await deps.outbox.all()),

@@ -40,7 +40,10 @@ const IncidentsPage = async () => {
   // out of `src/domain` and `src/engines` entirely, so an unavailable dependency can never
   // start causing refusals on top of the ones it already causes — and a surface is the
   // right place for a lens.
-  const degraded = degradedStateFrom(report.health);
+  // Phase 94: the operator's own declaration travels with the health reading. It can raise the
+  // level and never lower it — a declared degraded state over an actually-impaired system still
+  // reads `impaired`, because the declaration is extra information rather than a replacement.
+  const degraded = degradedStateFrom(report.health, report.degradedForced);
 
   return (
     <>

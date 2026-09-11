@@ -33,6 +33,7 @@ export type ResourceType =
   | 'analytics'
   | 'role_assignment'
   | 'export'
+  | 'operator_control'
   | 'corroboration'
   | 'share'
   | 'evidence'
@@ -113,6 +114,13 @@ export type PolicyAction =
   | 'dead_letter.replay'
   | 'analytics.read'
   | 'health.read'
+  /**
+   * Phase 94. One action for all six controls, because they are one kind of act: an operator
+   * overriding the system. Splitting them per control would invite a matrix where some are
+   * admin and some are not, which is how a kill switch becomes reachable by somebody who
+   * should be describing an incident instead.
+   */
+  | 'control.apply'
   // ── Experience Signal Engine ──────────────────────────────────────────
   | 'corroboration.create'
   | 'corroboration.retract'

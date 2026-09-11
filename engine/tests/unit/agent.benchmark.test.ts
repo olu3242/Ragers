@@ -80,12 +80,17 @@ test('below its confidence floor an agent must escalate rather than propose', ()
   }
 });
 
-test('a declared request at or above the floor is allowed', () => {
+test('a declared request at or above every floor is allowed', () => {
+  // Phase 91 added two more floors to clear — a declared target engine and enough cited rows —
+  // so a request that clears only the confidence floor is no longer sufficient. That is the
+  // point of the phase rather than a change in this test's intent.
   const allowed = authorise(AGENTS.moderation, {
     agentId: 'moderation',
     action: 'propose',
     proposalType: 'review_content',
     confidence: 0.7,
+    targetEngine: 'E9',
+    evidenceCount: 2,
   });
   assert.equal(allowed.ok, true);
 });

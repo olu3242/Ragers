@@ -160,7 +160,18 @@ const levelOf = (states: readonly HealthState[]): DegradedLevel => {
  * database — which matters, because the case that has to be right is the one nobody can
  * conveniently reproduce.
  */
-export const degradedStateFrom = (report: HealthReport): DegradedStateReport => {
+export const degradedStateFrom = (
+  report: HealthReport,
+  /**
+   * Phase 94. An operator has declared degraded mode, whatever the dependencies say.
+   *
+   * The reading changes and **no refusal does** — the same rule this module has held since
+   * Phase 67. An operator forcing degraded mode is telling the team something the health checks
+   * cannot see ("the model provider is answering but its answers are wrong"), and the honest
+   * response is to report it, not to start refusing things nobody asked to have refused.
+   */
+  forced = false,
+): DegradedStateReport => {
   const affected: DegradedDependency[] = [];
   for (const dependency of report.dependencies) {
     if (dependency.state === 'healthy') continue;
@@ -176,8 +187,12 @@ export const degradedStateFrom = (report: HealthReport): DegradedStateReport => 
   // as one thing being refused, not two.
   const refusing = [...new Set(affected.flatMap((dependency) => dependency.consequences.refuses))];
 
+  const observed = levelOf(affected.map((dependency) => dependency.state));
   return {
-    level: levelOf(affected.map((dependency) => dependency.state)),
+    // Forced never *lowers* the reading: a declared degraded state over an actually-impaired
+    // system must still read `impaired`, because the operator's declaration is extra information
+    // rather than a replacement for what the checks found.
+    level: forced && observed === 'nominal' ? 'degraded' : observed,
     affected,
     refusing,
     checkedAt: report.checkedAt,

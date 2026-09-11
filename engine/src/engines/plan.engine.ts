@@ -4,6 +4,7 @@ import { eq } from '../ports/store.ts';
 import { draftPlan, planStatusFrom, type PlanStep, type StepOutcome } from '../domain/plan.ts';
 import type { ActorContext } from '../runtime/authz.ts';
 import type { ActionPlanRow, ActionPlanStepRow } from '../ports/store.ts';
+import { isActionHeld } from './control.engine.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -114,6 +115,16 @@ export const executePlan = async (
 ): Promise<Result<PlanExecution, EngineError>> => {
   const plan = await deps.store.actionPlans.get(planId);
   if (!plan) return err(notFoundError('plan_not_found', 'no such plan'));
+
+  // Phase 94: a held plan does not run, and is left `pending` so releasing the control restores
+  // exactly what it removed. Checked against the plan *and* the proposal it came from, because an
+  // operator holding the proposal means holding what the proposal authorised.
+  if ((await isActionHeld(deps, planId)) || (await isActionHeld(deps, plan.proposalId))) {
+    return err(
+      preconditionError('action_held', 'an operator is holding this plan; it cannot be executed', { planId }),
+    );
+  }
+
   if (plan.status !== 'pending') {
     return err(preconditionError('plan_already_executed', `this plan is already ${plan.status}`));
   }

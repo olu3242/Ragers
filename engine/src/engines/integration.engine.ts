@@ -20,6 +20,7 @@ import type {
   OrganizationProfile,
   SubscriptionRow,
 } from '../ports/store.ts';
+import { isIntegrationSuspended } from './control.engine.ts';
 import type { EngineDeps } from './deps.ts';
 import { organizationFor } from './organization.engine.ts';
 
@@ -184,6 +185,15 @@ export const createDeliveryConsumer = (deps: EngineDeps): Consumer => ({
       };
       const claimed = await deps.store.deliveries.compareAndSet(row, 'absent');
       if (!claimed) continue;
+
+      // Phase 94: a suspended integration sends nothing, and the delivery stays pending rather
+      // than being marked failed. Failed would put a permanent mark on a delivery nobody
+      // attempted, and releasing the control could not undo it — which would make the switch
+      // irreversible in the one place the whole point is that it is not.
+      if (await isIntegrationSuspended(deps, subscription.id)) {
+        deps.metrics.increment('integration.suspended');
+        continue;
+      }
 
       const transport = deps.providers.webhookTransport;
       if (!transport) {

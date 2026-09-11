@@ -1,4 +1,6 @@
 import type { Experience } from '../domain/experience.ts';
+// Phase 94. Imported rather than redeclared so the port names one shape, not a copy of it.
+import type { OperatorControl } from '../domain/operator-control.ts';
 import type { Actor, Alias, Session } from '../domain/identity.ts';
 import type { MediaAsset, UploadTarget } from '../domain/voice.ts';
 import type {
@@ -1150,4 +1152,10 @@ export interface EngineStore {
   // ── Phases 82 and 87 ─────────────────────────────────────────────────────
   readonly confidencePoints: Table<ConfidencePointRow>;
   readonly recommendationMemory: Table<RecommendationMemoryRow>;
+
+  // ── Phase 94: operator controls ─────────────────────────────────────────
+  readonly operatorControls: Table<OperatorControl>;
 }
+
+/** Phase 94, re-exported so callers can reach the row type through the port. */
+export type { OperatorControl };

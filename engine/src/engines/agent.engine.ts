@@ -1,6 +1,7 @@
 import { err, ok } from '../runtime/result.ts';
 import {
   authorise,
+  authoriseWithActor,
   declarationFor,
   type AgentAction,
   type AgentDeclaration,
@@ -11,6 +12,7 @@ import { eq } from '../ports/store.ts';
 import type { EngineId } from '../domain/proposal.ts';
 import type { AssistanceReference } from '../ports/providers.ts';
 import type { AgentRunRow, OrganizationResponse, ResolutionReportRow } from '../ports/store.ts';
+import { isAgentPaused } from './control.engine.ts';
 import type { EngineDeps } from './deps.ts';
 
 /**
@@ -208,12 +210,28 @@ export const runAgent = async (
     });
   }
 
-  const mayPropose = authorise(declaration, {
-    agentId: input.agentId,
-    action: 'propose',
-    proposalType: input.proposalType,
-    confidence: suggestion.value.confidence,
-  });
+  // Phase 91: the full authority, checked together. `targetEngine` and the evidence count are
+  // facts about *this* proposal rather than about the agent, so they are supplied here and not
+  // read from the declaration — the declaration is what they are checked against.
+  //
+  // `authoriseWithActor` rather than `authorise`, because an actor is known at this point and
+  // the pairing must not be skippable by omitting a field. The reviewer still faces the policy
+  // matrix inside `proposal.create` below: this narrows, it never grants.
+  const mayPropose = authoriseWithActor(
+    declaration,
+    {
+      agentId: input.agentId,
+      action: 'propose',
+      proposalType: input.proposalType,
+      confidence: suggestion.value.confidence,
+      targetEngine: input.targetEngine,
+      evidenceCount: suggestion.value.references.length,
+      // Phase 94's control, read from the store on the path it governs. A paused agent is
+      // refused here, at the engine, rather than hidden in a surface.
+      ...((await isAgentPaused(deps, input.agentId)) ? { paused: true } : {}),
+    },
+    reviewer,
+  );
   if (!mayPropose.ok) {
     // These are two different things and must not be recorded as one.
     //
@@ -226,7 +244,13 @@ export const runAgent = async (
     // Conflating them would mean a domain violation looked like ordinary caution, and the
     // one query somebody would run after an incident — "what did agents try to do that they
     // were not allowed to?" — would return nothing.
-    const outcome = mayPropose.error.code === 'below_confidence_floor' ? 'escalated' : 'refused';
+    // Phase 91 adds a second caution code. Below the *evidence* floor is the same kind of thing
+    // as below the confidence floor — the agent has nothing a reviewer could check, so it hands
+    // the situation on — and recording it as a domain violation would bury the real ones.
+    const outcome =
+      mayPropose.error.code === 'below_confidence_floor' || mayPropose.error.code === 'below_evidence_floor'
+        ? 'escalated'
+        : 'refused';
     return record({ runId, agentId: input.agentId, outcome, detail: mayPropose.error.message });
   }
 

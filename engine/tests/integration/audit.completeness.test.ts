@@ -138,7 +138,21 @@ test('a source sweep finds no audited command whose engine never calls writeAudi
 
   const missing: string[] = [];
   for (const command of Object.keys(AUDITED_COMMANDS)) {
-    const owner = [...sources.entries()].find(([, source]) => source.includes(`name: '${command}'`));
+    // Ownership is "this module registers this command", and there is more than one way to
+    // write that. `name: 'x'` is the common shape; a factory that registers several related
+    // commands passes the name as an argument instead — which is the *safer* shape when they
+    // share one audited path, because five copies of one handler are five things that can
+    // drift. So ownership matches the command name as a quoted literal, and a module only
+    // counts if it actually registers commands.
+    //
+    // The assertion below is unchanged: whichever module owns it must still call `writeAudit`
+    // with that command's own declared action. Broadening how ownership is *found* does not
+    // loosen what the owner has to do.
+    const owner = [...sources.entries()].find(
+      ([, source]) =>
+        source.includes('deps.bus.register') &&
+        (source.includes(`name: '${command}'`) || source.includes(`'${command}'`)),
+    );
     if (!owner) {
       missing.push(`${command} (no engine registers it)`);
       continue;

@@ -118,6 +118,21 @@ export const AUDITED_COMMANDS: Readonly<Record<string, AuditReason>> = {
   // made it public", and answering it needs a record of when the setting changed and who
   // changed it. The row alone cannot answer it, because the row only holds the current value.
   'governance.grantRole': 'changes_what_another_may_do',
+  // ── Phase 94: the six operator controls ───────────────────────────────────
+  //
+  // Every one of them satisfies clause two and most satisfy clause one as well: an override
+  // changes what an agent, a reviewer or an organization may do next, and it is taken under
+  // authority about work that is not the operator's own. Both directions are audited — who
+  // paused it and who released it are each a decision somebody will be asked about.
+  //
+  // A kill switch outside the audit rule would be the one unaudited action in a codebase whose
+  // whole Phase 68 argument is that such a thing must not exist.
+  'control.pauseAgent': 'changes_what_another_may_do',
+  'control.disableProposalType': 'changes_what_another_may_do',
+  'control.refusePendingAction': 'changes_what_another_may_do',
+  'control.suspendIntegration': 'changes_what_another_may_do',
+  'control.enterDegradedMode': 'changes_what_another_may_do',
+  'control.resume': 'changes_what_another_may_do',
   'identity.revokeSession': 'changes_what_another_may_do',
   'identity.setDefaultVisibility': 'changes_what_another_may_do',
   'creator.changeVisibility': 'changes_what_another_may_do',
@@ -226,6 +241,15 @@ export const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'evidence.assess': 'evidence.assess',
   'proposal.decide': 'proposal.decide',
   'governance.replayDeadLetter': 'dead_letter.replay',
+  // Resource-oriented, like the rest: the resource is the control, and the verb says which way
+  // it went. `control.` as a prefix would lose the direction, which is the one thing an incident
+  // review reads this row for.
+  'control.pauseAgent': 'control.apply',
+  'control.disableProposalType': 'control.apply',
+  'control.refusePendingAction': 'control.apply',
+  'control.suspendIntegration': 'control.apply',
+  'control.enterDegradedMode': 'control.apply',
+  'control.resume': 'control.release',
   'governance.grantRole': 'role.grant',
   'identity.revokeSession': 'session.revoke',
   'identity.setDefaultVisibility': 'actor.set_default_visibility',
