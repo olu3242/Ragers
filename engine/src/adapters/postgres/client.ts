@@ -75,6 +75,26 @@ const ambient = new AsyncLocalStorage<Db>();
 /** True while the caller is inside `db.transaction`. */
 export const inTransaction = (): boolean => ambient.getStore() !== undefined;
 
+/**
+ * Run `work` on the pool even while a transaction is open, so what it writes survives a rollback.
+ *
+ * **This exists for exactly one situation and should stay rare: a write that has to outlive a
+ * refusal.** The command bus runs a handler inside a transaction and rolls it back when the handler
+ * returns an error, which is right — a refused command must not leave half a state change behind.
+ * But a failed-sign-in counter is a write whose entire purpose is to record that a refusal
+ * happened, and rolling it back means the backoff counts to zero forever.
+ *
+ * That defect is worse than it sounds because of *where* it hides: with the in-memory adapters there
+ * is no transaction, so the counter increments and every test passes. Only against Postgres does the
+ * throttle quietly stop existing. The same shape as the transactional-outbox defect and the jsonb
+ * array defect — correct in memory, wrong on the real adapter.
+ *
+ * `ambient.exit` leaves the AsyncLocalStorage scope for the duration of `work`, so any `Db` used
+ * inside it routes to the pool rather than to the open transaction's client. Nothing else changes:
+ * the surrounding transaction still commits or rolls back on its own terms.
+ */
+export const outsideTransaction = <T>(work: () => Promise<T>): Promise<T> => ambient.exit(work);
+
 export const createDb = (options: PostgresOptions): Db => {
   const pool = new Pool({
     connectionString: options.connectionString,

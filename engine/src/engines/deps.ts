@@ -88,4 +88,22 @@ export interface EngineDeps {
   readonly metrics: Metrics;
   readonly providers: EngineProviders;
   readonly config: EngineConfig;
+  /**
+   * Run a write so that it survives a rollback of the command's transaction.
+   *
+   * **For writes whose entire purpose is to record that a refusal happened.** The bus runs a
+   * handler inside a transaction and rolls it back when the handler returns an error, which is
+   * right: a refused command must not leave half a state change behind. A failed-sign-in counter is
+   * the exception that proves it — roll that back and the backoff counts to zero forever, so a
+   * password can be guessed without limit.
+   *
+   * Pass-through with the in-memory adapters, because there is no transaction to escape. That is
+   * also why the defect it fixes was invisible: the counter incremented in every test and existed
+   * only in memory.
+   *
+   * Deliberately narrow, and it should stay so. Anything reached through here is outside the
+   * command's atomicity guarantee, so it must be a write that is *correct on its own* — a counter,
+   * not half of a state change.
+   */
+  readonly durably: <T>(work: () => Promise<T>) => Promise<T>;
 }

@@ -150,9 +150,21 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
         }
 
         if (!verifyPassword(credential, input.password)) {
-          // The strike is recorded before the refusal returns, so a burst of guesses cannot
-          // outrun the backoff by failing fast.
-          await deps.store.actorCredentials.put(recordFailure(credential, ctx.clock.now()));
+          /**
+           * **The strike must outlive the refusal, which is why this goes through `durably`.**
+           *
+           * The bus runs this handler inside a transaction and rolls it back when the handler
+           * returns an error. A counter written here in the ordinary way is therefore discarded by
+           * the very refusal it is counting — so the backoff would read zero forever and a password
+           * could be guessed without limit.
+           *
+           * And it would have been invisible: the in-memory adapters have no transaction, so the
+           * counter increments and the whole unit suite passes. Found by asserting the counter
+           * across two processes against a live database.
+           */
+          await deps.durably(() =>
+            deps.store.actorCredentials.put(recordFailure(credential, ctx.clock.now())),
+          );
           return failed();
         }
         await deps.store.actorCredentials.put(recordSuccess(credential));
@@ -232,7 +244,11 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
           return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
         }
         if (!verifyPassword(existing, input.currentPassword)) {
-          await deps.store.actorCredentials.put(recordFailure(existing, ctx.clock.now()));
+          // Same reasoning as the sign-in path: a refusal rolls back, and this counter's whole job
+          // is to record that the refusal happened.
+          await deps.durably(() =>
+            deps.store.actorCredentials.put(recordFailure(existing, ctx.clock.now())),
+          );
           return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
         }
       }

@@ -36,7 +36,7 @@ import {
   createPostgresOutbox,
   createPostgresWorkerRegistry,
 } from './adapters/postgres/runtime-stores.ts';
-import type { Db } from './adapters/postgres/client.ts';
+import { outsideTransaction, type Db } from './adapters/postgres/client.ts';
 import { defaultConfig, type EngineConfig, type EngineDeps, type EngineProviders } from './engines/deps.ts';
 import { registerIdentityEngine } from './engines/identity.engine.ts';
 import { registerExperienceEngine } from './engines/experience.engine.ts';
@@ -176,6 +176,13 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     ? (work) => db.transaction(async () => work())
     : undefined;
 
+  /**
+   * The escape from that transaction, for writes that have to outlive a refusal.
+   *
+   * Pass-through without a database, because there is no transaction to leave.
+   */
+  const durably = db ? outsideTransaction : <T>(work: () => Promise<T>): Promise<T> => work();
+
   // Phase 61. Wired here rather than defaulted inside the bus, because a bus that
   // constructed its own throttle would make every unit test subject to one — and
   // because the store it counts in is the composition root's business, not the bus's.
@@ -238,6 +245,7 @@ export const createEngine = (options: EngineOptions = {}): Engine => {
     metrics,
     providers,
     config: { ...defaultConfig, ...(options.config ?? {}) },
+    durably,
   };
 
   // Commands
