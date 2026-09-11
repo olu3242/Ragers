@@ -1,0 +1,481 @@
+name: Certification
+
+on:
+  # Branch pushes are covered by the pull_request trigger, so pushing to a
+  # branch with an open PR does not run the suite twice.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: certification-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22.18.0'
+
+jobs:
+  # ── Fast feedback: no services, no browsers ─────────────────────────────
+  static:
+    name: Static validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Static validation (architecture, hygiene, content separation)
+        working-directory: engine
+        run: npm run lint
+
+      - name: Strict typecheck
+        working-directory: engine
+        run: npm run typecheck
+
+      - name: Public-surface smoke checks
+        run: npm test
+
+  # ── Offline suites: the domain and runtime, no external dependencies ────
+  offline-tests:
+    name: Unit and integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: engine
+        run: npm run test:unit
+
+      - name: Integration tests
+        working-directory: engine
+        run: npm run test:integration
+
+  # ── Migrations and RLS against a real Postgres ──────────────────────────
+  database:
+    name: Migrations and live RLS
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      RAGERS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      RAGERS_PG_BIN: /usr/lib/postgresql/16/bin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
+
+      - name: Install Postgres 16 client tools
+        # pg_dump/pg_restore must match the server major version for the
+        # backup/restore drill to be meaningful.
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsS https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-16
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Create client roles
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$ begin
+              if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+              if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+              if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+            end \$\$;"
+
+      - name: Apply migrations
+        working-directory: engine
+        run: npm run migrate
+
+      - name: Migration validation — reapplying is a no-op
+        working-directory: engine
+        run: |
+          npm run migrate | tee /tmp/second.log
+          grep -q "schema up to date" /tmp/second.log
+
+      - name: Migration validation — an edited applied migration is drift
+        working-directory: engine
+        run: |
+          # Corrupt a recorded checksum and require the runner to refuse.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "update schema_migrations set checksum = 'tampered' where filename = '0001_engine_core.sql';"
+          if npm run migrate; then
+            echo "::error::the migration runner accepted schema drift"
+            exit 1
+          fi
+          psql "$DATABASE_URL" -c "delete from schema_migrations;"
+
+      - name: Schema validation — RLS on every table
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "
+            select relname from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname='public' and c.relkind='r' and not c.relrowsecurity
+          " > /tmp/unprotected.txt
+          if [ -s /tmp/unprotected.txt ]; then
+            echo "::error::tables without row level security:"; cat /tmp/unprotected.txt; exit 1
+          fi
+
+      - name: Schema validation — original media and raw transcripts unreadable
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "
+            select table_name || '.' || column_name || ' -> ' || grantee
+            from information_schema.column_privileges
+            where grantee in ('anon','authenticated')
+              and column_name in ('original_key','raw_text')
+              and privilege_type = 'SELECT'
+          " > /tmp/leaked.txt
+          if [ -s /tmp/leaked.txt ]; then
+            echo "::error::withheld columns are readable:"; cat /tmp/leaked.txt; exit 1
+          fi
+
+      - name: Live database suites (parity, RLS, backup/restore, durability)
+        working-directory: engine
+        run: npm run test:live
+
+  # ── The shipped artifact, driven in a browser ───────────────────────────
+  browser:
+    name: Build and browser E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Production build
+        working-directory: engine
+        run: npm run build
+
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
+
+      - name: Install Chromium for Playwright
+        working-directory: engine
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E against the production build
+        working-directory: engine
+        # The config points at a preinstalled Chromium by default; on a runner the
+        # browser Playwright just installed is the right one.
+        env:
+          RAGERS_CHROMIUM: ''
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: engine/playwright-report/
+          retention-days: 7
+
+  # ── Supply chain and secrets ────────────────────────────────────────────
+  security:
+    name: Security validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the secret scan can look at what was committed.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Dependency audit (fail on high or critical)
+        working-directory: engine
+        run: npm audit --audit-level=high
+
+      - name: No committed environment files
+        run: |
+          if git ls-files | grep -E '(^|/)\.env(\..*)?$' ; then
+            echo "::error::an environment file is committed"; exit 1
+          fi
+
+      - name: No credential-shaped literals in tracked files
+        run: |
+          # The static-validation script covers source; this covers everything else.
+          if git grep -nIE '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY-----)' -- . ; then
+            echo "::error::a credential-shaped literal is committed"; exit 1
+          fi
+
+      - name: Service-role key is never referenced from client code
+        working-directory: engine
+        run: |
+          # A service-role key bypasses RLS, so it must never reach a bundle.
+          if git grep -nI 'SERVICE_ROLE' -- app components ; then
+            echo "::error::service-role credential referenced from client code"; exit 1
+          fi
+
+  # ── The gate: the certification harness itself ──────────────────────────
+  certify:
+    name: Certification harness
+    runs-on: ubuntu-latest
+    needs: [static, offline-tests, database, browser, security]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      RAGERS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      RAGERS_PG_BIN: /usr/lib/postgresql/16/bin
+      RAGERS_CHROMIUM: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Neutralise unrelated third-party apt lists
+        # The runner image preinstalls vendor apt lists (Google Chrome among them)
+        # that nothing in this workflow installs from. When one of those serves a
+        # stale index, *every* `apt-get update` on the runner fails — including the
+        # one `playwright install --with-deps` runs internally — and an unrelated
+        # diff goes red. Dropping the lists leaves the already-installed packages
+        # in place; it only stops apt from re-indexing repositories we never use.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get clean
+
+      - name: Install Postgres 16 client tools
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsS https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-16
+
+      - name: Install engine dependencies
+        working-directory: engine
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        working-directory: engine
+        run: npx playwright install --with-deps chromium
+
+      - name: Create client roles
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            do \$\$ begin
+              if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+              if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+              if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
+            end \$\$;"
+
+      # A re-run of this job starts from a clean checkout, so without this the report
+      # it writes would show a green gate with no trace of the attempt that failed.
+      #
+      # Downloaded *before* the run and uploaded with `overwrite: true` after it, so on
+      # attempt 2 this fetches what attempt 1 left behind. Deliberately one artifact name
+      # rather than one per attempt: naming them `…-attempt-N` would need `run_attempt`
+      # minus one, and GitHub Actions expressions have no arithmetic operators at all —
+      # which is not a syntax error you find out about gently. The whole workflow fails to
+      # parse, every job vanishes, and the run reports failure with no jobs in it.
+      #
+      # Nothing is lost by overwriting: the failed attempt's evidence is carried into the
+      # new report as `attempts[]`, which is the point of the mechanism.
+      - name: Fetch the previous attempt's evidence, if this is a re-run
+        if: github.run_attempt != '1'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: certification-evidence
+          path: previous-evidence
+
+      - name: Run every certification gate
+        working-directory: engine
+        env:
+          # Set only on a re-run, and read only if the download actually produced a file.
+          # The harness treats a missing or unparseable path as "no history", never as a
+          # failure.
+          RAGERS_PREVIOUS_REPORT: ${{ github.run_attempt != '1' && format('{0}/previous-evidence/certification-report.json', github.workspace) || '' }}
+        run: npm run certify
+
+      - name: Publish the evidence summary
+        if: always()
+        working-directory: engine
+        run: |
+          {
+            echo "## Certification"
+            echo
+            if [ -f ../docs/certification-report.json ]; then
+              node -e '
+                const report = require("../docs/certification-report.json");
+                console.log("**Status:** `" + report.status + "`");
+                console.log();
+                console.log("**Experience Signal Engine:** `" + report.experienceSignalEngineStatus + "`");
+                console.log();
+                console.log("| | Gate | Result |");
+                console.log("|---|---|---|");
+                const icon = { passed: "✅", failed: "❌", blocked: "⛔" };
+                for (const gate of report.results) {
+                  console.log(`| ${icon[gate.status]} | ${gate.name} | ${gate.status === "blocked" ? (gate.blockedBy ?? "blocked") : gate.detail} |`);
+                }
+                // Named failures, on the CI page itself. The point of the evidence
+                // slice is that nobody should need to download an artefact — or spend
+                // a blind re-run — to find out which subtest failed.
+                const failed = report.results.filter((gate) => gate.status === "failed");
+                for (const gate of failed) {
+                  console.log();
+                  console.log("### " + gate.name);
+                  console.log();
+                  console.log("`" + (gate.command ?? "") + "` exited " + (gate.exitCode ?? "?"));
+                  console.log();
+                  for (const failure of gate.failureSummary ?? []) {
+                    console.log("- **" + failure.test + "**" + (failure.location ? " (" + failure.location + ")" : ""));
+                    if (failure.assertion) console.log("  - " + failure.assertion);
+                  }
+                  if (gate.evidenceExcerpt) {
+                    console.log();
+                    console.log("<details><summary>Output excerpt</summary>");
+                    console.log();
+                    console.log("```");
+                    console.log(gate.evidenceExcerpt);
+                    console.log("```");
+                    console.log();
+                    console.log("</details>");
+                  }
+                }
+                // A gate that failed and then passed. Reported even though the run is
+                // green, because a transient failure nobody records is one nobody fixes.
+                const transient = report.results.filter((gate) => String(gate.conclusion ?? "").startsWith("INITIAL_FAIL"));
+                for (const gate of transient) {
+                  console.log();
+                  console.log("### " + gate.name + " — `" + gate.conclusion + "`");
+                  console.log();
+                  for (const attempt of gate.attempts ?? []) {
+                    console.log("- Attempt " + attempt.attempt + " (" + attempt.status + ") — " + attempt.detail);
+                    for (const failure of attempt.failureSummary ?? []) {
+                      console.log("  - " + failure.test + (failure.assertion ? ": " + failure.assertion : ""));
+                    }
+                  }
+                }
+              '
+            else
+              echo "No certification report was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail the build on a NO_GO or NOT_READY status
+        if: always()
+        working-directory: engine
+        run: |
+          status=$(node -e 'process.stdout.write(require("../docs/certification-report.json").status)')
+          ese=$(node -e 'process.stdout.write(require("../docs/certification-report.json").experienceSignalEngineStatus)')
+          echo "certification status: $status"
+          echo "experience signal engine status: $ese"
+          if [ "$status" = "RAGERS_ENGINE_E2E_NO_GO" ]; then
+            echo "::error::certification reported RAGERS_ENGINE_E2E_NO_GO"; exit 1
+          fi
+          # A green platform with a broken corroboration contract is not shippable.
+          if [ "$ese" = "EXPERIENCE_SIGNAL_ENGINE_NOT_READY" ]; then
+            echo "::error::certification reported EXPERIENCE_SIGNAL_ENGINE_NOT_READY"; exit 1
+          fi
+
+      - name: Upload the evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certification-evidence
+          # Overwritten on a re-run, which is safe because the download step above has
+          # already read the previous attempt and folded it into `attempts[]`.
+          overwrite: true
+          path: |
+            docs/EVIDENCE.md
+            docs/certification-report.json
+          retention-days: 30

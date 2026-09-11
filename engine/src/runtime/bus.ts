@@ -1,0 +1,292 @@
+import { err, ok, type Result } from './result.ts';
+import { internalError, unauthorizedError, validationError, type EngineError } from './errors.ts';
+import type { ActorContext, Authorizer, PolicyAction, ResourceRef } from './authz.ts';
+import type { IdempotencyStore } from './idempotency.ts';
+import type { NewDomainEvent, Outbox } from './outbox.ts';
+import type { Clock } from './clock.ts';
+import type { IdFactory } from './ids.ts';
+import type { Logger } from './logger.ts';
+import type { Metrics } from './metrics.ts';
+
+export interface CommandEnvelope<TInput> {
+  readonly name: string;
+  readonly input: TInput;
+  readonly actor: ActorContext;
+  /** Required. Absent idempotency is a programming error, not a default. */
+  readonly idempotencyKey: string;
+  readonly correlationId?: string;
+}
+
+export interface HandlerOutcome<TOutput> {
+  readonly value: TOutput;
+  readonly events?: readonly NewDomainEvent[];
+}
+
+export interface CommandContext {
+  readonly actor: ActorContext;
+  readonly correlationId: string;
+  readonly clock: Clock;
+  readonly ids: IdFactory;
+  readonly logger: Logger;
+}
+
+export interface CommandHandler<TInput, TOutput> {
+  readonly name: string;
+  readonly action: PolicyAction;
+  /**
+   * Resolve the resource being acted on, so ownership and status can be
+   * authorized before any domain transition runs. Returning a not-found error
+   * here keeps existence checks ahead of the policy gate.
+   */
+  resolveResource(input: TInput, ctx: CommandContext): Promise<Result<ResourceRef, EngineError>>;
+  handle(input: TInput, ctx: CommandContext): Promise<Result<HandlerOutcome<TOutput>, EngineError>>;
+}
+
+/**
+ * Run work atomically. The domain transition and the outbox append must commit
+ * together or not at all — that is the whole point of an outbox, and without it
+ * a process that dies between the two commits a state change whose event never
+ * exists, leaving every projection derived from it permanently behind.
+ *
+ * In-memory runs supply a pass-through: there is no second store to fall out of
+ * step with, since the outbox and the rows live in the same process.
+ */
+export type Transactional = <T>(
+  work: () => Promise<Result<T, EngineError>>,
+) => Promise<Result<T, EngineError>>;
+
+export const passThroughTransaction: Transactional = (work) => work();
+
+/**
+ * Phase 61 — the throttle, as a port.
+ *
+ * A port rather than a store dependency because the bus must not know what a quota is
+ * counted in. `charge` returns a refusal or nothing; whether that involved a row, a
+ * window or a fixed policy is the adapter's business.
+ *
+ * Returning `EngineError | undefined` rather than a boolean on purpose: the refusal
+ * carries the retry-after, and a boolean would leave the bus inventing a message for a
+ * decision it did not make.
+ */
+export interface QuotaGuard {
+  charge(command: string, actor: ActorContext): Promise<EngineError | undefined>;
+}
+
+export interface CommandBusDeps {
+  readonly authorizer: Authorizer;
+  readonly idempotency: IdempotencyStore;
+  readonly outbox: Outbox;
+  readonly clock: Clock;
+  readonly ids: IdFactory;
+  readonly logger: Logger;
+  readonly metrics: Metrics;
+  /** Defaults to a pass-through, which is correct only for in-memory runs. */
+  readonly transaction?: Transactional;
+  /**
+   * Absent means unthrottled, which is what every test that does not care about
+   * quotas wants — and what the composition root overrides in a real engine.
+   */
+  readonly quota?: QuotaGuard;
+}
+
+export interface CommandBus {
+  register<TInput, TOutput>(handler: CommandHandler<TInput, TOutput>): void;
+  dispatch<TInput, TOutput>(envelope: CommandEnvelope<TInput>): Promise<Result<TOutput, EngineError>>;
+  registeredCommands(): readonly string[];
+}
+
+/**
+ * Every registered command takes an object of named fields. A caller that sends
+ * `undefined`, `null`, a primitive or an array has sent something that is not a
+ * command input at all, and a handler asked to destructure it throws — which the
+ * catch below would report as `command_threw`, an internal defect. It is not one:
+ * the caller is wrong, and the boundary that knows every command shares this
+ * precondition is this one. Checking it here rather than in eighty handlers is
+ * what keeps the refusal identical across commands and keeps the check ahead of
+ * every reservation, resolve, authorize and write.
+ *
+ * This is a shape check and nothing more. Field-level validity stays with the
+ * domain that owns the field — a bus that started interpreting values would be
+ * a second, weaker copy of every domain's rules.
+ */
+const inputIsCommandShaped = (input: unknown): boolean =>
+  typeof input === 'object' && input !== null && !Array.isArray(input);
+
+/**
+ * The envelope is the runtime's own contract rather than a user's, so a
+ * malformed one is a caller defect too — but an actor that is absent must never
+ * reach the authorizer, and `actor.actorId` is read while building the logger,
+ * before the catch below exists. An uncaught throw there takes the worker down.
+ * Refusing here keeps a malformed envelope a rejection instead of an outage.
+ */
+const envelopeFault = (envelope: {
+  readonly input: unknown;
+  readonly actor: unknown;
+  readonly idempotencyKey: unknown;
+}): EngineError | undefined => {
+  const actor = envelope.actor;
+  if (typeof actor !== 'object' || actor === null || Array.isArray(actor)) {
+    return validationError('actor_required', 'A command requires an actor context');
+  }
+  const actorId = (actor as { actorId?: unknown }).actorId;
+  if (typeof actorId !== 'string' || actorId.length === 0) {
+    return validationError('actor_id_required', 'A command requires an actor with an actorId');
+  }
+  if (typeof envelope.idempotencyKey !== 'string' || envelope.idempotencyKey.length === 0) {
+    return validationError('idempotency_key_required', 'A command requires a non-empty idempotency key');
+  }
+  if (!inputIsCommandShaped(envelope.input)) {
+    return validationError(
+      'input_required',
+      'A command takes an object of named fields; received ' +
+        (envelope.input === null ? 'null' : Array.isArray(envelope.input) ? 'an array' : typeof envelope.input),
+    );
+  }
+  return undefined;
+};
+
+/**
+ * The single write path. Order is fixed and not negotiable:
+ *   idempotency → quota → resolve → authorize → domain transition → persist+outbox → complete.
+ * Handlers are held privately, so no caller can skip the authorize step by
+ * invoking a handler directly.
+ */
+export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
+  const handlers = new Map<string, CommandHandler<unknown, unknown>>();
+
+  const dispatch = async <TInput, TOutput>(
+    envelope: CommandEnvelope<TInput>,
+  ): Promise<Result<TOutput, EngineError>> => {
+    const started = deps.clock.now();
+    const handler = handlers.get(envelope.name) as CommandHandler<TInput, TOutput> | undefined;
+    if (!handler) {
+      return err(internalError('command_not_registered', `No handler for command ${envelope.name}`));
+    }
+
+    // 0. Shape. Ahead of the reservation on purpose: a refusal that reserved
+    // nothing writes nothing, and re-sending the same malformed command returns
+    // the same refusal from the same check rather than from a recorded one.
+    const fault = envelopeFault(envelope);
+    if (fault) {
+      deps.metrics.increment('command.malformed', { command: envelope.name, code: fault.code });
+      return err(fault);
+    }
+
+    const correlationId = envelope.correlationId ?? deps.ids.next('corr');
+    const logger = deps.logger.child({ command: envelope.name, correlationId, actorId: envelope.actor.actorId });
+    const ctx: CommandContext = {
+      actor: envelope.actor,
+      correlationId,
+      clock: deps.clock,
+      ids: deps.ids,
+      logger,
+    };
+
+    // 1. Idempotency — a replay returns the first outcome, never a second effect.
+    const reservation = await deps.idempotency.reserve(
+      envelope.idempotencyKey,
+      envelope.actor.actorId,
+      envelope.name,
+    );
+    if (reservation.status === 'replayed') {
+      deps.metrics.increment('command.replayed', { command: envelope.name });
+      const record = reservation.record;
+      if (record.error) return err(record.error);
+      return ok(record.response as TOutput);
+    }
+    if (reservation.status === 'in_flight') {
+      deps.metrics.increment('command.in_flight', { command: envelope.name });
+      return err(
+        unauthorizedError('command_in_flight', 'A command with this idempotency key is already running'),
+      );
+    }
+
+    // 1b. Quota. After the reservation so a replay of one intent is charged once,
+    // and before resolve, authorize and any write so a throttled request costs
+    // nothing but the check. A throttle is retryable, so `finishErr` releases the
+    // key rather than recording the refusal — the caller is meant to come back.
+    const finishErr = async (error: EngineError): Promise<Result<TOutput, EngineError>> => {
+      // Rejections are recorded so a replay is stable, except transient ones,
+      // which must remain retryable under the same key.
+      if (error.retryable) await deps.idempotency.release(envelope.idempotencyKey);
+      else await deps.idempotency.fail(envelope.idempotencyKey, error);
+      deps.metrics.increment('command.failed', { command: envelope.name, kind: error.kind });
+      logger.warn('command.failed', { code: error.code, kind: error.kind });
+      return err(error);
+    };
+
+    if (deps.quota !== undefined) {
+      // Guarded, because this runs before the `try` below and a throwing throttle store
+      // would otherwise escape `dispatch` entirely — taking the worker down over a
+      // counter. An unavailable quota allows the request: a throttle is a convenience,
+      // and authorization is what protects the system.
+      let throttled: EngineError | undefined;
+      try {
+        throttled = await deps.quota.charge(envelope.name, envelope.actor);
+      } catch (cause) {
+        deps.metrics.increment('quota.unavailable', { command: envelope.name });
+        logger.warn('quota.unavailable', { cause: cause instanceof Error ? cause.message : String(cause) });
+      }
+      if (throttled !== undefined) {
+        deps.metrics.increment('command.throttled', { command: envelope.name });
+        return await finishErr(throttled);
+      }
+    }
+
+    try {
+      // 2. Resolve the target resource.
+      const resolved = await handler.resolveResource(envelope.input, ctx);
+      if (!resolved.ok) return await finishErr(resolved.error);
+
+      // 3. Authorize. Deny by default.
+      const decision = deps.authorizer.authorize(envelope.actor, handler.action, resolved.value);
+      if (!decision.allowed) {
+        deps.metrics.increment('policy.denied', { action: handler.action, code: decision.code });
+        return await finishErr(unauthorizedError(decision.code, decision.reason, { action: handler.action }));
+      }
+
+      // 4 + 5. Domain transition and its events, in one transaction. A rollback
+      // has to take both: a state change without its event is invisible to every
+      // projection, and an event without its state change describes something
+      // that never happened.
+      const transaction = deps.transaction ?? passThroughTransaction;
+      const outcome = await transaction(async () => {
+        const transitioned = await handler.handle(envelope.input, ctx);
+        if (!transitioned.ok) return transitioned;
+        const events = transitioned.value.events ?? [];
+        if (events.length > 0) await deps.outbox.append(events, correlationId);
+        return transitioned;
+      });
+      if (!outcome.ok) return await finishErr(outcome.error);
+
+      const events = outcome.value.events ?? [];
+
+      // 6. Complete idempotency. Deliberately outside the transaction: a
+      // completion that rolled back with it would let a retry re-run a command
+      // whose effects had already committed.
+      await deps.idempotency.complete(envelope.idempotencyKey, outcome.value.value);
+
+      deps.metrics.increment('command.succeeded', { command: envelope.name });
+      deps.metrics.observe('command.duration_ms', deps.clock.now() - started, { command: envelope.name });
+      logger.info('command.succeeded', { events: events.length });
+      return ok(outcome.value.value);
+    } catch (cause) {
+      const error = internalError('command_threw', `Command ${envelope.name} threw`, {
+        cause: cause instanceof Error ? cause.message : String(cause),
+      });
+      await deps.idempotency.fail(envelope.idempotencyKey, error);
+      deps.metrics.increment('command.threw', { command: envelope.name });
+      logger.error('command.threw', { code: error.code });
+      return err(error);
+    }
+  };
+
+  return {
+    register: <TInput, TOutput>(handler: CommandHandler<TInput, TOutput>) => {
+      if (handlers.has(handler.name)) throw new Error(`Duplicate command handler: ${handler.name}`);
+      handlers.set(handler.name, handler as unknown as CommandHandler<unknown, unknown>);
+    },
+    dispatch,
+    registeredCommands: () => [...handlers.keys()].sort(),
+  };
+};

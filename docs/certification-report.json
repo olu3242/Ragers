@@ -1,0 +1,1324 @@
+{
+  "status": "RAGERS_ENGINE_E2E_READY_WITH_EXTERNAL_BLOCKERS",
+  "experienceSignalEngineStatus": "EXPERIENCE_SIGNAL_ENGINE_READY",
+  "governanceActionStatus": "PHASES_31_40_READY",
+  "experienceOsStatus": "RAGERS_EXPERIENCE_OS_CODE_READY_DATA_BLOCKED",
+  "experienceLoopStatus": "PHASES_51_60_READY",
+  "operationalIntegrityStatus": "PHASES_61_70_READY_WITH_EXTERNAL_BLOCKERS",
+  "discoveryNetworkStatus": "PHASES_71_80_READY",
+  "trustQualityStatus": "PHASES_81_90_READY",
+  "authorityReleaseStatus": "PHASES_91_100_READY",
+  "release": [
+    {
+      "dimension": "CODE_READY",
+      "value": "READY",
+      "evidence": "28 gate(s): 28 passed, 0 failed, 0 blocked."
+    },
+    {
+      "dimension": "SECURITY_READY",
+      "value": "READY_WITH_CONDITIONS",
+      "evidence": "15 gate(s): 15 passed, 0 failed, 0 blocked.",
+      "condition": "No sign-in credential mechanism exists. `identity.authenticate` refuses by default, so nobody can be impersonated; equally, nobody can sign in. A verified magic link or a password is required before any pilot."
+    },
+    {
+      "dimension": "BROWSER_READY",
+      "value": "READY",
+      "evidence": "3 gate(s): 3 passed, 0 failed, 0 blocked."
+    },
+    {
+      "dimension": "OPERATIONS_READY",
+      "value": "READY_WITH_CONDITIONS",
+      "evidence": "14 gate(s): 14 passed, 0 failed, 0 blocked.",
+      "condition": "Retention states its ceilings, enforces its holds, decides expiry and writes its ledger. Deleting remote bytes reports object_storage_blocked until a bucket exists."
+    },
+    {
+      "dimension": "DATA_READY",
+      "value": "BLOCKED",
+      "evidence": "The aggregation, the floors and the suppression are all certified and produce no output.",
+      "missing": "Twenty distinct contributors per comparison set. Certified code over absent data is not a benchmark, and a gate that passed against seeded volume would be certifying the seed."
+    },
+    {
+      "dimension": "PROVIDER_READY",
+      "value": "BLOCKED",
+      "evidence": "The ports and their fail-closed behaviour are certified against fakes. `live: false` is what says so.",
+      "missing": "Credentials for a transcription/PII provider and a model provider. An interface is not a certified provider."
+    },
+    {
+      "dimension": "DEPLOYMENT_READY",
+      "value": "BLOCKED",
+      "evidence": "1 gate(s): 0 passed, 0 failed, 1 blocked.",
+      "missing": "Deployment to a target environment: No deployment target (Vercel/Railway project, or hosting credentials) is configured, so no environment can be deployed to and verified."
+    },
+    {
+      "dimension": "ROLLBACK_READY",
+      "value": "BLOCKED",
+      "evidence": "1 gate(s): 0 passed, 0 failed, 1 blocked.",
+      "missing": "Rollback drill: Requires a deployed environment to roll back. The additive-migration rule rollback depends on is enforced by the static-validation gate, and the migration runner refuses drift, but the drill itself needs a deployment. Procedure in docs/OPERATIONS.md §5."
+    }
+  ],
+  "generatedAt": "2026-09-11T11:33:20.521Z",
+  "totals": {
+    "passed": 76,
+    "failed": 0,
+    "blocked": 2
+  },
+  "results": [
+    {
+      "id": "static_validation",
+      "name": "Static validation (architecture, hygiene, content separation)",
+      "requirement": "security",
+      "status": "passed",
+      "durationMs": 454,
+      "detail": "clean (0.5s)",
+      "command": "npm run lint",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
+    },
+    {
+      "id": "schema_migrations",
+      "name": "Schema & migrations (static)",
+      "requirement": "schema/migrations",
+      "status": "passed",
+      "durationMs": 364,
+      "detail": "20/20 assertions passed (0.4s)",
+      "command": "node --test tests/unit/schema.migrations.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "unit",
+      "name": "Unit tests",
+      "requirement": "unit",
+      "status": "passed",
+      "durationMs": 4028,
+      "detail": "654/654 assertions passed (4.0s)",
+      "command": "node --test tests/unit/**/*.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 654,
+        "passed": 654,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "integration",
+      "name": "Integration tests",
+      "requirement": "integration",
+      "status": "passed",
+      "durationMs": 8499,
+      "detail": "377/377 assertions passed (8.5s)",
+      "command": "node --test tests/integration/**/*.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 377,
+        "passed": 377,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "authorization",
+      "name": "Authorization",
+      "requirement": "authorization",
+      "status": "passed",
+      "durationMs": 647,
+      "detail": "27/27 assertions passed (0.6s)",
+      "command": "node --test tests/unit/identity.policy.test.ts tests/unit/runtime.authz.test.ts tests/integration/governance.audit.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 27,
+        "passed": 27,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "retry_dead_letter",
+      "name": "Retry & dead-letter",
+      "requirement": "retry/dead-letter",
+      "status": "passed",
+      "durationMs": 346,
+      "detail": "7/7 assertions passed (0.3s)",
+      "command": "node --test tests/unit/runtime.retry.test.ts tests/unit/runtime.deadletter.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 7,
+        "passed": 7,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "concurrency",
+      "name": "Concurrency & idempotency",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 692,
+      "detail": "20/20 assertions passed (0.7s)",
+      "command": "node --test tests/unit/runtime.idempotency.test.ts tests/unit/runtime.outbox.test.ts tests/integration/reaction.mechanics.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "voice",
+      "name": "Voice capture & golden path",
+      "requirement": "voice",
+      "status": "passed",
+      "durationMs": 623,
+      "detail": "21/21 assertions passed (0.6s)",
+      "command": "node --test tests/unit/voice.recorder.test.ts tests/unit/voice.validation.test.ts tests/integration/voice.goldenpath.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 21,
+        "passed": 21,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "moderation_failure_path",
+      "name": "Moderation failure path (fail-closed)",
+      "requirement": "moderation failure-path",
+      "status": "passed",
+      "durationMs": 568,
+      "detail": "6/6 assertions passed (0.6s)",
+      "command": "node --test tests/integration/privacy.failclosed.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "privacy_search_leakage",
+      "name": "Privacy & search leakage",
+      "requirement": "privacy/search leakage",
+      "status": "passed",
+      "durationMs": 1226,
+      "detail": "39/39 assertions passed (1.2s)",
+      "command": "node --test tests/unit/identity.anonymity.test.ts tests/unit/observability.logging.test.ts tests/integration/search.leakage.test.ts tests/integration/subject.guardrail.test.ts tests/integration/analytics.observability.test.ts tests/integration/creator.deletion.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 39,
+        "passed": 39,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "accessibility",
+      "name": "Accessibility (static surfaces)",
+      "requirement": "accessibility",
+      "status": "passed",
+      "durationMs": 288,
+      "detail": "28/28 assertions passed (0.3s)",
+      "command": "node --test tests/unit/accessibility.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 28,
+        "passed": 28,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "typecheck",
+      "name": "Strict typecheck",
+      "requirement": "build",
+      "status": "passed",
+      "durationMs": 3016,
+      "detail": "clean (3.0s)",
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
+    },
+    {
+      "id": "build",
+      "name": "Production build",
+      "requirement": "build",
+      "status": "passed",
+      "durationMs": 30870,
+      "detail": "clean (30.9s)",
+      "command": "npx next build",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
+    },
+    {
+      "id": "browser_e2e",
+      "name": "Browser E2E",
+      "requirement": "browser E2E",
+      "status": "passed",
+      "durationMs": 51901,
+      "detail": "30 browser test(s) passed (51.9s)",
+      "command": "npx playwright test",
+      "exitCode": 0,
+      "counts": {
+        "passed": 30
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "security",
+      "name": "Dependency audit",
+      "requirement": "security",
+      "status": "passed",
+      "durationMs": 539,
+      "detail": "clean (0.5s)",
+      "command": "npm audit --audit-level=high",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
+    },
+    {
+      "id": "live_migrations",
+      "name": "Migrations applied to a live database",
+      "requirement": "schema/migrations",
+      "status": "passed",
+      "durationMs": 407,
+      "detail": "clean (0.4s)",
+      "command": "npm run migrate",
+      "exitCode": 0,
+      "counts": {},
+      "conclusion": "PASS"
+    },
+    {
+      "id": "persistence_parity",
+      "name": "Adapter parity (in-memory vs Postgres)",
+      "requirement": "integration",
+      "status": "passed",
+      "durationMs": 1248,
+      "detail": "12/12 assertions passed (1.2s)",
+      "command": "node --test tests/live/persistence.parity.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 12,
+        "passed": 12,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "rls_enforcement",
+      "name": "RLS enforcement against a live database",
+      "requirement": "authorization",
+      "status": "passed",
+      "durationMs": 1086,
+      "detail": "27/27 assertions passed (1.1s)",
+      "command": "node --test tests/live/rls.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 27,
+        "passed": 27,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "durable_orchestration",
+      "name": "Durable orchestration and restart recovery",
+      "requirement": "retry/dead-letter",
+      "status": "passed",
+      "durationMs": 4067,
+      "detail": "11/11 assertions passed (4.1s)",
+      "command": "node --test tests/live/orchestration.durability.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "backup_restore",
+      "name": "Backup and restore drill",
+      "requirement": "backup/restore",
+      "status": "passed",
+      "durationMs": 2356,
+      "detail": "6/6 assertions passed (2.4s)",
+      "command": "node --test tests/live/backup.restore.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_corroboration_contract",
+      "name": "ESE: corroboration is a claim, not a repost or a reaction",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 296,
+      "detail": "15/15 assertions passed (0.3s)",
+      "command": "node --test tests/unit/corroboration.contract.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 15,
+        "passed": 15,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_matching_signal",
+      "name": "ESE: matching, signal and resolution semantics",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 315,
+      "detail": "26/26 assertions passed (0.3s)",
+      "command": "node --test tests/unit/matching.signal.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 26,
+        "passed": 26,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_normalization_trust",
+      "name": "ESE: AI suggests, the person confirms; trust stays internal",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/normalization",
+      "status": "passed",
+      "durationMs": 317,
+      "detail": "20/20 assertions passed (0.3s)",
+      "command": "node --test tests/unit/normalization.trust.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 20,
+        "passed": 20,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_language_guidance",
+      "name": "ESE: language guidance advises and never rewrites",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/language",
+      "status": "passed",
+      "durationMs": 294,
+      "detail": "9/9 assertions passed (0.3s)",
+      "command": "node --test tests/unit/language.guidance.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_corroboration_engine",
+      "name": "ESE: corroboration engine end to end through the bus",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 669,
+      "detail": "16/16 assertions passed (0.7s)",
+      "command": "node --test tests/integration/corroboration.engine.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 16,
+        "passed": 16,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_intelligence_chain",
+      "name": "ESE: extract, confirm, cluster, measure",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 770,
+      "detail": "21/21 assertions passed (0.8s)",
+      "command": "node --test tests/integration/intelligence.chain.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 21,
+        "passed": 21,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_resolution_organization",
+      "name": "ESE: a response is not a resolution",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/resolution",
+      "status": "passed",
+      "durationMs": 682,
+      "detail": "18/18 assertions passed (0.7s)",
+      "command": "node --test tests/integration/resolution.organization.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 18,
+        "passed": 18,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_host_surfaces",
+      "name": "ESE: host surface guards, including the fixture route",
+      "scope": "experience_signal_engine",
+      "requirement": "security",
+      "status": "passed",
+      "durationMs": 312,
+      "detail": "8/8 assertions passed (0.3s)",
+      "command": "node --test tests/unit/host.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 8,
+        "passed": 8,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_duplicate_concurrency",
+      "name": "ESE: one person, one corroboration, under real concurrency",
+      "scope": "experience_signal_engine",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 2197,
+      "detail": "3/3 assertions passed (2.2s)",
+      "command": "node --test tests/live/corroboration.concurrency.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_outbox_atomicity",
+      "name": "ESE: state change and event commit together",
+      "scope": "experience_signal_engine",
+      "requirement": "concurrency",
+      "status": "passed",
+      "durationMs": 1793,
+      "detail": "2/2 assertions passed (1.8s)",
+      "command": "node --test tests/live/outbox.atomicity.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 2,
+        "passed": 2,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_intelligence_live",
+      "name": "ESE: intelligence chain against a live database",
+      "scope": "experience_signal_engine",
+      "requirement": "ese/intelligence",
+      "status": "passed",
+      "durationMs": 2738,
+      "detail": "6/6 assertions passed (2.7s)",
+      "command": "node --test tests/live/intelligence.chain.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_been_there_backfill",
+      "name": "ESE: the Been There backfill loses and invents nothing",
+      "scope": "experience_signal_engine",
+      "requirement": "schema/migrations",
+      "status": "passed",
+      "durationMs": 922,
+      "detail": "5/5 assertions passed (0.9s)",
+      "command": "node --test tests/live/migration.retire-been-there.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 5,
+        "passed": 5,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "ese_browser_boundary",
+      "name": "ESE: the certification boundary flow, in a browser",
+      "scope": "experience_signal_engine",
+      "requirement": "browser E2E",
+      "status": "passed",
+      "durationMs": 12144,
+      "detail": "2 browser test(s) passed (12.1s)",
+      "command": "npx playwright test --project=experience-signal-engine",
+      "exitCode": 0,
+      "counts": {
+        "passed": 2
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "contracts_domain",
+      "name": "Contracts: dispute, Relate and proposal semantics",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 269,
+      "detail": "22/22 assertions passed (0.3s)",
+      "command": "node --test tests/unit/dispute.relate.proposal.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 22,
+        "passed": 22,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "contracts_engine",
+      "name": "Contracts: the four gaps end to end through the bus",
+      "requirement": "ese/contract",
+      "status": "passed",
+      "durationMs": 572,
+      "detail": "17/17 assertions passed (0.6s)",
+      "command": "node --test tests/integration/contracts.engine.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 17,
+        "passed": 17,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "persona_authorization",
+      "name": "Persona authorization: the five refusals",
+      "requirement": "authorization",
+      "status": "passed",
+      "durationMs": 533,
+      "detail": "9/9 assertions passed (0.5s)",
+      "command": "node --test tests/integration/persona.authorization.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "outcome_presentation",
+      "name": "Outcome states are distinguishable, including a proposed resolution",
+      "requirement": "ese/resolution",
+      "status": "passed",
+      "durationMs": 252,
+      "detail": "10/10 assertions passed (0.3s)",
+      "command": "node --test tests/unit/outcome.presentation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "host_surfaces",
+      "name": "Host surface guards, including the fixture route",
+      "requirement": "security",
+      "status": "passed",
+      "durationMs": 256,
+      "detail": "8/8 assertions passed (0.3s)",
+      "command": "node --test tests/unit/host.surfaces.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 8,
+        "passed": 8,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "contracts_live",
+      "name": "Contracts against a live database: races, RLS and numerics",
+      "requirement": "authorization",
+      "status": "passed",
+      "durationMs": 2373,
+      "detail": "6/6 assertions passed (2.4s)",
+      "command": "node --test tests/live/contracts.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "relate_reputation_surfaces",
+      "name": "Surfaces: Relate carries no weight; reputation shows no score",
+      "requirement": "browser E2E",
+      "status": "passed",
+      "durationMs": 17183,
+      "detail": "4 browser test(s) passed (17.2s)",
+      "command": "npx playwright test --project=relate-reputation",
+      "exitCode": 0,
+      "counts": {
+        "passed": 4
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_31_40_domain",
+      "name": "P31–35: severity is asserted, escalation decides nothing",
+      "scope": "governance_action",
+      "requirement": "phases/31-35",
+      "status": "passed",
+      "durationMs": 307,
+      "detail": "31/31 assertions passed (0.3s)",
+      "command": "node --test tests/unit/severity.escalation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 31,
+        "passed": 31,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_38_40_domain",
+      "name": "P38–40: a measure withheld beats a measure invented",
+      "scope": "governance_action",
+      "requirement": "phases/38-40",
+      "status": "passed",
+      "durationMs": 325,
+      "detail": "18/18 assertions passed (0.3s)",
+      "command": "node --test tests/unit/sampling.aggregation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 18,
+        "passed": 18,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_31_40_bus",
+      "name": "P31–40 end to end through the bus",
+      "scope": "governance_action",
+      "requirement": "phases/31-40",
+      "status": "passed",
+      "durationMs": 708,
+      "detail": "32/32 assertions passed (0.7s)",
+      "command": "node --test tests/integration/governance.action.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_31_40_live",
+      "name": "P31–40 against a live database: constraints, races and jsonb",
+      "scope": "governance_action",
+      "requirement": "phases/31-40/live",
+      "status": "passed",
+      "durationMs": 4700,
+      "detail": "15/15 assertions passed (4.7s)",
+      "command": "node --test tests/live/governance.action.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 15,
+        "passed": 15,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_31_40_browser",
+      "name": "P31–40 in a browser: no band without an assertion, no rate below the floor",
+      "scope": "governance_action",
+      "requirement": "phases/31-40/surfaces",
+      "status": "passed",
+      "durationMs": 18399,
+      "detail": "6 browser test(s) passed (18.4s)",
+      "command": "npx playwright test --project=governance-action",
+      "exitCode": 0,
+      "counts": {
+        "passed": 6
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_41_43_domain",
+      "name": "P41–43: severity, urgency and priority stay three questions",
+      "scope": "experience_os",
+      "requirement": "phases/41-43",
+      "status": "passed",
+      "durationMs": 318,
+      "detail": "28/28 assertions passed (0.3s)",
+      "command": "node --test tests/unit/urgency.impact.priority.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 28,
+        "passed": 28,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_44_47_domain",
+      "name": "P44–47: an agent has no write verb, and a benchmark names nobody",
+      "scope": "experience_os",
+      "requirement": "phases/44-47",
+      "status": "passed",
+      "durationMs": 307,
+      "detail": "17/17 assertions passed (0.3s)",
+      "command": "node --test tests/unit/agent.benchmark.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 17,
+        "passed": 17,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_48_49_domain",
+      "name": "P48–49: the integrity layer is blind to payment; a webhook is signed and isolated",
+      "scope": "experience_os",
+      "requirement": "phases/48-49",
+      "status": "passed",
+      "durationMs": 299,
+      "detail": "14/14 assertions passed (0.3s)",
+      "command": "node --test tests/unit/entitlement.integration.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 14,
+        "passed": 14,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_41_50_bus",
+      "name": "P41–50 end to end through the bus, including replay",
+      "scope": "experience_os",
+      "requirement": "phases/41-50",
+      "status": "passed",
+      "durationMs": 688,
+      "detail": "32/32 assertions passed (0.7s)",
+      "command": "node --test tests/integration/governance.action.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_41_50_live",
+      "name": "P41–50 against a live database: constraints, races and coherence",
+      "scope": "experience_os",
+      "requirement": "phases/41-50/live",
+      "status": "passed",
+      "durationMs": 5016,
+      "detail": "15/15 assertions passed (5.0s)",
+      "command": "node --test tests/live/governance.action.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 15,
+        "passed": 15,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "convergence_circular",
+      "name": "Convergence: one full lap, Rage and Rave, every distinction intact",
+      "scope": "experience_os",
+      "requirement": "convergence/circular",
+      "status": "passed",
+      "durationMs": 586,
+      "detail": "3/3 assertions passed (0.6s)",
+      "command": "node --test tests/integration/convergence.circular.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_51_55",
+      "name": "P51–55: a connection is not weight, a memory names nobody, a signal can end",
+      "scope": "experience_loop",
+      "requirement": "phases/51-55",
+      "status": "passed",
+      "durationMs": 330,
+      "detail": "41/41 assertions passed (0.3s)",
+      "command": "node --test tests/unit/relationship.memory.history.test.ts tests/unit/lifecycle.decay.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 41,
+        "passed": 41,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_56_59",
+      "name": "P56–59: reputation replays, a conclusion is checkable, a plan cannot launder privilege",
+      "scope": "experience_loop",
+      "requirement": "phases/56-59",
+      "status": "passed",
+      "durationMs": 916,
+      "detail": "44/44 assertions passed (0.9s)",
+      "command": "node --test tests/unit/evolution.conclusion.plan.test.ts tests/integration/loop.intelligence.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 44,
+        "passed": 44,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_51_60_bus",
+      "name": "P51–60 end to end through the bus",
+      "scope": "experience_loop",
+      "requirement": "phases/51-60",
+      "status": "passed",
+      "durationMs": 625,
+      "detail": "9/9 assertions passed (0.6s)",
+      "command": "node --test tests/integration/experience.loop.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "loop_certification",
+      "name": "The experience loop closes, for a Rage and again for a Rave",
+      "scope": "experience_loop",
+      "requirement": "loop/certification",
+      "status": "passed",
+      "durationMs": 679,
+      "detail": "3/3 assertions passed (0.7s)",
+      "command": "node --test tests/integration/loop.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_51_60_live",
+      "name": "P51–60 against a live database: the reads see real rows, and the plan constraints hold",
+      "scope": "experience_loop",
+      "requirement": "phases/51-60/live",
+      "status": "passed",
+      "durationMs": 5080,
+      "detail": "3/3 assertions passed (5.1s)",
+      "command": "node --test tests/live/experience.loop.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_61_64",
+      "name": "P61–64: a quota is not a judgement, detection is not an action, a reply can be actioned",
+      "scope": "operational_integrity",
+      "requirement": "phases/61-64",
+      "status": "passed",
+      "durationMs": 915,
+      "detail": "43/43 assertions passed (0.9s)",
+      "command": "node --test tests/unit/quota.governance.test.ts tests/unit/coordination.reply.test.ts tests/integration/quota.enforcement.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 43,
+        "passed": 43,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_65_68",
+      "name": "P65–68: a stated ceiling, one reported state, and a rule for the audit trail",
+      "scope": "operational_integrity",
+      "requirement": "phases/65-68",
+      "status": "passed",
+      "durationMs": 760,
+      "detail": "44/44 assertions passed (0.8s)",
+      "command": "node --test tests/unit/retention.policy.test.ts tests/unit/degraded.mode.test.ts tests/integration/retention.sweep.test.ts tests/integration/audit.completeness.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 44,
+        "passed": 44,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phase_66_incidents",
+      "name": "P66: the incident surface reports and does not act",
+      "scope": "operational_integrity",
+      "requirement": "phases/66",
+      "status": "passed",
+      "durationMs": 545,
+      "detail": "11/11 assertions passed (0.5s)",
+      "command": "node --test tests/integration/incident.surface.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "operational_integrity_certification",
+      "name": "Operational integrity, for a Rage and again for a Rave",
+      "scope": "operational_integrity",
+      "requirement": "operational/certification",
+      "status": "passed",
+      "durationMs": 675,
+      "detail": "16/16 assertions passed (0.7s)",
+      "command": "node --test tests/integration/operational.integrity.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 16,
+        "passed": 16,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "tenant_isolation_sweep",
+      "name": "P69: every table swept, and no world-readable table names a person",
+      "scope": "operational_integrity",
+      "requirement": "phases/69/live",
+      "status": "passed",
+      "durationMs": 1463,
+      "detail": "10/10 assertions passed (1.5s)",
+      "command": "node --test tests/live/tenant.isolation.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_71_74",
+      "name": "P71–74: corroboration outranks engagement, and a profile knows only what you declared",
+      "scope": "discovery_network",
+      "requirement": "phases/71-74",
+      "status": "passed",
+      "durationMs": 296,
+      "detail": "22/22 assertions passed (0.3s)",
+      "command": "node --test tests/unit/relevance.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 22,
+        "passed": 22,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_76_79",
+      "name": "P76–79: reach counts people, emerging is not verified, a notification has stages",
+      "scope": "discovery_network",
+      "requirement": "phases/76-79",
+      "status": "passed",
+      "durationMs": 307,
+      "detail": "22/22 assertions passed (0.3s)",
+      "command": "node --test tests/unit/reach.notification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 22,
+        "passed": 22,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "discovery_reads",
+      "name": "P71–75, 78 through the store: removed content is absent before its consumer drains",
+      "scope": "discovery_network",
+      "requirement": "phases/71-78",
+      "status": "passed",
+      "durationMs": 644,
+      "detail": "18/18 assertions passed (0.6s)",
+      "command": "node --test tests/integration/discovery.watch.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 18,
+        "passed": 18,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "discovery_certification",
+      "name": "The discovery lap closes, for a Rage and again for a Rave",
+      "scope": "discovery_network",
+      "requirement": "discovery/certification",
+      "status": "passed",
+      "durationMs": 631,
+      "detail": "7/7 assertions passed (0.6s)",
+      "command": "node --test tests/integration/discovery.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 7,
+        "passed": 7,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_81_85_rules",
+      "name": "P81–85: confidence counts people, and a fast non-answer is not a good one",
+      "scope": "trust_quality",
+      "requirement": "phases/81-85",
+      "status": "passed",
+      "durationMs": 309,
+      "detail": "26/26 assertions passed (0.3s)",
+      "command": "node --test tests/unit/confidence.quality.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 26,
+        "passed": 26,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_81_85_rows",
+      "name": "P81–85 through the store: six rows from one account are one person",
+      "scope": "trust_quality",
+      "requirement": "phases/81-85",
+      "status": "passed",
+      "durationMs": 730,
+      "detail": "21/21 assertions passed (0.7s)",
+      "command": "node --test tests/integration/confidence.quality.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 21,
+        "passed": 21,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_86_90",
+      "name": "P86–90: eligibility before personalization, and approval is not standing",
+      "scope": "trust_quality",
+      "requirement": "phases/86-90",
+      "status": "passed",
+      "durationMs": 837,
+      "detail": "17/17 assertions passed (0.8s)",
+      "command": "node --test tests/integration/personalization.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 17,
+        "passed": 17,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "trust_quality_live",
+      "name": "P81–85 against a live database: the series is append-only and staff-only",
+      "scope": "trust_quality",
+      "requirement": "phases/81-85/live",
+      "status": "passed",
+      "durationMs": 1736,
+      "detail": "10/10 assertions passed (1.7s)",
+      "command": "node --test tests/live/confidence.history.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_91_95_rules",
+      "name": "P91–95: default deny, an explanation that says why it is withheld, a stated blast radius",
+      "scope": "authority_release",
+      "requirement": "phases/91-95",
+      "status": "passed",
+      "durationMs": 342,
+      "detail": "23/23 assertions passed (0.3s)",
+      "command": "node --test tests/unit/authority.explainability.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 23,
+        "passed": 23,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "phases_96_99_rules",
+      "name": "P96, 99: replay recomputes and never re-decides; a release cannot claim more than its weakest dimension",
+      "scope": "authority_release",
+      "requirement": "phases/96-99",
+      "status": "passed",
+      "durationMs": 313,
+      "detail": "11/11 assertions passed (0.3s)",
+      "command": "node --test tests/unit/replay.release.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "authority_control_rows",
+      "name": "P91–95 through the bus: a control that nothing consults is a row, not a switch",
+      "scope": "authority_release",
+      "requirement": "phases/91-95",
+      "status": "passed",
+      "durationMs": 678,
+      "detail": "11/11 assertions passed (0.7s)",
+      "command": "node --test tests/integration/authority.control.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "experience_os_certification",
+      "name": "The whole Experience OS circle closes, for a Rage and again for a Rave",
+      "scope": "authority_release",
+      "requirement": "os/certification",
+      "status": "passed",
+      "durationMs": 873,
+      "detail": "9/9 assertions passed (0.9s)",
+      "command": "node --test tests/integration/experience-os.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 9,
+        "passed": 9,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "privacy_certification",
+      "name": "P98: the twelve privacy rules against a live schema",
+      "scope": "authority_release",
+      "requirement": "privacy",
+      "status": "passed",
+      "durationMs": 1526,
+      "detail": "10/10 assertions passed (1.5s)",
+      "command": "node --test tests/live/privacy.certification.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "command_boundaries",
+      "name": "Command boundaries: bad input is refused, never reported as a defect",
+      "scope": "experience_os",
+      "requirement": "boundaries/commands",
+      "status": "passed",
+      "durationMs": 1045,
+      "detail": "11/11 assertions passed (1.0s)",
+      "command": "node --test tests/integration/command.boundaries.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "command_boundaries_live",
+      "name": "Command boundaries against a live database: the refusal precedes the write",
+      "scope": "experience_os",
+      "requirement": "boundaries/commands/live",
+      "status": "passed",
+      "durationMs": 2082,
+      "detail": "6/6 assertions passed (2.1s)",
+      "command": "node --test tests/live/command.boundaries.live.test.ts",
+      "exitCode": 0,
+      "counts": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "conclusion": "PASS"
+    },
+    {
+      "id": "deployment",
+      "name": "Deployment to a target environment",
+      "requirement": "deployment",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "No deployment target (Vercel/Railway project, or hosting credentials) is configured, so no environment can be deployed to and verified.",
+      "conclusion": "BLOCKED"
+    },
+    {
+      "id": "rollback",
+      "name": "Rollback drill",
+      "requirement": "rollback",
+      "status": "blocked",
+      "durationMs": 0,
+      "detail": "blocked by an external dependency",
+      "blockedBy": "Requires a deployed environment to roll back. The additive-migration rule rollback depends on is enforced by the static-validation gate, and the migration runner refuses drift, but the drill itself needs a deployment. Procedure in docs/OPERATIONS.md §5.",
+      "conclusion": "BLOCKED"
+    }
+  ]
+}

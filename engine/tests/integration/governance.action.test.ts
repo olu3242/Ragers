@@ -1,0 +1,1084 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createEngineHarness, type EngineHarness } from '../support/engine-harness.ts';
+import { expect } from '../../src/runtime/result.ts';
+import { enrichmentFor, nearDuplicatesOf } from '../../src/engines/enrichment.engine.ts';
+import { severityFor } from '../../src/engines/severity.engine.ts';
+import { escalationsOf, evaluateEscalations } from '../../src/engines/escalation.engine.ts';
+import { caseFor, openCasesFor } from '../../src/engines/case.engine.ts';
+import { handOff, handoffsFor } from '../../src/engines/handoff.engine.ts';
+import { runAgent, runOrganizationResolutionAgent, agentRunsFor } from '../../src/engines/agent.engine.ts';
+import { benchmarkDataReadiness, benchmarkFor } from '../../src/engines/benchmark.engine.ts';
+import { createDeterministicAssistanceProvider } from '../../src/adapters/fakes.ts';
+import { deliveriesFor, setEntitlement } from '../../src/engines/integration.engine.ts';
+import { mayUse } from '../../src/domain/entitlement.ts';
+import { verify } from '../../src/domain/integration.ts';
+import { ok } from '../../src/runtime/result.ts';
+import {
+  prioritisedQueue,
+  priorityFor,
+  priorityKey,
+  recomputePriority,
+} from '../../src/engines/priority.engine.ts';
+import { eq } from '../../src/ports/store.ts';
+import { SERVICE_ACTOR_ID, type ActorContext } from '../../src/runtime/authz.ts';
+import type { CreateExperienceResult } from '../../src/engines/experience.engine.ts';
+import type { QuotaWindow } from '../../src/domain/quota.ts';
+import type { QueueItem } from '../../src/ports/store.ts';
+
+/**
+ * Phases 31–35 through the real bus, the real policy matrix and the real outbox.
+ *
+ * The boundary this file exists to hold: **measuring is not deciding.** Enrichment,
+ * severity, escalation and case management all run end to end here, and none of them
+ * moves a resolution status. The last test asserts that directly.
+ */
+const DAY = 86_400_000;
+
+const publish = async (h: EngineHarness, actor: ActorContext, bodyText: string): Promise<string> => {
+  const created = expect(
+    await h.engine.bus.dispatch<unknown, CreateExperienceResult>({
+      name: 'experience.create',
+      input: { kind: 'rage', creationMode: 'text', category: 'Shopping & service', bodyText, visibility: 'public' },
+      actor,
+      idempotencyKey: h.nextKey(),
+    }),
+    'create',
+  );
+  await h.settle();
+  return created.experienceId;
+};
+
+const assertDim = async (
+  h: EngineHarness,
+  actor: ActorContext,
+  experienceId: string,
+  input: Record<string, unknown>,
+) => {
+  const result = await h.engine.bus.dispatch({
+    name: 'enrichment.assert',
+    input: { experienceId, ...input },
+    actor,
+    idempotencyKey: h.nextKey(),
+  });
+  await h.settle();
+  return result;
+};
+
+test('an experiencer says what it cost them, and the band follows the assertion', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The repair was never done and I paid twice');
+
+  expect(await assertDim(h, actor, experienceId, { dimension: 'money_lost', amount: 640, currency: 'GBP' }), 'money');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'recurrence', flag: true }), 'recurrence');
+
+  const enrichment = await enrichmentFor(h.engine, experienceId);
+  assert.ok(enrichment, 'enrichment is stored');
+  assert.equal(enrichment.values.length, 2);
+
+  const severity = await severityFor(h.engine, experienceId);
+  assert.ok(severity, 'a band was classified by the consumer');
+  assert.equal(severity.band, 'critical', 'serious money, stepped once for recurrence');
+  assert.equal(severity.unassessed, false);
+  assert.deepEqual([...severity.basis].sort(), ['money_lost', 'recurrence']);
+});
+
+test('nobody but the experiencer can say what an experience cost', async () => {
+  const h = createEngineHarness();
+  const { actor: author } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: other } = await h.signUp('bo@example.com', 'Bo');
+  const experienceId = await publish(h, author, 'They cancelled without telling me');
+
+  const refused = await assertDim(h, other, experienceId, { dimension: 'time_lost_minutes', amount: 90 });
+  assert.equal(refused.ok, false, 'a stranger cannot assert what it cost somebody else');
+
+  // A moderator cannot either: the policy matrix requires ownership, and severity has
+  // no command that would let staff overwrite the person's own account.
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+  const alsoRefused = await assertDim(h, moderator, experienceId, { dimension: 'time_lost_minutes', amount: 90 });
+  assert.equal(alsoRefused.ok, false);
+  assert.equal(
+    h.engine.bus.registeredCommands().some((name) => name.startsWith('severity.')),
+    false,
+    'there is no command to set a band directly — a band is derived, never asserted by staff',
+  );
+});
+
+test('an experience with nothing asserted is unassessed, and escalates on nothing', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The queue was slow on Tuesday');
+
+  // Time passes — a great deal of it — and no rule fires, because no severity was ever
+  // asserted and the default band is not a finding.
+  h.clock.advance(120 * DAY);
+  const opened = await evaluateEscalations(h.engine, experienceId);
+  assert.deepEqual(opened.map((row) => row.ruleId), []);
+});
+
+test('a serious, stale experience escalates once, into the one review queue', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The boiler was left unsafe and nobody came back');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  h.clock.advance(30 * DAY);
+  const first = await evaluateEscalations(h.engine, experienceId);
+  assert.ok(first.length > 0, 'a critical, unacknowledged, stale experience escalates');
+
+  // Run it again — a sweep does. Nothing new is opened, and the queue does not grow.
+  const second = await evaluateEscalations(h.engine, experienceId);
+  assert.deepEqual(second, [], 'idempotent on the escalation key');
+
+  const rows = await escalationsOf(h.engine, experienceId);
+  const ruleIds = rows.map((row) => row.ruleId).sort();
+  assert.deepEqual(new Set(ruleIds).size, ruleIds.length, 'one row per rule');
+
+  const queued = await h.engine.store.queueItems.query([
+    eq<QueueItem>('targetType', 'experience'),
+    eq<QueueItem>('targetId', experienceId),
+  ]);
+  assert.equal(queued.length, 1, 'escalation reuses the moderation queue rather than growing a second one');
+  assert.ok(rows.every((row) => row.because.length > 0), 'every escalation says why');
+});
+
+test('escalation opens a review and changes no outcome', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The lift has been broken for a month and someone was trapped');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  const before = await h.engine.store.experiences.get(experienceId);
+  h.clock.advance(45 * DAY);
+  await evaluateEscalations(h.engine, experienceId);
+  const after = await h.engine.store.experiences.get(experienceId);
+
+  assert.equal(after?.resolutionStatus, before?.resolutionStatus, 'the outcome is untouched');
+  assert.equal(after?.status, before?.status, 'and so is publication');
+});
+
+test('the same account posted twice is detectable, and neither copy is suppressed', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const text = 'They charged me twice for the same delivery and will not refund it';
+  const first = await publish(h, actor, text);
+  const second = await publish(h, actor, text);
+
+  expect(await assertDim(h, actor, first, { dimension: 'recurrence', flag: true }), 'first');
+  expect(await assertDim(h, actor, second, { dimension: 'recurrence', flag: true }), 'second');
+
+  const duplicates = await nearDuplicatesOf(h.engine, second);
+  assert.deepEqual([...duplicates], [first], 'the near-duplicate is found');
+
+  // And found is all it is. Both remain published and both remain on the feed: a
+  // person re-posting a corrected account must not disappear.
+  for (const id of [first, second]) {
+    const experience = await h.engine.store.experiences.get(id);
+    assert.equal(experience?.status, 'published');
+    assert.ok(await h.engine.store.feedEntries.get(id), `${id} is still readable`);
+  }
+});
+
+test('two people with identical accounts are not treated as one report', async () => {
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: bo } = await h.signUp('bo@example.com', 'Bo');
+  const text = 'The same parcel was marked delivered and never arrived';
+  const mine = await publish(h, ada, text);
+  const theirs = await publish(h, bo, text);
+
+  expect(await assertDim(h, ada, mine, { dimension: 'recurrence', flag: true }), 'ada');
+  expect(await assertDim(h, bo, theirs, { dimension: 'recurrence', flag: true }), 'bo');
+
+  // The fingerprints match — the accounts are identical — and both rows exist. A
+  // unique index here would have refused the second person's experience outright.
+  assert.deepEqual([...(await nearDuplicatesOf(h.engine, mine))], [theirs]);
+  assert.ok(await h.engine.store.feedEntries.get(theirs));
+});
+
+test('an organization works a case, and closing it resolves nothing', async () => {
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@northwind.example', 'Staff');
+  const experienceId = await publish(h, ada, 'Northwind Air lost my bag and never processed the refund');
+
+  await h.engine.store.entities.put({ id: 'ent_nw', name: 'Northwind Air', slug: 'northwind-air', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_nw',
+    entityId: 'ent_nw',
+    displayName: 'Northwind Air',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_1',
+    organizationId: 'org_nw',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+
+  const opened = expect(
+    await h.engine.bus.dispatch<unknown, { caseId: string; state: string }>({
+      name: 'case.open',
+      input: { organizationId: 'org_nw', experienceId },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'open case',
+  );
+  await h.settle();
+
+  // Opening twice lands on one workspace, not two divergent ones.
+  const again = expect(
+    await h.engine.bus.dispatch<unknown, { caseId: string }>({
+      name: 'case.open',
+      input: { organizationId: 'org_nw', experienceId },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'reopen',
+  );
+  assert.equal(again.caseId, opened.caseId);
+
+  const assigned = expect(
+    await h.engine.bus.dispatch<unknown, { assigneeId?: string }>({
+      name: 'case.assign',
+      input: { caseId: opened.caseId, assigneeId: staffAuth.actorId },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'assign',
+  );
+  assert.equal(assigned.assigneeId, staffAuth.actorId);
+
+  const beforeClose = await h.engine.store.experiences.get(experienceId);
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'case.transition',
+      input: { caseId: opened.caseId, to: 'closed', note: 'Refund issued on 4 March' },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'close',
+  );
+  await h.settle();
+
+  const afterClose = await h.engine.store.experiences.get(experienceId);
+  assert.equal(
+    afterClose?.resolutionStatus,
+    beforeClose?.resolutionStatus,
+    'a closed case is the organization saying it is done with its part, not that the problem is fixed',
+  );
+
+  const stored = await caseFor(h.engine, 'org_nw', experienceId);
+  assert.equal(stored?.state, 'closed');
+  assert.deepEqual([...(await openCasesFor(h.engine, 'org_nw'))], [], 'a closed case leaves the working queue');
+});
+
+test('a revoked membership can neither work a case nor be assigned one', async () => {
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@northwind.example', 'Staff');
+  const experienceId = await publish(h, ada, 'Northwind Air rebooked me onto a worse flight');
+
+  await h.engine.store.entities.put({ id: 'ent_nw', name: 'Northwind Air', slug: 'northwind-air', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_nw',
+    entityId: 'ent_nw',
+    displayName: 'Northwind Air',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_1',
+    organizationId: 'org_nw',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+    revokedAt: h.clock.now(),
+  });
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'case.open',
+    input: { organizationId: 'org_nw', experienceId },
+    actor: staff,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false, 'a revoked membership confers nothing');
+});
+
+// ── Phases 37 and 40, through the bus ───────────────────────────────────
+test('evidence attaches to a report of the outcome, and the organization cannot touch it', async () => {
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: bo } = await h.signUp('bo@example.com', 'Bo');
+  const experienceId = await publish(h, ada, 'The replacement part never arrived');
+
+  const reported = expect(
+    await h.engine.bus.dispatch<unknown, { reportId: string }>({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved', note: 'Nothing has changed' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  const attached = expect(
+    await h.engine.bus.dispatch<unknown, { evidenceId: string }>({
+      name: 'evidence.attach',
+      input: {
+        resolutionReportId: reported.reportId,
+        kind: 'photo',
+        originalKey: 'ok/1',
+        byteSize: 1_024,
+        mimeType: 'image/jpeg',
+      },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'attach to report',
+  );
+  await h.settle();
+
+  const row = await h.engine.store.evidence.get(attached.evidenceId);
+  assert.equal(row?.resolutionReportId, reported.reportId);
+  assert.equal(row?.experienceId, undefined, 'exactly one parent');
+
+  // Somebody else — an organization included — cannot attach to another person's
+  // account of the outcome. Authorization follows the parent's owner.
+  const refused = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: {
+      resolutionReportId: reported.reportId,
+      kind: 'document',
+      originalKey: 'ok/2',
+      byteSize: 512,
+      mimeType: 'application/pdf',
+    },
+    actor: bo,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false);
+});
+
+test('evidence must have exactly one parent, and four are offered', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The invoice was wrong twice');
+
+  const both = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: {
+      experienceId,
+      disputeId: 'dsp_nonexistent',
+      kind: 'photo',
+      originalKey: 'ok/3',
+      byteSize: 10,
+      mimeType: 'image/png',
+    },
+    actor,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(both.ok, false, 'two parents is refused');
+
+  const none = await h.engine.bus.dispatch({
+    name: 'evidence.attach',
+    input: { kind: 'photo', originalKey: 'ok/4', byteSize: 10, mimeType: 'image/png' },
+    actor,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(none.ok, false, 'no parent is refused');
+});
+
+test('a handoff proposes over governed state and writes nothing an engine owns', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The fire door has been chained shut for a fortnight');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  // The handoff consumer has already run: `settle()` drains it, subscribed to
+  // `ExperienceEnriched`. Asserting on the consumer's own result rather than calling
+  // `handOff` again is the honest test — a second call correctly finds the condition
+  // already claimed and does nothing.
+  const opened = await handoffsFor(h.engine, experienceId);
+  assert.ok(opened.length > 0, 'a critical unresolved experience is handed off');
+
+  const before = await h.engine.store.experiences.get(experienceId);
+  await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
+  const after = await h.engine.store.experiences.get(experienceId);
+  assert.deepEqual(after, before, 'the experience row is untouched');
+
+  // And the internal dispatch was not charged a quota. The handoff consumer dispatches
+  // `proposal.create` as the engine's own identity, which has no `actors` row — so a
+  // window written for it is refused by a foreign key, the charge throws, and the bus
+  // reports an unavailable quota while the request goes through. Asserting the absence of
+  // the row on the real path, rather than only at the guard, is what makes that
+  // regression visible here instead of in a database log.
+  const serviceWindows = await h.engine.store.quotaWindows.query([
+    eq<QuotaWindow>('actorId', SERVICE_ACTOR_ID),
+  ]);
+  assert.deepEqual(serviceWindows, [], 'the engine charges itself nothing');
+
+  // The handoff produced a real proposal, and the proposal carries evidence a reviewer
+  // can open — the E12 contract refuses one that does not.
+  const handoff = opened[0];
+  assert.ok(handoff?.proposalId, 'a proposal was created');
+  const proposal = await h.engine.store.proposals.get(handoff.proposalId ?? '');
+  assert.ok(proposal);
+  assert.equal(proposal.status, 'proposed');
+  assert.ok(proposal.evidenceRefs.length > 0);
+  assert.equal(proposal.evidenceRefs[0]?.id, experienceId);
+  // And no pre-authorised action: this band hands over a situation to judge, and does
+  // not pre-authorise anything against anybody.
+  assert.equal(proposal.proposedCommand, undefined);
+  assert.ok(proposal.rationale.includes('safety_involved'), 'the rationale cites the governed state');
+});
+
+test('handing off the same condition twice produces one proposal', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The lift alarm has not worked for weeks');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  // Once by the consumer, then twice more by an explicit sweep.
+  const fromConsumer = await handoffsFor(h.engine, experienceId);
+  assert.ok(fromConsumer.length > 0);
+  const sweepOne = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
+  const sweepTwo = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
+  assert.deepEqual(sweepOne, [], 'an hourly sweep does not hand a reviewer the same thing again');
+  assert.deepEqual(sweepTwo, []);
+
+  const all = await handoffsFor(h.engine, experienceId);
+  assert.equal(new Set(all.map((row) => row.triggerId)).size, all.length, 'one handoff per condition');
+  const proposals = await h.engine.store.proposals.all();
+  const forThis = proposals.filter((row) => row.subjectId === experienceId);
+  assert.equal(forThis.length, all.length, 'one proposal per handoff, not one per sweep');
+});
+
+test('an unassessed experience is never handed off, however long it sits', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The shop was closed at the advertised time');
+
+  h.clock.advance(200 * DAY);
+  const opened = await handOff(h.engine, experienceId, { actorId: SERVICE_ACTOR_ID, role: 'moderator' });
+  // Nothing was asserted, so there is no governed state to hand over. Proposing on the
+  // default band would be proposing on an absence of information.
+  assert.deepEqual(opened, []);
+});
+
+// ── Phases 41–43, through the bus ────────────────────────────────────────
+test('urgency, impact and priority are derived — there is no command to set any of them', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The heating has been off for three weeks');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  const commands = h.engine.bus.registeredCommands();
+  for (const forbidden of ['urgency.', 'impact.', 'priority.']) {
+    assert.equal(
+      commands.some((name) => name.startsWith(forbidden)),
+      false,
+      `${forbidden} must not be settable — a queue position moved by hand is not explainable`,
+    );
+  }
+
+  const view = await priorityFor(h.engine, experienceId);
+  assert.ok(view, 'a priority is derived from the rows');
+  assert.equal(view.urgency.level, 'immediate', 'an asserted safety concern is immediate');
+  assert.equal(view.priority.band, 'CRITICAL');
+  assert.ok(view.urgency.factors.some((factor) => factor.id === 'safety_asserted'));
+});
+
+test('the priority consumer writes the reading, and a replay does not change it', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'The lift has been broken for a month');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'time_lost_minutes', amount: 600 }), 'time');
+
+  const first = await h.engine.store.priorities.get(priorityKey(experienceId));
+  assert.ok(first, 'the consumer wrote a reading');
+
+  // Recompute is a read of the rows, so running it again is idempotent — the only
+  // field that may move is when it was computed.
+  const second = await recomputePriority(h.engine, experienceId);
+  assert.ok(second);
+  const { computedAt: _a, ...firstRest } = first;
+  const { computedAt: _b, ...secondRest } = second;
+  assert.deepEqual(secondRest, firstRest, 'a replay produces the same reading');
+});
+
+test('impact over a pattern of one person is INSUFFICIENT_DATA, not zero', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  // No capitalised pair in the body: an unseeded one is read as a person's name and
+  // correctly routed to review rather than published, which is not what this test is about.
+  const experienceId = await publish(h, actor, 'my bag was lost and the refund never came');
+  expect(await assertDim(h, actor, experienceId, { dimension: 'money_lost', amount: 400, currency: 'GBP' }), 'money');
+
+  const view = await priorityFor(h.engine, experienceId);
+  assert.ok(view);
+  assert.equal(view.impact.outcome, 'INSUFFICIENT_DATA');
+  // The account still carries what the person said it cost them — Phase 31 records that
+  // without extrapolating. What is refused is an estimate *across* people.
+  assert.equal(view.priority.impactKnown, false);
+  assert.equal(view.priority.peopleAffected, undefined, 'absent, never 0');
+});
+
+test('one person posting repeatedly cannot manufacture impact', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const text = 'The same charge appeared on my account again';
+  const ids: string[] = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    ids.push(await publish(h, actor, `${text} (${attempt})`));
+  }
+  for (const id of ids) {
+    expect(await assertDim(h, actor, id, { dimension: 'money_lost', amount: 500, currency: 'GBP' }), 'money');
+  }
+
+  // Six accounts, one author. Impact is drawn over distinct people, so the population
+  // stays at one and no estimate is produced however many rows exist.
+  for (const id of ids) {
+    const view = await priorityFor(h.engine, id);
+    assert.equal(view?.impact.outcome, 'INSUFFICIENT_DATA', `${id} must not read as broad`);
+  }
+});
+
+test('the queue is ordered by named dimensions and every position is answerable', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+
+  const unsafe = await publish(h, actor, 'The fire door was chained shut again');
+  expect(await assertDim(h, actor, unsafe, { dimension: 'safety_involved', flag: true }), 'safety');
+
+  const costly = await publish(h, actor, 'They charged me twice and will not refund it');
+  expect(await assertDim(h, actor, costly, { dimension: 'money_lost', amount: 900, currency: 'GBP' }), 'money');
+
+  const trivial = await publish(h, actor, 'The shop shut ten minutes early');
+
+  const queue = await prioritisedQueue(h.engine);
+  const positions = new Map(queue.map((entry) => [entry.subjectId, entry.position]));
+
+  assert.ok(positions.has(unsafe), 'an assessed experience is in the queue');
+  assert.equal(positions.get(trivial), undefined, 'an unassessed one is not in the queue at all');
+  assert.ok(
+    (positions.get(unsafe) ?? Infinity) < (positions.get(costly) ?? Infinity),
+    'a safety concern outranks a financial one',
+  );
+
+  // And the reason names a cause rather than a number.
+  const top = queue[0];
+  assert.ok(top);
+  assert.ok(top.reason.length > 0);
+  assert.equal(/\d+\.\d/.test(top.reason), false, 'no decimal score in a reason');
+});
+
+// ── Phases 44–47, through the bus ────────────────────────────────────────
+test('an agent proposes through the governed contract and mutates nothing', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the delivery slot was missed for the third week');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const before = await h.engine.store.experiences.get(experienceId);
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'resolution',
+      subjectId: experienceId,
+      proposalType: 'review_unresolved_critical',
+      engine: 'E10',
+      targetEngine: 'E10',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  const after = await h.engine.store.experiences.get(experienceId);
+
+  assert.deepEqual(after, before, 'an agent run leaves governed state byte-identical');
+  // The resolution agent's floor is 0.5 and the deterministic provider answers 0.5, so it
+  // proposes — through `proposal.create`, which refuses anything untraceable.
+  assert.equal(run.outcome, 'proposed');
+  assert.ok(run.proposalId);
+  const proposal = await h.engine.store.proposals.get(run.proposalId ?? '');
+  assert.ok(proposal);
+  assert.ok(proposal.evidenceRefs.length > 0);
+  assert.equal(proposal.proposedCommand, undefined, 'an agent pre-authorises nothing');
+});
+
+test('an agent asking for an engine it did not declare is refused and recorded', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the appointment was moved twice without notice');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // The trust agent declares E4 only. Attempting the excess is how Phase 45 is certified.
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'trust',
+      subjectId: experienceId,
+      proposalType: 'review_contribution_pattern',
+      engine: 'E1',
+      targetEngine: 'E4',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'refused');
+  assert.match(run.detail ?? '', /may not read E1/);
+
+  // Recorded rather than swallowed: an agent that quietly does nothing is
+  // indistinguishable from one that is working.
+  const runs = await agentRunsFor(h.engine, experienceId);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.outcome, 'refused');
+  assert.equal(runs[0]?.proposalId, undefined);
+});
+
+test('a low-confidence agent escalates instead of proposing', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the parcel was marked delivered and never arrived');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // The moderation agent's floor is 0.7; the deterministic provider answers 0.5.
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'moderation',
+      subjectId: experienceId,
+      proposalType: 'review_content',
+      engine: 'E4',
+      targetEngine: 'E9',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'escalated');
+  assert.match(run.detail ?? '', /not confident enough/);
+  const proposals = await h.engine.store.proposals.all();
+  assert.equal(
+    proposals.filter((row) => row.subjectId === experienceId).length,
+    0,
+    'no proposal is created below the floor',
+  );
+});
+
+test('an unavailable provider produces nothing at all, not an empty proposal', async () => {
+  const h = createEngineHarness({
+    providers: { assistance: createDeterministicAssistanceProvider({ failing: true }) },
+  });
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the refund was promised and never arrived');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const run = await runAgent(
+    h.engine,
+    {
+      agentId: 'resolution',
+      subjectId: experienceId,
+      proposalType: 'review_unresolved_critical',
+      engine: 'E10',
+      targetEngine: 'E10',
+    },
+    { actorId: moderator.actorId, role: 'moderator' },
+  );
+  assert.equal(run.outcome, 'provider_unavailable');
+  assert.equal(run.proposalId, undefined);
+  assert.equal((await h.engine.store.proposals.all()).length, 0, 'fail closed');
+});
+
+test('the organization resolution agent cannot delete, dispute or resolve', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the engineer never arrived for the booked slot');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  // With no model configured the deterministic provider answers 0.5, which is below this
+  // agent's floor of 0.6 — so it escalates rather than drafting. That is the designed
+  // behaviour, not a failure: an unconfident draft sent to an organization is worse than
+  // asking a person to write one.
+  const withoutModel = await runOrganizationResolutionAgent(h.engine, experienceId, {
+    actorId: moderator.actorId,
+    role: 'moderator',
+  });
+  assert.equal(withoutModel.outcome, 'escalated');
+  assert.match(withoutModel.detail ?? '', /escalate to organization/);
+
+  // Given a confident provider it drafts — exercising the proposing path without
+  // pretending a live provider exists.
+  const confident = createEngineHarness({
+    providers: { assistance: createDeterministicAssistanceProvider({ confidence: 0.8 }) },
+  });
+  const { actor: theirs } = await confident.signUp('bo@example.com', 'Bo');
+  const otherId = await publish(confident, theirs, 'the engineer never arrived for the booked slot');
+  const otherMod = await confident.promote((await confident.signUp('mod2@example.com')).auth.actorId, 'moderator');
+  const drafted = await runOrganizationResolutionAgent(confident.engine, otherId, {
+    actorId: otherMod.actorId,
+    role: 'moderator',
+  });
+  assert.equal(drafted.outcome, 'proposed', 'it may draft a response');
+  assert.ok(drafted.proposalId);
+
+  // Each of the three prohibitions, attempted and refused.
+  for (const forbidden of ['remove_experience', 'dispute_claim', 'declare_resolved']) {
+    const refused = await runAgent(
+      h.engine,
+      {
+        agentId: 'organization_response',
+        subjectId: experienceId,
+        proposalType: forbidden,
+        engine: 'E9',
+        targetEngine: 'E9',
+      },
+      { actorId: moderator.actorId, role: 'moderator' },
+    );
+    assert.equal(refused.outcome, 'refused', `${forbidden} must be refused`);
+    assert.match(refused.detail ?? '', /may not propose/);
+  }
+
+  const experience = await h.engine.store.experiences.get(experienceId);
+  assert.equal(experience?.status, 'published', 'nothing was deleted');
+  assert.equal(experience?.resolutionStatus, undefined, 'nothing was resolved');
+});
+
+test('an agent run is idempotent, so a sweep does not repeat a suggestion', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  const experienceId = await publish(h, actor, 'the meter reading was wrong again this quarter');
+  const moderator = await h.promote((await h.signUp('mod@example.com')).auth.actorId, 'moderator');
+
+  const input = {
+    agentId: 'resolution' as const,
+    subjectId: experienceId,
+    proposalType: 'review_unresolved_critical',
+    engine: 'E10' as const,
+    targetEngine: 'E10' as const,
+  };
+  const first = await runAgent(h.engine, input, { actorId: moderator.actorId, role: 'moderator' });
+  const second = await runAgent(h.engine, input, { actorId: moderator.actorId, role: 'moderator' });
+  assert.equal(first.proposalId, second.proposalId, 'the same run, not a second suggestion');
+  assert.equal((await agentRunsFor(h.engine, experienceId)).length, 1);
+});
+
+test('an approved agent proposal can still be refused by the target engine', async () => {
+  const h = createEngineHarness();
+  const { actor: author } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: mod, auth: modAuth } = await h.signUp('mod@example.com', 'Mod');
+  const moderator = await h.promote(modAuth.actorId, 'moderator');
+  // The moderator's *own* account: `moderation.action` forbids acting on your own content.
+  const mine = await publish(h, mod, 'the counter staff refused to take the return');
+
+  const created = expect(
+    await h.engine.bus.dispatch<unknown, { proposalId: string }>({
+      name: 'proposal.create',
+      input: {
+        proposalType: 'remove_content',
+        sourceEngine: 'E12',
+        targetEngine: 'E9',
+        subjectId: mine,
+        summary: 'Remove this account',
+        rationale: 'Filed for review; the account is the only basis.',
+        confidence: 0.9,
+        evidenceRefs: [{ kind: 'experience', id: mine }],
+        proposedCommand: 'safety.applyModerationAction',
+        proposedInput: { targetType: 'experience', targetId: mine, action: 'remove', reason: 'reviewed' },
+      },
+      actor: moderator,
+      idempotencyKey: h.nextKey(),
+    }),
+    'create',
+  );
+
+  const decided = expect(
+    await h.engine.bus.dispatch<unknown, { status: string; dispatched: boolean; dispatchError?: string }>({
+      name: 'proposal.decide',
+      input: { proposalId: created.proposalId, outcome: 'approved' },
+      actor: moderator,
+      idempotencyKey: h.nextKey(),
+    }),
+    'decide',
+  );
+
+  // Approved as a decision, refused as an action. The distinction the whole band rests on.
+  assert.equal(decided.status, 'approved');
+  assert.equal(decided.dispatched, false);
+  assert.ok(decided.dispatchError);
+  const still = await h.engine.store.experiences.get(mine);
+  assert.equal(still?.status, 'published', 'the account is still there');
+  assert.ok(author.actorId);
+});
+
+test('a benchmark over too few people is suppressed and says why', async () => {
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+  await publish(h, actor, 'the queue was not moving at all this morning');
+
+  const report = await benchmarkFor(h.engine, 'category', 'response_rate');
+  // Code-ready, data-blocked: the engine is correct and the output is empty.
+  assert.ok(report.groups.every((group) => group.result.suppressed) || report.groups.length === 0);
+  assert.match(report.explanation, /Not enough different people|recovered by subtracting/);
+  assert.ok(report.window.label.length > 0, 'a benchmark states its window');
+
+  const readiness = await benchmarkDataReadiness(h.engine);
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.floor, 20);
+});
+
+// ── Phases 48–50: entitlement blindness, delivery, and replay ────────────
+test('the same content is treated identically whether the organization pays or not', async () => {
+  // The Phase 48 certification, run rather than asserted: two identical accounts about two
+  // organizations, one on the top plan and one on none, and every integrity output compared.
+  const h = createEngineHarness();
+  const { actor } = await h.signUp('ada@example.com', 'Ada');
+
+  const setUp = async (suffix: string): Promise<{ organizationId: string; experienceId: string }> => {
+    await h.engine.store.entities.put({
+      id: `ent_${suffix}`,
+      name: `Entity ${suffix}`,
+      slug: `entity-${suffix}`,
+      kind: 'organization',
+    });
+    await h.engine.store.organizationProfiles.put({
+      id: `org_${suffix}`,
+      entityId: `ent_${suffix}`,
+      displayName: `Entity ${suffix}`,
+      status: 'claimed',
+    });
+    const experienceId = await publish(h, actor, `the same thing went wrong in the same way (${suffix})`);
+    const row = await h.engine.store.experiences.get(experienceId);
+    if (row) await h.engine.store.experiences.put({ ...row, entityId: `ent_${suffix}` });
+    expect(await assertDim(h, actor, experienceId, { dimension: 'money_lost', amount: 700, currency: 'GBP' }), 'money');
+    return { organizationId: `org_${suffix}`, experienceId };
+  };
+
+  const paid = await setUp('paid');
+  const unpaid = await setUp('unpaid');
+  await setEntitlement(h.engine, paid.organizationId, 'professional');
+  await setEntitlement(h.engine, unpaid.organizationId, 'none');
+  await h.settle();
+
+  const compare = async (id: string) => {
+    const severity = await h.engine.store.severities.get(`sev:${id}`);
+    const priority = await h.engine.store.priorities.get(`pri:${id}`);
+    const feed = await h.engine.store.feedEntries.get(id);
+    return {
+      band: severity?.band,
+      unassessed: severity?.unassessed,
+      priorityBand: priority?.band,
+      urgency: priority?.urgency,
+      suppressed: feed?.suppressed,
+    };
+  };
+
+  assert.deepEqual(
+    await compare(paid.experienceId),
+    await compare(unpaid.experienceId),
+    'paying changed nothing about severity, priority, urgency or visibility',
+  );
+
+  // And the plan does unlock a read, so the test is not passing because entitlement does
+  // nothing at all.
+  assert.equal(mayUse(await h.engine.store.entitlements.get(paid.organizationId), 'benchmark_reports'), true);
+  assert.equal(mayUse(await h.engine.store.entitlements.get(unpaid.organizationId), 'benchmark_reports'), false);
+});
+
+test('a webhook is delivered once, and a replay of the same event delivers nothing', async () => {
+  const sent: { body: string; signature: string }[] = [];
+  const h = createEngineHarness({
+    providers: {
+      webhookTransport: {
+        name: 'recording',
+        send: async (request) => {
+          sent.push({ body: request.body, signature: request.signature });
+          return ok({ status: 200 });
+        },
+      },
+    },
+  });
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+
+  await h.engine.store.entities.put({ id: 'ent_w', name: 'Entity W', slug: 'entity-w', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_w',
+    entityId: 'ent_w',
+    displayName: 'Entity W',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_w',
+    organizationId: 'org_w',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+  await setEntitlement(h.engine, 'org_w', 'basic');
+
+  const subscribed = expect(
+    await h.engine.bus.dispatch<unknown, { subscriptionId: string }>({
+      name: 'integration.subscribe',
+      input: {
+        organizationId: 'org_w',
+        endpointUrl: 'https://example.test/hook',
+        events: ['resolution.reported'],
+        secret: 's'.repeat(40),
+      },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'subscribe',
+  );
+  await h.settle();
+
+  const experienceId = await publish(h, ada, 'the repair was booked and nobody came');
+  const row = await h.engine.store.experiences.get(experienceId);
+  if (row) await h.engine.store.experiences.put({ ...row, entityId: 'ent_w' });
+
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved', note: 'nothing changed' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  assert.equal(sent.length, 1, 'delivered once');
+  const payload = JSON.parse(sent[0]?.body ?? '{}') as { data: Record<string, unknown>; organizationId: string };
+  assert.equal(payload.organizationId, 'org_w');
+  // Ids only: no body, no author.
+  for (const forbidden of ['bodyText', 'actorId', 'text']) {
+    assert.equal(forbidden in payload.data, false, `a payload must not carry ${forbidden}`);
+  }
+  // Signed over the exact bytes sent.
+  assert.equal(verify('s'.repeat(40), sent[0]?.body ?? '', sent[0]?.signature ?? ''), true);
+
+  // The hardest clause in the Phase 50 scenario, asserted by replaying rather than by
+  // inspecting keys: drain the whole orchestrator again and prove nothing is sent twice.
+  await h.engine.orchestrator.drain();
+  await h.settle();
+  assert.equal(sent.length, 1, 'a replay delivers nothing');
+
+  const deliveries = await deliveriesFor(h.engine, 'org_w');
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0]?.state, 'sent');
+  assert.equal(deliveries[0]?.subscriptionId, subscribed.subscriptionId);
+});
+
+test('an organization with no plan cannot hold a subscription', async () => {
+  const h = createEngineHarness();
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+  await h.engine.store.entities.put({ id: 'ent_n', name: 'Entity N', slug: 'entity-n', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_n',
+    entityId: 'ent_n',
+    displayName: 'Entity N',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_n',
+    organizationId: 'org_n',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'integration.subscribe',
+    input: {
+      organizationId: 'org_n',
+      endpointUrl: 'https://example.test/hook',
+      events: ['resolution.reported'],
+      secret: 's'.repeat(40),
+    },
+    actor: staff,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false, 'told why, rather than delivered nothing and left to debug silence');
+});
+
+test('a non-member cannot subscribe on an organization’s behalf', async () => {
+  const h = createEngineHarness();
+  const { actor: stranger } = await h.signUp('stranger@example.com', 'Stranger');
+  await h.engine.store.entities.put({ id: 'ent_s', name: 'Entity S', slug: 'entity-s', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_s',
+    entityId: 'ent_s',
+    displayName: 'Entity S',
+    status: 'claimed',
+  });
+  await setEntitlement(h.engine, 'org_s', 'professional');
+
+  const refused = await h.engine.bus.dispatch({
+    name: 'integration.subscribe',
+    input: {
+      organizationId: 'org_s',
+      endpointUrl: 'https://example.test/hook',
+      events: ['resolution.reported'],
+      secret: 's'.repeat(40),
+    },
+    actor: stranger,
+    idempotencyKey: h.nextKey(),
+  });
+  assert.equal(refused.ok, false);
+});
+
+test('no delivery is claimed as sent when no transport is configured', async () => {
+  // With no transport the delivery stays pending and is retried, rather than being marked
+  // sent. Claiming a send that never happened would make the audit trail a fiction.
+  const h = createEngineHarness();
+  const { actor: ada } = await h.signUp('ada@example.com', 'Ada');
+  const { actor: staff, auth: staffAuth } = await h.signUp('staff@entity.example', 'Staff');
+  await h.engine.store.entities.put({ id: 'ent_t', name: 'Entity T', slug: 'entity-t', kind: 'organization' });
+  await h.engine.store.organizationProfiles.put({
+    id: 'org_t',
+    entityId: 'ent_t',
+    displayName: 'Entity T',
+    status: 'claimed',
+  });
+  await h.engine.store.organizationMemberships.put({
+    id: 'mem_t',
+    organizationId: 'org_t',
+    actorId: staffAuth.actorId,
+    role: 'admin',
+    grantedAt: h.clock.now(),
+  });
+  await setEntitlement(h.engine, 'org_t', 'basic');
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'integration.subscribe',
+      input: {
+        organizationId: 'org_t',
+        endpointUrl: 'https://example.test/hook',
+        events: ['resolution.reported'],
+        secret: 's'.repeat(40),
+      },
+      actor: staff,
+      idempotencyKey: h.nextKey(),
+    }),
+    'subscribe',
+  );
+
+  const experienceId = await publish(h, ada, 'the collection was missed twice this month');
+  const row = await h.engine.store.experiences.get(experienceId);
+  if (row) await h.engine.store.experiences.put({ ...row, entityId: 'ent_t' });
+  expect(
+    await h.engine.bus.dispatch({
+      name: 'resolution.report',
+      input: { experienceId, kind: 'still_unresolved' },
+      actor: ada,
+      idempotencyKey: h.nextKey(),
+    }),
+    'report',
+  );
+  await h.settle();
+
+  const deliveries = await deliveriesFor(h.engine, 'org_t');
+  assert.ok(deliveries.length > 0, 'the delivery is recorded');
+  assert.equal(deliveries[0]?.state, 'pending', 'never sent, and never claimed as sent');
+  assert.equal(deliveries[0]?.sentAt, undefined);
+});
