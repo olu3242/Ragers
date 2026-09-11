@@ -1,5 +1,11 @@
 import { err, ok } from '../runtime/result.ts';
-import { conflictError, notFoundError, preconditionError, unauthorizedError } from '../runtime/errors.ts';
+import {
+  conflictError,
+  notFoundError,
+  preconditionError,
+  unauthorizedError,
+  validationError,
+} from '../runtime/errors.ts';
 import {
   createAlias,
   issueSession,
@@ -9,6 +15,16 @@ import {
   type Actor,
   type Session,
 } from '../domain/identity.ts';
+import {
+  createCredential,
+  isThrottled,
+  passwordProblem,
+  spendVerificationWork,
+  recordFailure,
+  recordSuccess,
+  rotateCredential,
+  verifyPassword,
+} from '../domain/credential.ts';
 import { isVisibility, type Visibility } from '../domain/types.ts';
 import type { CommandHandler } from '../runtime/bus.ts';
 import type { EngineDeps } from './deps.ts';
@@ -82,46 +98,99 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
     },
   };
 
-  const authenticate: CommandHandler<{ email: string }, AuthResult> = {
+  /**
+   * RC3 sign-in. **A credential is required, and the refusal never says which part was wrong.**
+   *
+   * Every failure below — no such address, no credential set, wrong password, throttled, account
+   * not active — returns the identical `authentication_failed`. That is not tidiness: a refusal
+   * that distinguished them would let anybody enumerate which addresses hold accounts, and on a
+   * product whose whole promise is that you can speak without exposing yourself, the membership
+   * list is itself sensitive.
+   *
+   * `allowPasswordlessSignIn` survives as the development escape hatch it was, and now means
+   * exactly one thing: skip the credential check. It is gated on `RAGERS_TEST_SEED` at the
+   * composition root and is `false` in `defaultConfig`.
+   */
+  const authenticate: CommandHandler<{ email: string; password?: unknown }, AuthResult> = {
     name: 'identity.authenticate',
     action: 'actor.authenticate',
     resolveResource: async () => ok({ type: 'actor' }),
     handle: async (input, ctx) => {
-      /**
-       * **No credential is checked here, and that is the hole this refusal closes.**
-       *
-       * This handler receives `{ email }`, finds the actor and issues a session. There is no
-       * password, no verified token and no magic link, so knowing somebody's email address —
-       * a moderator's, an admin's — was enough to become them through `/api/session`.
-       *
-       * A credential mechanism is a product decision with its own migration and its own
-       * provider, and inventing one here would be worse than refusing. So the engine refuses
-       * by default and a development environment has to opt in out loud, which makes the hole
-       * impossible to deploy by accident. `SECURITY_READY` records it as a blocker.
-       *
-       * Refused *before* the lookup, so the refusal cannot be used to probe which emails exist.
-       */
-      if (!deps.config.allowPasswordlessSignIn) {
-        return err(
-          unauthorizedError(
-            'credentials_required',
-            'sign-in needs a credential, and no credential mechanism is configured',
-          ),
-        );
-      }
+      const failed = () =>
+        err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
 
       const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+      const credentialsRequired = !deps.config.allowPasswordlessSignIn;
+
+      // Every early exit below spends a verification's worth of work first, so the refusals are
+      // indistinguishable by the clock as well as by their text. See `spendVerificationWork`.
+      if (email.length === 0) {
+        if (credentialsRequired) spendVerificationWork(input.password);
+        return failed();
+      }
+
       const actor = await deps.store.actors.queryOne([eq('email', email)]);
-      // A failed sign-in never reveals whether the account exists.
-      if (!actor) return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
+      if (!actor) {
+        if (credentialsRequired) spendVerificationWork(input.password);
+        return failed();
+      }
+
+      if (credentialsRequired) {
+        const credential = await deps.store.actorCredentials.get(actor.id);
+        // An account with no credential cannot be signed into. Distinguishing that from a wrong
+        // password would say "this address exists but has not finished setting up", which is more
+        // than a stranger should learn.
+        if (!credential) {
+          spendVerificationWork(input.password);
+          return failed();
+        }
+        if (isThrottled(credential, ctx.clock.now())) {
+          spendVerificationWork(input.password, credential.params);
+          return failed();
+        }
+
+        if (!verifyPassword(credential, input.password)) {
+          /**
+           * **The strike must outlive the refusal, which is why this goes through `durably`.**
+           *
+           * The bus runs this handler inside a transaction and rolls it back when the handler
+           * returns an error. A counter written here in the ordinary way is therefore discarded by
+           * the very refusal it is counting — so the backoff would read zero forever and a password
+           * could be guessed without limit.
+           *
+           * And it would have been invisible: the in-memory adapters have no transaction, so the
+           * counter increments and the whole unit suite passes. Found by asserting the counter
+           * across two processes against a live database.
+           */
+          await deps.durably(() =>
+            deps.store.actorCredentials.put(recordFailure(credential, ctx.clock.now())),
+          );
+          return failed();
+        }
+        await deps.store.actorCredentials.put(recordSuccess(credential));
+      }
 
       const sessionResult = issueSession(actor, { id: deps.ids.next('sess'), now: ctx.clock.now() });
-      if (!sessionResult.ok) {
-        return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
+      // `issueSession` refuses a suspended or closed actor. Collapsed into the same refusal: that
+      // an account is suspended is a moderation fact and not a sign-in hint.
+      if (!sessionResult.ok) return failed();
+
+      /**
+       * **Session rotation.** Every other live session for this actor is revoked as this one is
+       * issued, so a session captured earlier stops working the moment its owner signs in again —
+       * which is the one recovery action a person can take by themselves. It also bounds how many
+       * live sessions one account can accumulate, which is what makes revocation meaningful.
+       */
+      const existing = await deps.store.sessions.query([eq('actorId', actor.id)]);
+      const now = ctx.clock.now();
+      for (const session of existing) {
+        if (session.revokedAt === undefined && session.expiresAt > now) {
+          await deps.store.sessions.put(revokeSession(session, now));
+        }
       }
 
       await deps.store.sessions.put(sessionResult.value);
-      await deps.store.actors.put({ ...actor, lastActiveAt: ctx.clock.now() });
+      await deps.store.actors.put({ ...actor, lastActiveAt: now });
 
       return ok({
         value: {
@@ -137,6 +206,77 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
             aggregateId: actor.id,
             eventName: 'SessionIssued',
             payload: { actorId: actor.id, sessionId: sessionResult.value.id },
+          },
+        ],
+      });
+    },
+  };
+
+  /**
+   * Set or replace your own password.
+   *
+   * `ownerActorId` is the caller, so the policy matrix enforces that nobody sets anybody else's —
+   * **including an admin**, because an operator who can write a member's credential can become
+   * that member, and every governance rule in this codebase assumes an action attributed to a
+   * person was taken by them.
+   *
+   * Replacing an existing password requires the current one. Without that check a stolen session
+   * would be upgradeable into permanent account ownership, which is a different and worse thing
+   * than a stolen session.
+   */
+  const setPassword: CommandHandler<
+    { password: unknown; currentPassword?: unknown },
+    { set: true; rotated: boolean }
+  > = {
+    name: 'identity.setPassword',
+    action: 'actor.set_password',
+    resolveResource: async (_input, ctx) => ok({ type: 'actor', ownerActorId: ctx.actor.actorId }),
+    handle: async (input, ctx) => {
+      const problem = passwordProblem(input.password);
+      if (problem !== undefined) return err(validationError('password_unacceptable', problem));
+
+      const actor = await deps.store.actors.get(ctx.actor.actorId);
+      if (!actor) return err(notFoundError('actor_not_found', 'no such actor'));
+
+      const existing = await deps.store.actorCredentials.get(actor.id);
+      if (existing) {
+        if (isThrottled(existing, ctx.clock.now())) {
+          return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
+        }
+        if (!verifyPassword(existing, input.currentPassword)) {
+          // Same reasoning as the sign-in path: a refusal rolls back, and this counter's whole job
+          // is to record that the refusal happened.
+          await deps.durably(() =>
+            deps.store.actorCredentials.put(recordFailure(existing, ctx.clock.now())),
+          );
+          return err(unauthorizedError('authentication_failed', 'those credentials are not valid'));
+        }
+      }
+
+      const next = existing
+        ? rotateCredential(existing, input.password, { now: ctx.clock.now() })
+        : createCredential({ actorId: actor.id, password: input.password }, { now: ctx.clock.now() });
+      if (!next.ok) return next;
+      await deps.store.actorCredentials.put(recordSuccess(next.value));
+
+      // Phase 68, clause 2: this changes what somebody may do. The trail records that a credential
+      // was written and carries no part of it — not the password, not the hash, not the salt.
+      await writeAudit(deps, ctx, {
+        action: 'actor.set_password',
+        resourceType: 'actor',
+        resourceId: actor.id,
+        before: { hasCredential: existing !== undefined },
+        after: { hasCredential: true },
+      });
+
+      return ok({
+        value: { set: true, rotated: existing !== undefined },
+        events: [
+          {
+            aggregateType: 'actor',
+            aggregateId: actor.id,
+            eventName: 'CredentialSet',
+            payload: { actorId: actor.id, rotated: existing !== undefined },
           },
         ],
       });
@@ -260,6 +400,7 @@ export const registerIdentityEngine = (deps: EngineDeps): void => {
 
   deps.bus.register(register);
   deps.bus.register(authenticate);
+  deps.bus.register(setPassword);
   deps.bus.register(revoke);
   deps.bus.register(addAlias);
   deps.bus.register(dropAlias);

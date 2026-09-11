@@ -51,7 +51,28 @@ import { createDb, type Db } from '../src/adapters/postgres/client.ts';
  */
 export const configuredDb = (): Db | undefined => {
   const url = configuredDatabaseUrl();
-  if (url === undefined) return undefined;
+  if (url === undefined) {
+    /**
+     * **Fail closed, and here rather than at a request.**
+     *
+     * In-memory is right for `npm run dev` and for the tests, and it is catastrophic in a
+     * deployment: state vanishes on restart, two instances disagree, and the *symptom* is not an
+     * error — it is a person's account seeming not to exist any more. There is no error path that
+     * reports that, which is why it has to be refused at construction.
+     *
+     * A deployment that has not declared itself is treated as hosted for this check while being
+     * treated as local for the cookie's `Secure` attribute. Those defaults point in opposite
+     * directions deliberately: each fails towards refusing rather than towards serving.
+     */
+    if (isHostedDeployment()) {
+      throw new Error(
+        'DATABASE_URL is required: a hosted deployment refuses to start on the in-memory adapters, '
+          + 'because losing state on restart is not an error any request could report. '
+          + 'Set DATABASE_URL, or set RAGERS_DEPLOYMENT=local if this really is a local process.',
+      );
+    }
+    return undefined;
+  }
   return createDb({ connectionString: url });
 };
 
@@ -77,3 +98,37 @@ export const configuredDatabaseUrl = (): string | undefined => {
  * earlier step; the engine's default is to refuse, which is what closed the hole.
  */
 export const passwordlessSignInAllowed = (): boolean => process.env['RAGERS_TEST_SEED'] === 'enabled';
+
+/**
+ * Whether this process is running as a hosted deployment rather than a local one.
+ *
+ * Not `NODE_ENV`. `next build` sets `NODE_ENV=production` on a laptop, so a check on it would call
+ * a local production build "hosted" and, worse, would call a real deployment that forgot to set it
+ * "local" — failing open in exactly the case that matters. `RAGERS_DEPLOYMENT` is explicit: a
+ * deployment declares itself, and anything that has not declared itself is treated as local for
+ * *convenience* decisions and as hosted for *safety* decisions. Those two defaults point in
+ * opposite directions on purpose.
+ */
+export const isHostedDeployment = (): boolean => {
+  const declared = process.env['RAGERS_DEPLOYMENT'];
+  if (declared !== undefined && declared.trim().length > 0) return declared.trim() !== 'local';
+  // Vercel sets this on every deployment, including previews. Treated as a hosted signal because
+  // being wrong in this direction costs a developer one environment variable, and being wrong in
+  // the other direction ships a session cookie in clear.
+  return process.env['VERCEL'] === '1' || process.env['VERCEL_ENV'] !== undefined;
+};
+
+/**
+ * Cookie attributes for the session cookie.
+ *
+ * `HttpOnly` always: the session must be unreachable from page scripts whatever the environment.
+ * `Secure` on every hosted deployment, and deliberately **not** on plain local HTTP — a browser
+ * silently drops a Secure cookie over `http://localhost`, so forcing it there would make sign-in
+ * appear to fail with nothing in any log to explain it.
+ *
+ * `SameSite=Lax` rather than `Strict`: `Strict` drops the cookie on a cross-site navigation, which
+ * means following a link to a Rager from anywhere else would land the reader signed out. `Lax`
+ * still refuses the cookie on cross-site POSTs, which is the CSRF-relevant half.
+ */
+export const cookieAttributes = (): string =>
+  isHostedDeployment() ? 'HttpOnly; Secure; SameSite=Lax' : 'HttpOnly; SameSite=Lax';

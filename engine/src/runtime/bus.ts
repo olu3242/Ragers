@@ -1,5 +1,11 @@
 import { err, ok, type Result } from './result.ts';
-import { internalError, unauthorizedError, validationError, type EngineError } from './errors.ts';
+import {
+  internalError,
+  transientError,
+  unauthorizedError,
+  validationError,
+  type EngineError,
+} from './errors.ts';
 import type { ActorContext, Authorizer, PolicyAction, ResourceRef } from './authz.ts';
 import type { IdempotencyStore } from './idempotency.ts';
 import type { NewDomainEvent, Outbox } from './outbox.ts';
@@ -182,12 +188,42 @@ export const createCommandBus = (deps: CommandBusDeps): CommandBus => {
       logger,
     };
 
-    // 1. Idempotency — a replay returns the first outcome, never a second effect.
-    const reservation = await deps.idempotency.reserve(
-      envelope.idempotencyKey,
-      envelope.actor.actorId,
-      envelope.name,
-    );
+    /**
+     * 1. Idempotency — a replay returns the first outcome, never a second effect.
+     *
+     * Guarded, for the same reason the quota charge below is: this runs before the `try` and a
+     * throwing store would escape `dispatch` entirely. In a worker that is a **dead worker** rather
+     * than a failed command — the Phase 61 malformed-envelope defect in another place.
+     *
+     * Unlike the quota it cannot be skipped. A throttle is a convenience and an unavailable one
+     * allows the request; a reservation is what makes at-least-once delivery safe, so proceeding
+     * without one would let a retry produce a second effect. The right answer is a **transient**
+     * refusal: retryable, so the caller comes back, and shaped like the 503 it is rather than like a
+     * crash. `finishErr` is deliberately not used — there is no reservation to release.
+     *
+     * Found by pointing an engine at a database with no schema, which is the deployment mistake this
+     * has to survive: the throw named `relation "idempotency_keys" does not exist` and took the
+     * whole dispatch with it.
+     */
+    let reservation: Awaited<ReturnType<typeof deps.idempotency.reserve>>;
+    try {
+      reservation = await deps.idempotency.reserve(
+        envelope.idempotencyKey,
+        envelope.actor.actorId,
+        envelope.name,
+      );
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      deps.metrics.increment('idempotency.unavailable', { command: envelope.name });
+      logger.error('idempotency.unavailable', { cause: message });
+      return err(
+        transientError(
+          'idempotency_unavailable',
+          'the command could not be recorded, so it was not run; retry with the same key',
+          { cause: message },
+        ),
+      );
+    }
     if (reservation.status === 'replayed') {
       deps.metrics.increment('command.replayed', { command: envelope.name });
       const record = reservation.record;

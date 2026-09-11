@@ -216,9 +216,29 @@ export interface Readiness {
 }
 
 /**
- * Whether this instance may serve traffic — Phase 97's one genuine gap.
+ * Facts about the deployment that the engine cannot see for itself — RC3.
  *
- * Three checks, and each is a thing that makes an instance *unfit* while leaving it *healthy*:
+ * The engine holds ports. Whether the store behind them is a database or a `Map`, and whether this
+ * process calls itself a deployment, are composition-root facts, and a readiness surface that
+ * *guessed* at them would be reporting its own assumptions. So the caller supplies them and this
+ * function decides what they mean.
+ *
+ * Omitting them is allowed and treated as "not a deployment": the checks that depend on them are
+ * reported as satisfied, because a unit test and `npm run dev` are legitimately neither persistent
+ * nor hosted, and a readiness probe that failed there would be noise rather than information.
+ */
+export interface DeploymentFacts {
+  /** Whether a database is configured, so state survives a restart and instances agree. */
+  readonly persistentStore?: boolean;
+  /** Whether this process is running as a hosted deployment rather than locally. */
+  readonly hosted?: boolean;
+}
+
+/**
+ * Whether this instance may serve traffic — Phase 97's one genuine gap, extended by RC3.
+ *
+ * Every check here is a thing that makes an instance **unfit while leaving it healthy**, which is
+ * the whole reason this is not `/api/health`:
  *
  *   1. **The store answers.** Without it every command refuses, which is correct and is not
  *      something to route traffic at.
@@ -226,12 +246,25 @@ export interface Readiness {
  *      will look fine and go quietly stale.
  *   3. **No forced degraded mode.** An operator who declared degraded mode has said something the
  *      checks cannot see, and a balancer should respect it.
+ *   4. **State is persistent** (hosted only). An in-memory instance passes every check above and
+ *      loses everything on restart. Nothing it could be *asked* reveals that.
+ *   5. **Sign-in is possible.** A deployment where `identity.authenticate` refuses every caller is
+ *      running, healthy, and cannot be used by anybody who is not already holding a session — the
+ *      exact state RC2 shipped, which no probe reported because no probe asked.
+ *   6. **Object storage is durable** (hosted only). Same shape as 4: the in-process fake answers
+ *      `put`, `exists` and `remove` successfully, so only the provider's own claim distinguishes it.
+ *   7. **Providers are named.** Reported rather than required: a fallback model provider is a
+ *      degraded product and not an unfit instance, so this check informs and does not gate.
+ *
+ * **No secret ever appears in a check's detail.** Providers are named, the store is described as
+ * configured or not, and no connection string, key or bucket name is reported — a readiness endpoint
+ * is usually the most reachable thing a deployment has.
  *
  * Migration drift is deliberately **not** checked here. It is a deployment-time gate — the migration
  * runner already refuses to start against a drifted schema — and re-checking it per request would
  * mean a readiness probe doing schema introspection on every poll.
  */
-export const readiness = async (engine: Engine): Promise<Readiness> => {
+export const readiness = async (engine: Engine, deployment: DeploymentFacts = {}): Promise<Readiness> => {
   const checks: { name: string; ok: boolean; detail: string }[] = [];
 
   let storeOk = false;
@@ -265,6 +298,73 @@ export const readiness = async (engine: Engine): Promise<Readiness> => {
     detail: forced
       ? 'an operator has declared degraded mode'
       : 'no operator has declared degraded mode',
+  });
+
+  // ── RC3: the deployment checks ────────────────────────────────────────────
+  const hosted = deployment.hosted ?? false;
+
+  const persistent = deployment.persistentStore ?? false;
+  checks.push({
+    name: 'persistent_store',
+    // Only a *hosted* instance is unfit for being in memory. `npm run dev` is legitimately
+    // in-memory, and a probe that failed there would be noise.
+    ok: persistent || !hosted,
+    detail: persistent
+      ? 'a database is configured, so state survives a restart and instances agree'
+      : 'in-memory adapters: state is lost on restart and is not shared between processes',
+  });
+
+  /**
+   * Can anybody sign in at all?
+   *
+   * Two ways this fails and they are different. `allowPasswordlessSignIn` true means the credential
+   * check is **skipped** — correct for local development and a hole in a deployment. False with an
+   * unreachable credential table means the check runs and can never pass, which is the state RC2
+   * shipped: running, healthy, and unusable by anybody not already holding a session.
+   */
+  const credentialsRequired = !engine.config.allowPasswordlessSignIn;
+  let credentialStoreOk = false;
+  try {
+    await engine.store.actorCredentials.count();
+    credentialStoreOk = true;
+  } catch {
+    credentialStoreOk = false;
+  }
+  const signInOk = credentialsRequired ? credentialStoreOk : !hosted;
+  checks.push({
+    name: 'sign_in',
+    ok: signInOk,
+    detail: !credentialsRequired
+      ? 'the credential check is disabled, which is a development setting and must not be deployed'
+      : credentialStoreOk
+        ? 'a credential is required and the credential store answers'
+        : 'a credential is required and the credential store did not answer, so nobody could sign in',
+  });
+
+  const objectStore = engine.providers.objectStore;
+  checks.push({
+    name: 'object_storage',
+    ok: objectStore.durable || !hosted,
+    detail: objectStore.durable
+      ? `durable object storage (${objectStore.name})`
+      : `object storage is ${objectStore.name}: bytes do not outlive the process`,
+  });
+
+  /**
+   * The providers, **reported rather than required.**
+   *
+   * A deterministic fallback model provider is a degraded product, not an unfit instance: agents
+   * escalate to a person instead of proposing, which is the behaviour the fallback exists to
+   * produce. Gating readiness on it would take a whole deployment out of rotation over a feature
+   * that already degrades correctly — so this check states what is configured and always passes.
+   */
+  const { transcription, pii, assistance } = engine.providers;
+  checks.push({
+    name: 'providers',
+    ok: true,
+    detail:
+      `transcription=${transcription.name}, pii=${pii.name}, `
+      + `assistance=${assistance.name} (${assistance.live ? 'live' : 'deterministic fallback'})`,
   });
 
   return { ready: checks.every((check) => check.ok), checks };

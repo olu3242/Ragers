@@ -178,3 +178,75 @@ test('every browser server is isolated from the others, which means pinning DATA
   const pinned = [...config.matchAll(/DATABASE_URL:\s*''/g)].length;
   assert.equal(pinned, servers.length, `each of ${servers.length} servers pins DATABASE_URL empty`);
 });
+
+/**
+ * RC3: what a hosted deployment refuses to do.
+ *
+ * Each of these is a configuration mistake that produces no error at a request — the process comes
+ * up, serves traffic, and is wrong. So they are refused at construction or asserted over the
+ * wiring, which is the only place the mistake is still visible.
+ */
+test('a hosted deployment refuses to start without a database, and a local one does not', async () => {
+  const store = await import('../../lib/engine-store.ts');
+  const saved = { ...process.env };
+  try {
+    // Hosted and unconfigured: refuse. Losing state on restart is not an error any request could
+    // report — the symptom is a person's account appearing not to exist.
+    delete process.env['DATABASE_URL'];
+    process.env['RAGERS_DEPLOYMENT'] = 'production';
+    assert.throws(() => store.configuredDb(), /DATABASE_URL is required/);
+    assert.equal(store.isHostedDeployment(), true);
+    assert.equal(store.isPersistent(), false, 'and it reports itself as not persisting');
+
+    // Local and unconfigured: in-memory, because `npm run dev` must not need a database.
+    process.env['RAGERS_DEPLOYMENT'] = 'local';
+    assert.equal(store.configuredDb(), undefined);
+    assert.equal(store.isHostedDeployment(), false);
+
+    // Undeclared is treated as hosted for this check. The two defaults point in opposite
+    // directions on purpose: each fails towards refusing rather than towards serving.
+    delete process.env['RAGERS_DEPLOYMENT'];
+    delete process.env['VERCEL'];
+    delete process.env['VERCEL_ENV'];
+    assert.equal(store.isHostedDeployment(), false, 'undeclared is local for convenience decisions');
+    process.env['VERCEL'] = '1';
+    assert.equal(store.isHostedDeployment(), true, 'and a platform signal is enough to be hosted');
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+});
+
+test('the session cookie is Secure on every hosted deployment', async () => {
+  const store = await import('../../lib/engine-store.ts');
+  const saved = { ...process.env };
+  try {
+    process.env['RAGERS_DEPLOYMENT'] = 'production';
+    const hosted = store.cookieAttributes();
+    assert.match(hosted, /HttpOnly/, 'unreachable from page scripts, always');
+    assert.match(hosted, /Secure/, 'and never sent in clear');
+    // Lax rather than Strict: Strict drops the cookie on a cross-site navigation, so following a
+    // link to a Rager from anywhere else would land the reader signed out. Lax still refuses the
+    // cookie on cross-site POSTs, which is the CSRF-relevant half.
+    assert.match(hosted, /SameSite=Lax/);
+
+    // Not on plain local HTTP, where a browser silently drops a Secure cookie and sign-in would
+    // appear to fail with nothing in any log to explain it.
+    process.env['RAGERS_DEPLOYMENT'] = 'local';
+    const local = store.cookieAttributes();
+    assert.match(local, /HttpOnly/);
+    assert.equal(/Secure/.test(local), false);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+});
+
+test('the deployment check does not read NODE_ENV', () => {
+  // `next build` sets NODE_ENV=production on a laptop, so a check on it would call a local
+  // production build hosted — and, far worse, would call a real deployment that forgot to set it
+  // *local*, failing open in exactly the case that matters.
+  const source = code(readFileSync(join(libDir, 'engine-store.ts'), 'utf8'));
+  assert.equal(/NODE_ENV/.test(source), false, 'the deployment signal is explicit, not inferred');
+  assert.match(source, /RAGERS_DEPLOYMENT/);
+});

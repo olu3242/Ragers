@@ -219,10 +219,60 @@ test('the adapter recognises every timestamp column the migrations declare', () 
   );
 });
 
+/**
+ * Remove every `check (...)` expression, parentheses balanced.
+ *
+ * The column-shape guards below match on `<indent><name> <type>`, and a constraint body satisfies
+ * that pattern by accident: `check (throttle_expires_at is null or failed_attempts > 0)` split over
+ * lines reads as a column `throttle_expires_at` of type `is`. A regex cannot balance parentheses,
+ * so this counts them.
+ */
+const stripCheckExpressions = (sql: string): string => {
+  let out = '';
+  let index = 0;
+  while (index < sql.length) {
+    const next = sql.toLowerCase().indexOf('check', index);
+    if (next === -1) {
+      out += sql.slice(index);
+      break;
+    }
+    // Find the opening parenthesis that belongs to this `check`, allowing whitespace between.
+    let cursor = next + 'check'.length;
+    while (cursor < sql.length && /\s/.test(sql[cursor] ?? '')) cursor += 1;
+    if (sql[cursor] !== '(') {
+      out += sql.slice(index, next + 'check'.length);
+      index = next + 'check'.length;
+      continue;
+    }
+    out += sql.slice(index, next);
+    let depth = 0;
+    while (cursor < sql.length) {
+      if (sql[cursor] === '(') depth += 1;
+      else if (sql[cursor] === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          cursor += 1;
+          break;
+        }
+      }
+      cursor += 1;
+    }
+    index = cursor;
+  }
+  return out;
+};
+
 test('no non-timestamp column is named as though it were one', () => {
   // The converse: a column named `<x>_at` that is not a timestamptz would be
   // converted anyway, and silently corrupted.
-  const mistyped = [...stripComments(allMigrations).matchAll(/^\s+([a-z_]+_at)\s+([a-z]+)/gm)]
+  //
+  // **A constraint body is not a column declaration**, and this guard could not tell the
+  // difference: a `check (throttle_expires_at is null or ...)` whose expression begins a line read
+  // as a column named `throttle_expires_at` of type `is`. Found by writing exactly that constraint.
+  // Reported failures nobody can act on are how a guard gets deleted, so the fix is here rather
+  // than a reflowed migration — the next constraint referencing an `_at` column would trip it
+  // again, and reformatting SQL to please a regex is the wrong direction.
+  const mistyped = [...stripCheckExpressions(stripComments(allMigrations)).matchAll(/^\s+([a-z_]+_at)\s+([a-z]+)/gm)]
     .filter((match) => match[2] !== 'timestamptz')
     .map((match) => `${match[1]} ${match[2]}`);
   assert.deepEqual(mistyped, [], `columns named _at but not timestamptz: ${mistyped.join(', ')}`);

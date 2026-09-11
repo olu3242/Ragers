@@ -2,6 +2,8 @@ import type { Experience } from '../domain/experience.ts';
 // Phase 94. Imported rather than redeclared so the port names one shape, not a copy of it.
 import type { OperatorControl } from '../domain/operator-control.ts';
 import type { Actor, Alias, Session } from '../domain/identity.ts';
+// RC3. Imported rather than redeclared so the port names one shape, not a copy of it.
+import type { ActorCredential } from '../domain/credential.ts';
 import type { MediaAsset, UploadTarget } from '../domain/voice.ts';
 import type {
   CreationMode,
@@ -1057,6 +1059,14 @@ export interface EngineStore {
   readonly actors: Table<Actor>;
   readonly aliases: Table<Alias>;
   readonly sessions: Table<Session>;
+  /**
+   * RC3 sign-in credentials, keyed by actor id — one actor holds at most one.
+   *
+   * Its own table rather than columns on `actors` for two reasons: the grants differ (no client
+   * role may read it on any path, where `actors` is readable in part), and a credential is
+   * replaceable while an account is not, so rotating one must not touch the other's row.
+   */
+  readonly actorCredentials: Table<ActorCredential>;
   readonly experiences: Table<Experience>;
   readonly mediaAssets: Table<MediaAsset>;
   readonly uploadTargets: Table<UploadTarget>;

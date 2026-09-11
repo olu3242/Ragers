@@ -36,6 +36,12 @@ const MATRIX: Readonly<Record<PolicyAction, Requirement>> = {
   'actor.register': { role: 'guest' },
   'actor.authenticate': { role: 'guest' },
   'session.revoke': { role: 'member', ownership: 'required' },
+  /**
+   * RC3. `ownership: 'required'` is the load-bearing half: **an admin may not set a member's
+   * password.** An operator who could would be able to become that member, and every governance
+   * rule here assumes an action attributed to a person was taken by them.
+   */
+  'actor.set_password': { role: 'member', ownership: 'required' },
   'alias.create': { role: 'member', ownership: 'required' },
   'alias.retire': { role: 'member', ownership: 'required' },
   'actor.set_default_visibility': { role: 'member', ownership: 'required' },

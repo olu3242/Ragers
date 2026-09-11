@@ -116,6 +116,8 @@ const JSON_COLUMNS = new Set([
   // Audit before/after snapshots.
   'before',
   'after',
+  // RC3 credential cost parameters, stored per row so raising the cost is a rotation.
+  'params',
   // Extraction, confirmation and the findings various engines record.
   'extracted',
   'confirmed',
